@@ -431,8 +431,7 @@ void apply_morphology_pass(GrContext* context,
     GrMatrix sampleM;
     sampleM.setIDiv(texture->width(), texture->height());
     GrPaint paint;
-    paint.colorSampler(0)->reset(sampleM);
-    paint.colorSampler(0)->setCustomStage(SkNEW_ARGS(GrMorphologyEffect, (texture, direction, radius, morphType)))->unref();
+    paint.colorSampler(0)->setCustomStage(SkNEW_ARGS(GrMorphologyEffect, (texture, direction, radius, morphType)), sampleM)->unref();
     context->drawRect(paint, rect);
 }
 
@@ -442,14 +441,19 @@ GrTexture* apply_morphology(GrTexture* srcTexture,
                             SkISize radius) {
     GrContext* context = srcTexture->getContext();
     srcTexture->ref();
-    GrContext::AutoMatrix avm(context, GrMatrix::I());
+
+    GrContext::AutoMatrix am;
+    am.setIdentity(context);
+
     GrContext::AutoClip acs(context, GrRect::MakeWH(SkIntToScalar(srcTexture->width()),
                                                     SkIntToScalar(srcTexture->height())));
+
     GrTextureDesc desc;
     desc.fFlags = kRenderTarget_GrTextureFlagBit | kNoStencil_GrTextureFlagBit;
     desc.fWidth = SkScalarCeilToInt(rect.width());
     desc.fHeight = SkScalarCeilToInt(rect.height());
     desc.fConfig = kRGBA_8888_GrPixelConfig;
+
     if (radius.fWidth > 0) {
         GrAutoScratchTexture ast(context, desc);
         GrContext::AutoRenderTarget art(context, ast.texture()->asRenderTarget());

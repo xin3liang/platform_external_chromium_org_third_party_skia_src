@@ -19,7 +19,6 @@
 #include "SkPath.h"
 
 enum {
-
     kGlyphMaskStage = GrPaint::kTotalStages,
 };
 
@@ -35,7 +34,7 @@ void GrTextContext::flushGlyphs() {
         GrAssert(GrIsALIGN4(fCurrVertex));
         GrAssert(fCurrTexture);
         GrTextureParams params(SkShader::kRepeat_TileMode, false);
-        drawState->createTextureEffect(kGlyphMaskStage, fCurrTexture, params);
+        drawState->createTextureEffect(kGlyphMaskStage, fCurrTexture, GrMatrix::I(), params);
 
         if (!GrPixelConfigIsAlphaOnly(fCurrTexture->config())) {
             if (kOne_GrBlendCoeff != fPaint.getSrcBlendCoeff() ||
@@ -89,38 +88,7 @@ GrTextContext::GrTextContext(GrContext* context, const GrPaint& paint) : fPaint(
 
     devConservativeBound.roundOut(&fClipRect);
 
-    // save the context's original matrix off and restore in destructor
-    // this must be done before getTextTarget.
-    fOrigViewMatrix = fContext->getMatrix();
-    fContext->setIdentityMatrix();
-
-    /*
-     We need to call preConcatMatrix with our viewmatrix's inverse, for each
-     texture and mask in the paint. However, computing the inverse can be
-     expensive, and its possible we may not have any textures or masks, so these
-     two loops are written such that we only compute the inverse (once) if we
-     need it. We do this on our copy of the paint rather than directly on the
-     draw target because we re-provide the paint to the context when we have
-     to flush our glyphs or draw a glyph as a path midstream.
-    */
-    bool invVMComputed = false;
-    GrMatrix invVM;
-    for (int t = 0; t < GrPaint::kMaxColorStages; ++t) {
-        if (fPaint.isColorStageEnabled(t)) {
-            if (invVMComputed || fOrigViewMatrix.invert(&invVM)) {
-                invVMComputed = true;
-                fPaint.colorSampler(t)->preConcatMatrix(invVM);
-            }
-        }
-    }
-    for (int m = 0; m < GrPaint::kMaxCoverageStages; ++m) {
-        if (fPaint.isCoverageStageEnabled(m)) {
-            if (invVMComputed || fOrigViewMatrix.invert(&invVM)) {
-                invVMComputed = true;
-                fPaint.coverageSampler(m)->preConcatMatrix(invVM);
-            }
-        }
-    }
+    fAutoMatrix.setIdentity(fContext, &fPaint);
 
     fDrawTarget = NULL;
 
@@ -137,7 +105,6 @@ GrTextContext::~GrTextContext() {
     if (fDrawTarget) {
         fDrawTarget->drawState()->disableStages();
     }
-    fContext->setMatrix(fOrigViewMatrix);
 }
 
 void GrTextContext::flush() {
@@ -206,12 +173,13 @@ void GrTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
             glyph->fPath = path;
         }
 
-        GrContext::AutoMatrix am(fContext, GrContext::AutoMatrix::kPreserve_InitialMatrix);
+        GrContext::AutoMatrix am;
         GrMatrix translate;
         translate.setTranslate(GrFixedToScalar(vx - GrIntToFixed(glyph->fBounds.fLeft)),
                                GrFixedToScalar(vy - GrIntToFixed(glyph->fBounds.fTop)));
-        fContext->concatMatrix(translate);
-        fContext->drawPath(fPaint, *glyph->fPath, kWinding_GrPathFill);
+        GrPaint tmpPaint(fPaint);
+        am.setPreConcat(fContext, translate, &tmpPaint);
+        fContext->drawPath(tmpPaint, *glyph->fPath, kWinding_GrPathFill);
         return;
     }
 

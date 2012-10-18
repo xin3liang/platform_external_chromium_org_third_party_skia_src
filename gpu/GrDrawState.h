@@ -42,8 +42,9 @@ public:
      *
      * Stages 0 through GrPaint::kTotalStages-1 are reserved for setting up
      * the draw (i.e., textures and filter masks). Stages GrPaint::kTotalStages
-     * through kNumStages-1 are earmarked for use by GrTextContext and
-     * GrPathRenderer-derived classes.
+     * through kNumStages-2 are earmarked for use by GrTextContext and
+     * GrPathRenderer-derived classes. kNumStages-1 is earmarked for clipping
+     * by GrClipMaskManager.
      */
     enum {
         kNumStages = 5,
@@ -94,7 +95,7 @@ public:
 
     /**
      * Initializes the GrDrawState based on a GrPaint. Note that GrDrawState
-     * encompases more than GrPaint. Aspects of GrDrawState that have no
+     * encompasses more than GrPaint. Aspects of GrDrawState that have no
      * GrPaint equivalents are not modified. GrPaint has fewer stages than
      * GrDrawState. The extra GrDrawState stages are disabled.
      */
@@ -194,10 +195,17 @@ public:
         this->sampler(stage)->setCustomStage(
             SkNEW_ARGS(GrSingleTextureEffect, (texture)))->unref();
     }
-    void createTextureEffect(int stage, GrTexture* texture, const GrTextureParams& params) {
+    void createTextureEffect(int stage, GrTexture* texture, const GrMatrix& matrix) {
         GrAssert(!this->getSampler(stage).getCustomStage());
-        this->sampler(stage)->setCustomStage(
-            SkNEW_ARGS(GrSingleTextureEffect, (texture, params)))->unref();
+        GrCustomStage* customStage = SkNEW_ARGS(GrSingleTextureEffect, (texture));
+        this->sampler(stage)->setCustomStage(customStage, matrix)->unref();
+    }
+    void createTextureEffect(int stage, GrTexture* texture,
+                             const GrMatrix& matrix,
+                             const GrTextureParams& params) {
+        GrAssert(!this->getSampler(stage).getCustomStage());
+        GrCustomStage* customStage = SkNEW_ARGS(GrSingleTextureEffect, (texture, params));
+        this->sampler(stage)->setCustomStage(customStage, matrix)->unref();
     }
 
 
@@ -324,7 +332,7 @@ public:
     ////
 
     /**
-     * Sets the blending function coeffecients.
+     * Sets the blending function coefficients.
      *
      * The blend function will be:
      *    D' = sat(S*srcCoef + D*dstCoef)
@@ -333,8 +341,8 @@ public:
      *   color, and D' is the new destination color that will be written. sat()
      *   is the saturation function.
      *
-     * @param srcCoef coeffecient applied to the src color.
-     * @param dstCoef coeffecient applied to the dst color.
+     * @param srcCoef coefficient applied to the src color.
+     * @param dstCoef coefficient applied to the dst color.
      */
     void setBlendFunc(GrBlendCoeff srcCoeff, GrBlendCoeff dstCoeff) {
         fSrcBlend = srcCoeff;
@@ -376,7 +384,7 @@ public:
 
     /**
      * Sets the blending function constant referenced by the following blending
-     * coeffecients:
+     * coefficients:
      *      kConstC_GrBlendCoeff
      *      kIConstC_GrBlendCoeff
      *      kConstA_GrBlendCoeff
@@ -660,7 +668,7 @@ public:
 
     ///////////////////////////////////////////////////////////////////////////
     // @name Edge AA
-    // Edge equations can be specified to perform antialiasing. Because the
+    // Edge equations can be specified to perform anti-aliasing. Because the
     // edges are specified as per-vertex data, vertices that are shared by
     // multiple edges must be split.
     //
@@ -753,7 +761,7 @@ public:
     /**
      * Enable render state settings.
      *
-     * @param stateBits bitfield of StateBits specifing the states to enable
+     * @param stateBits bitfield of StateBits specifying the states to enable
      */
     void enableState(uint32_t stateBits) {
         fFlagBits |= stateBits;
@@ -762,7 +770,7 @@ public:
     /**
      * Disable render state settings.
      *
-     * @param stateBits bitfield of StateBits specifing the states to disable
+     * @param stateBits bitfield of StateBits specifying the states to disable
      */
     void disableState(uint32_t stateBits) {
         fFlagBits &= ~(stateBits);
@@ -771,7 +779,7 @@ public:
     /**
      * Enable or disable stateBits based on a boolean.
      *
-     * @param stateBits bitfield of StateBits to enable or disablt
+     * @param stateBits bitfield of StateBits to enable or disable
      * @param enable    if true enable stateBits, otherwise disable
      */
     void setState(uint32_t stateBits, bool enable) {
@@ -915,7 +923,7 @@ public:
 
 private:
 
-    // These fields are roughly sorted by decreasing liklihood of being different in op==
+    // These fields are roughly sorted by decreasing likelihood of being different in op==
     GrColor             fColor;
     GrMatrix            fViewMatrix;
     GrRenderTarget*     fRenderTarget;

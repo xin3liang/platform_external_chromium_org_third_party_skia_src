@@ -196,17 +196,18 @@ GrTexture* SkBlendImageFilter::onFilterImageGPU(Proxy* proxy, GrTexture* src, co
 
     GrAutoScratchTexture ast(context, desc);
     GrTexture* dst = ast.detach();
-    GrContext::AutoMatrix avm(context, GrMatrix::I());
+
+    GrContext::AutoMatrix am;
+    am.setIdentity(context);
+
     GrContext::AutoRenderTarget art(context, dst->asRenderTarget());
     GrContext::AutoClip ac(context, rect);
 
     GrMatrix sampleM;
     sampleM.setIDiv(background->width(), background->height());
     GrPaint paint;
-    paint.colorSampler(0)->reset(sampleM);
-    paint.colorSampler(0)->setCustomStage(SkNEW_ARGS(GrSingleTextureEffect, (background.get())))->unref();
-    paint.colorSampler(1)->reset(sampleM);
-    paint.colorSampler(1)->setCustomStage(SkNEW_ARGS(GrBlendEffect, (fMode, foreground.get())))->unref();
+    paint.colorSampler(0)->setCustomStage(SkNEW_ARGS(GrSingleTextureEffect, (background.get())), sampleM)->unref();
+    paint.colorSampler(1)->setCustomStage(SkNEW_ARGS(GrBlendEffect, (fMode, foreground.get())), sampleM)->unref();
     context->drawRect(paint, rect);
     return dst;
 }

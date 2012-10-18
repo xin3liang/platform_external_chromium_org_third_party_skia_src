@@ -227,9 +227,157 @@ bool SkBitmapProcState::chooseProcs(const SkMatrix& inv, const SkPaint& paint) {
         fShaderProc32 = SK_ARM_NEON_WRAP(Clamp_SI8_opaque_D32_filter_DX_shaderproc);
     }
 
+    if (NULL == fShaderProc32) {
+        fShaderProc32 = this->chooseShaderProc32();
+    }
+
     // see if our platform has any accelerated overrides
     this->platformProcs();
     return true;
+}
+
+static void Clamp_S32_D32_nofilter_trans_shaderproc(const SkBitmapProcState& s,
+                                                    int x, int y,
+                                                    SkPMColor* SK_RESTRICT colors,
+                                                    int count) {
+    SkASSERT(((s.fInvType & ~SkMatrix::kTranslate_Mask)) == 0);
+    SkASSERT(s.fInvKy == 0);
+    SkASSERT(count > 0 && colors != NULL);
+    SkASSERT(!s.fDoFilter);
+    
+    const int maxX = s.fBitmap->width() - 1;
+    const int maxY = s.fBitmap->height() - 1;
+    int ix = s.fFilterOneX + x;
+    int iy = SkClampMax(s.fFilterOneY + y, maxY);
+#ifdef SK_DEBUG
+    {
+        SkPoint pt;
+        s.fInvProc(*s.fInvMatrix, SkIntToScalar(x) + SK_ScalarHalf,
+                   SkIntToScalar(y) + SK_ScalarHalf, &pt);
+        int iy2 = SkClampMax(SkScalarFloorToInt(pt.fY), maxY);
+        int ix2 = SkScalarFloorToInt(pt.fX);
+        
+        SkASSERT(iy == iy2);
+        SkASSERT(ix == ix2);
+    }
+#endif
+    const SkPMColor* row = s.fBitmap->getAddr32(0, iy);
+    
+    // clamp to the left
+    if (ix < 0) {
+        int n = SkMin32(-ix, count);
+        sk_memset32(colors, row[0], n);
+        count -= n;
+        if (0 == count) {
+            return;
+        }
+        colors += n;
+        SkASSERT(-ix == n);
+        ix = 0;
+    }
+    // copy the middle
+    if (ix <= maxX) {
+        int n = SkMin32(maxX - ix + 1, count);
+        memcpy(colors, row + ix, n * sizeof(SkPMColor));
+        count -= n;
+        if (0 == count) {
+            return;
+        }
+        colors += n;
+    }
+    SkASSERT(count > 0);
+    // clamp to the right
+    sk_memset32(colors, row[maxX], count);
+}
+
+static inline int sk_int_mod(int x, int n) {
+    SkASSERT(n > 0);
+    if ((unsigned)x >= (unsigned)n) {
+        if (x < 0) {
+            x = n + ~(~x % n);
+        } else {
+            x = x % n;
+        }
+    }
+    return x;
+}
+
+static void Repeat_S32_D32_nofilter_trans_shaderproc(const SkBitmapProcState& s,
+                                                     int x, int y,
+                                                     SkPMColor* SK_RESTRICT colors,
+                                                     int count) {
+    SkASSERT(((s.fInvType & ~SkMatrix::kTranslate_Mask)) == 0);
+    SkASSERT(s.fInvKy == 0);
+    SkASSERT(count > 0 && colors != NULL);
+    SkASSERT(!s.fDoFilter);
+    
+    const int stopX = s.fBitmap->width();
+    const int stopY = s.fBitmap->height();
+    int ix = s.fFilterOneX + x;
+    int iy = sk_int_mod(s.fFilterOneY + y, stopY);
+#ifdef SK_DEBUG
+    {
+        SkPoint pt;
+        s.fInvProc(*s.fInvMatrix, SkIntToScalar(x) + SK_ScalarHalf,
+                   SkIntToScalar(y) + SK_ScalarHalf, &pt);
+        int iy2 = sk_int_mod(SkScalarFloorToInt(pt.fY), stopY);
+        int ix2 = SkScalarFloorToInt(pt.fX);
+        
+        SkASSERT(iy == iy2);
+        SkASSERT(ix == ix2);
+    }
+#endif
+    const SkPMColor* row = s.fBitmap->getAddr32(0, iy);
+
+    ix = sk_int_mod(ix, stopX);
+    for (;;) {
+        int n = SkMin32(stopX - ix, count);
+        memcpy(colors, row + ix, n * sizeof(SkPMColor));
+        count -= n;
+        if (0 == count) {
+            return;
+        }
+        colors += n;
+        ix = 0;
+    }
+}
+
+void SkBitmapProcState::setupForTranslate() {
+    SkPoint pt;
+    fInvProc(*fInvMatrix, SK_ScalarHalf, SK_ScalarHalf, &pt);
+    // Since we know we're not filtered, we re-purpose these fields allow
+    // us to go from device -> src coordinates w/ just an integer add,
+    // rather than running through the inverse-matrix
+    fFilterOneX = SkScalarFloorToInt(pt.fX);
+    fFilterOneY = SkScalarFloorToInt(pt.fY);
+}
+
+SkBitmapProcState::ShaderProc32 SkBitmapProcState::chooseShaderProc32() {
+    if (fAlphaScale < 256) {
+        return NULL;
+    }
+    if (fInvType > SkMatrix::kTranslate_Mask) {
+        return NULL;
+    }
+    if (fDoFilter) {
+        return NULL;
+    }
+    if (SkBitmap::kARGB_8888_Config != fBitmap->config()) {
+        return NULL;
+    }
+
+    SkShader::TileMode tx = (SkShader::TileMode)fTileModeX;
+    SkShader::TileMode ty = (SkShader::TileMode)fTileModeY;
+
+    if (SkShader::kClamp_TileMode == tx && SkShader::kClamp_TileMode == ty) {
+        this->setupForTranslate();
+        return Clamp_S32_D32_nofilter_trans_shaderproc;
+    }
+    if (SkShader::kRepeat_TileMode == tx && SkShader::kRepeat_TileMode == ty) {
+        this->setupForTranslate();
+        return Repeat_S32_D32_nofilter_trans_shaderproc;
+    }
+    return NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -103,6 +103,10 @@ bool SkShader::setContext(const SkBitmap& device,
     return false;
 }
 
+SkShader::ShadeProc SkShader::asAShadeProc(void** ctx) {
+    return NULL;
+}
+
 #include "SkColorPriv.h"
 
 void SkShader::shadeSpan16(int x, int y, uint16_t span16[], int count) {
@@ -201,9 +205,8 @@ SkShader::GradientType SkShader::asAGradient(GradientInfo* info) const {
     return kNone_GradientType;
 }
 
-GrCustomStage* SkShader::asNewCustomStage(GrContext* context,
-                                          GrSamplerState* sampler) const {
-    return NULL;
+bool SkShader::asNewCustomStage(GrContext*, GrSamplerState*) const {
+    return false;
 }
 
 SkShader* SkShader::CreateBitmapShader(const SkBitmap& src,
