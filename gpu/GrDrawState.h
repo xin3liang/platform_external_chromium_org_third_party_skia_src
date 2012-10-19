@@ -10,7 +10,6 @@
 
 #include "GrColor.h"
 #include "GrMatrix.h"
-#include "GrNoncopyable.h"
 #include "GrRefCnt.h"
 #include "GrSamplerState.h"
 #include "GrStencil.h"
@@ -267,32 +266,33 @@ public:
     }
 
     /**
-     * Preconcats the matrix of all samplers of enabled stages with a matrix.
+     * Called when the source coord system is changing. preConcat gives the transformation from the
+     * old coord system to the new coord system.
      */
-    void preConcatSamplerMatrices(const GrMatrix& matrix) {
+    void preConcatSamplerMatrices(const GrMatrix& preConcat) {
         for (int i = 0; i < kNumStages; ++i) {
             if (this->isStageEnabled(i)) {
-                fSamplerStates[i].preConcatMatrix(matrix);
+                fSamplerStates[i].preConcatCoordChange(preConcat);
             }
         }
     }
 
     /**
-     * Preconcats the matrix of all samplers in the mask with the inverse of a
-     * matrix. If the matrix inverse cannot be computed (and there is at least
-     * one enabled stage) then false is returned.
+     * Called when the source coord system is changing. preConcatInverse is the inverse of the
+     * transformation from the old coord system to the new coord system. Returns false if the matrix
+     * cannot be inverted.
      */
-    bool preConcatSamplerMatricesWithInverse(const GrMatrix& matrix) {
+    bool preConcatSamplerMatricesWithInverse(const GrMatrix& preConcatInverse) {
         GrMatrix inv;
         bool computed = false;
         for (int i = 0; i < kNumStages; ++i) {
             if (this->isStageEnabled(i)) {
-                if (!computed && !matrix.invert(&inv)) {
+                if (!computed && !preConcatInverse.invert(&inv)) {
                     return false;
                 } else {
                     computed = true;
                 }
-                fSamplerStates[i].preConcatMatrix(inv);
+                fSamplerStates[i].preConcatCoordChange(preConcatInverse);
             }
         }
         return true;
@@ -503,10 +503,10 @@ public:
         bool isSet() const { return NULL != fDrawState; }
 
     private:
-        GrDrawState*       fDrawState;
-        GrMatrix           fViewMatrix;
-        GrMatrix           fSamplerMatrices[GrDrawState::kNumStages];
-        uint32_t           fRestoreMask;
+        GrDrawState*                        fDrawState;
+        GrMatrix                            fViewMatrix;
+        GrSamplerState::SavedCoordChange    fSavedCoordChanges[GrDrawState::kNumStages];
+        uint32_t                            fRestoreMask;
     };
 
     ////////////////////////////////////////////////////////////////////////////
@@ -557,10 +557,10 @@ public:
         void restore();
 
     private:
-        GrDrawState*       fDrawState;
-        GrMatrix           fViewMatrix;
-        GrMatrix           fSamplerMatrices[GrDrawState::kNumStages];
-        uint32_t           fRestoreMask;
+        GrDrawState*                        fDrawState;
+        GrMatrix                            fViewMatrix;
+        GrSamplerState::SavedCoordChange    fSavedCoordChanges[GrDrawState::kNumStages];
+        uint32_t                            fRestoreMask;
     };
 
     /// @}
@@ -651,22 +651,6 @@ public:
     /// @}
 
     ///////////////////////////////////////////////////////////////////////////
-    /// @name Color Matrix
-    ////
-
-    /**
-     * Sets the color matrix to use for the next draw.
-     * @param matrix  the 5x4 matrix to apply to the incoming color
-     */
-    void setColorMatrix(const float matrix[20]) {
-        memcpy(fColorMatrix, matrix, sizeof(fColorMatrix));
-    }
-
-    const float* getColorMatrix() const { return fColorMatrix; }
-
-    /// @}
-
-    ///////////////////////////////////////////////////////////////////////////
     // @name Edge AA
     // Edge equations can be specified to perform anti-aliasing. Because the
     // edges are specified as per-vertex data, vertices that are shared by
@@ -743,11 +727,6 @@ public:
          * operations.
          */
         kNoColorWrites_StateBit = 0x08,
-        /**
-         * Draws will apply the color matrix, otherwise the color matrix is
-         * ignored.
-         */
-        kColorMatrix_StateBit   = 0x10,
 
         // Users of the class may add additional bits to the vector
         kDummyStateBit,
@@ -878,14 +857,6 @@ public:
                 return false;
             }
         }
-        if (kColorMatrix_StateBit & s.fFlagBits) {
-            if (memcmp(fColorMatrix,
-                        s.fColorMatrix,
-                        sizeof(fColorMatrix))) {
-                return false;
-            }
-        }
-
         return true;
     }
     bool operator !=(const GrDrawState& s) const { return !(*this == s); }
@@ -914,10 +885,6 @@ public:
             }
         }
 
-        if (kColorMatrix_StateBit & s.fFlagBits) {
-            memcpy(this->fColorMatrix, s.fColorMatrix, sizeof(fColorMatrix));
-        }
-
         return *this;
     }
 
@@ -942,8 +909,6 @@ private:
     // This field must be last; it will not be copied or compared
     // if the corresponding fTexture[] is NULL.
     GrSamplerState      fSamplerStates[kNumStages];
-    // only compared if the color matrix enable flag is set
-    float               fColorMatrix[20];       // 5 x 4 matrix
 
     typedef GrRefCnt INHERITED;
 };

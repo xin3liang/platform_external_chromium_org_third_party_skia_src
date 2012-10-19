@@ -151,11 +151,9 @@ private:
     static void AdjustTextureMatrix(const GrGLTexture* texture,
                                     GrMatrix* matrix);
 
-    // subclass may try to take advantage of identity tex matrices.
-    // This helper determines if matrix will be identity after all
-    // adjustments are applied.
-    static bool TextureMatrixIsIdentity(const GrGLTexture* texture,
-                                        const GrSamplerState& sampler);
+    // This helper determines if what optimizations can be applied to the matrix after any coord
+    // adjustments are applied. The return is a bitfield of GrGLProgram::StageDesc::OptFlags.
+    static int TextureMatrixOptFlags(const GrGLTexture* texture, const GrSamplerState& sampler);
 
     static bool BlendCoeffReferencesConstant(GrBlendCoeff coeff);
 
@@ -231,14 +229,6 @@ private:
     // sets the MVP matrix uniform for currently bound program
     void flushViewMatrix(DrawType type);
 
-    // flushes the parameters to two point radial gradient
-    void flushRadial2(int stage);
-
-    // flushes the parameters for convolution
-    void flushConvolution(int stage);
-
-    // flushes the color matrix
-    void flushColorMatrix();
 
     // flushes dithering, color-mask, and face culling stat
     void flushMiscFixedFunctionState();
@@ -253,7 +243,7 @@ private:
                       const GrCustomStage** customStages,
                       ProgramDesc* desc);
 
-    // Inits GrDrawTarget::Caps, sublcass may enable additional caps.
+    // Inits GrDrawTarget::Caps, subclass may enable additional caps.
     void initCaps();
 
     void initFSAASupport();

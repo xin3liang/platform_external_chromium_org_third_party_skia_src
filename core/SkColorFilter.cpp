@@ -21,7 +21,7 @@ bool SkColorFilter::asColorMatrix(SkScalar matrix[20]) {
     return false;
 }
 
-bool SkColorFilter::asComponentTable(SkBitmap*) {
+bool SkColorFilter::asComponentTable(SkBitmap*) const {
     return false;
 }
 
@@ -38,6 +38,10 @@ SkColor SkColorFilter::filterColor(SkColor c) {
     SkPMColor dst, src = SkPreMultiplyColor(c);
     this->filterSpan(&src, 1, &dst);
     return SkUnPreMultiply::PMColorToColor(dst);
+}
+
+GrCustomStage* SkColorFilter::asNewCustomStage(GrContext*) const {
+    return NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
