@@ -77,6 +77,7 @@ GrGLProgram::GrGLProgram(const GrGLContextInfo& gl,
     fViewportSize.set(-1, -1);
     fColor = GrColor_ILLEGAL;
     fColorFilterColor = GrColor_ILLEGAL;
+    fRTHeight = -1;
 
     for (int s = 0; s < GrDrawState::kNumStages; ++s) {
         fProgramStage[s] = NULL;
@@ -234,56 +235,57 @@ static void addColorFilter(SkString* fsCode, const char * outputVar,
 }
 
 bool GrGLProgram::genEdgeCoverage(SkString* coverageVar,
-                                  GrGLShaderBuilder* segments) const {
+                                  GrGLShaderBuilder* builder) const {
     if (fDesc.fVertexLayout & GrDrawTarget::kEdge_VertexLayoutBit) {
         const char *vsName, *fsName;
-        segments->addVarying(kVec4f_GrSLType, "Edge", &vsName, &fsName);
-        segments->fVSAttrs.push_back().set(kVec4f_GrSLType,
-            GrGLShaderVar::kAttribute_TypeModifier, EDGE_ATTR_NAME);
-        segments->fVSCode.appendf("\t%s = " EDGE_ATTR_NAME ";\n", vsName);
+        builder->addVarying(kVec4f_GrSLType, "Edge", &vsName, &fsName);
+        builder->fVSAttrs.push_back().set(kVec4f_GrSLType,
+                                          GrGLShaderVar::kAttribute_TypeModifier,
+                                          EDGE_ATTR_NAME);
+        builder->fVSCode.appendf("\t%s = " EDGE_ATTR_NAME ";\n", vsName);
         switch (fDesc.fVertexEdgeType) {
         case GrDrawState::kHairLine_EdgeType:
-            segments->fFSCode.appendf("\tfloat edgeAlpha = abs(dot(vec3(gl_FragCoord.xy,1), %s.xyz));\n", fsName);
-            segments->fFSCode.append("\tedgeAlpha = max(1.0 - edgeAlpha, 0.0);\n");
+            builder->fFSCode.appendf("\tfloat edgeAlpha = abs(dot(vec3(%s.xy,1), %s.xyz));\n", builder->fragmentPosition(), fsName);
+            builder->fFSCode.append("\tedgeAlpha = max(1.0 - edgeAlpha, 0.0);\n");
             break;
         case GrDrawState::kQuad_EdgeType:
-            segments->fFSCode.append("\tfloat edgeAlpha;\n");
+            builder->fFSCode.append("\tfloat edgeAlpha;\n");
             // keep the derivative instructions outside the conditional
-            segments->fFSCode.appendf("\tvec2 duvdx = dFdx(%s.xy);\n", fsName);
-            segments->fFSCode.appendf("\tvec2 duvdy = dFdy(%s.xy);\n", fsName);
-            segments->fFSCode.appendf("\tif (%s.z > 0.0 && %s.w > 0.0) {\n", fsName, fsName);
+            builder->fFSCode.appendf("\tvec2 duvdx = dFdx(%s.xy);\n", fsName);
+            builder->fFSCode.appendf("\tvec2 duvdy = dFdy(%s.xy);\n", fsName);
+            builder->fFSCode.appendf("\tif (%s.z > 0.0 && %s.w > 0.0) {\n", fsName, fsName);
             // today we know z and w are in device space. We could use derivatives
-            segments->fFSCode.appendf("\t\tedgeAlpha = min(min(%s.z, %s.w) + 0.5, 1.0);\n", fsName, fsName);
-            segments->fFSCode.append ("\t} else {\n");
-            segments->fFSCode.appendf("\t\tvec2 gF = vec2(2.0*%s.x*duvdx.x - duvdx.y,\n"
-                                      "\t\t               2.0*%s.x*duvdy.x - duvdy.y);\n",
-                                      fsName, fsName);
-            segments->fFSCode.appendf("\t\tedgeAlpha = (%s.x*%s.x - %s.y);\n", fsName, fsName, fsName);
-            segments->fFSCode.append("\t\tedgeAlpha = clamp(0.5 - edgeAlpha / length(gF), 0.0, 1.0);\n"
-                                      "\t}\n");
+            builder->fFSCode.appendf("\t\tedgeAlpha = min(min(%s.z, %s.w) + 0.5, 1.0);\n", fsName, fsName);
+            builder->fFSCode.append ("\t} else {\n");
+            builder->fFSCode.appendf("\t\tvec2 gF = vec2(2.0*%s.x*duvdx.x - duvdx.y,\n"
+                                     "\t\t               2.0*%s.x*duvdy.x - duvdy.y);\n",
+                                     fsName, fsName);
+            builder->fFSCode.appendf("\t\tedgeAlpha = (%s.x*%s.x - %s.y);\n", fsName, fsName, fsName);
+            builder->fFSCode.append("\t\tedgeAlpha = clamp(0.5 - edgeAlpha / length(gF), 0.0, 1.0);\n"
+                                    "\t}\n");
             if (kES2_GrGLBinding == fContextInfo.binding()) {
-                segments->fHeader.printf("#extension GL_OES_standard_derivatives: enable\n");
+                builder->fHeader.printf("#extension GL_OES_standard_derivatives: enable\n");
             }
             break;
         case GrDrawState::kHairQuad_EdgeType:
-            segments->fFSCode.appendf("\tvec2 duvdx = dFdx(%s.xy);\n", fsName);
-            segments->fFSCode.appendf("\tvec2 duvdy = dFdy(%s.xy);\n", fsName);
-            segments->fFSCode.appendf("\tvec2 gF = vec2(2.0*%s.x*duvdx.x - duvdx.y,\n"
-                                      "\t               2.0*%s.x*duvdy.x - duvdy.y);\n",
-                                      fsName, fsName);
-            segments->fFSCode.appendf("\tfloat edgeAlpha = (%s.x*%s.x - %s.y);\n", fsName, fsName, fsName);
-            segments->fFSCode.append("\tedgeAlpha = sqrt(edgeAlpha*edgeAlpha / dot(gF, gF));\n");
-            segments->fFSCode.append("\tedgeAlpha = max(1.0 - edgeAlpha, 0.0);\n");
+            builder->fFSCode.appendf("\tvec2 duvdx = dFdx(%s.xy);\n", fsName);
+            builder->fFSCode.appendf("\tvec2 duvdy = dFdy(%s.xy);\n", fsName);
+            builder->fFSCode.appendf("\tvec2 gF = vec2(2.0*%s.x*duvdx.x - duvdx.y,\n"
+                                     "\t               2.0*%s.x*duvdy.x - duvdy.y);\n",
+                                     fsName, fsName);
+            builder->fFSCode.appendf("\tfloat edgeAlpha = (%s.x*%s.x - %s.y);\n", fsName, fsName, fsName);
+            builder->fFSCode.append("\tedgeAlpha = sqrt(edgeAlpha*edgeAlpha / dot(gF, gF));\n");
+            builder->fFSCode.append("\tedgeAlpha = max(1.0 - edgeAlpha, 0.0);\n");
             if (kES2_GrGLBinding == fContextInfo.binding()) {
-                segments->fHeader.printf("#extension GL_OES_standard_derivatives: enable\n");
+                builder->fHeader.printf("#extension GL_OES_standard_derivatives: enable\n");
             }
             break;
         case GrDrawState::kCircle_EdgeType:
-            segments->fFSCode.append("\tfloat edgeAlpha;\n");
-            segments->fFSCode.appendf("\tfloat d = distance(gl_FragCoord.xy, %s.xy);\n", fsName);
-            segments->fFSCode.appendf("\tfloat outerAlpha = smoothstep(d - 0.5, d + 0.5, %s.z);\n", fsName);
-            segments->fFSCode.appendf("\tfloat innerAlpha = %s.w == 0.0 ? 1.0 : smoothstep(%s.w - 0.5, %s.w + 0.5, d);\n", fsName, fsName, fsName);
-            segments->fFSCode.append("\tedgeAlpha = outerAlpha * innerAlpha;\n");
+            builder->fFSCode.append("\tfloat edgeAlpha;\n");
+            builder->fFSCode.appendf("\tfloat d = distance(%s.xy, %s.xy);\n", builder->fragmentPosition(), fsName);
+            builder->fFSCode.appendf("\tfloat outerAlpha = smoothstep(d - 0.5, d + 0.5, %s.z);\n", fsName);
+            builder->fFSCode.appendf("\tfloat innerAlpha = %s.w == 0.0 ? 1.0 : smoothstep(%s.w - 0.5, %s.w + 0.5, d);\n", fsName, fsName, fsName);
+            builder->fFSCode.append("\tedgeAlpha = outerAlpha * innerAlpha;\n");
             break;
         default:
             GrCrash("Unknown Edge Type!");
@@ -364,9 +366,8 @@ void GrGLProgram::genGeometryShader(GrGLShaderBuilder* segments) const {
         GrAssert(fContextInfo.glslGeneration() >= k150_GrGLSLGeneration);
         segments->fGSHeader.append("layout(triangles) in;\n"
                                    "layout(triangle_strip, max_vertices = 6) out;\n");
-        segments->fGSCode.append("void main() {\n"
-                                 "\tfor (int i = 0; i < 3; ++i) {\n"
-                                  "\t\tgl_Position = gl_in[i].gl_Position;\n");
+        segments->fGSCode.append("\tfor (int i = 0; i < 3; ++i) {\n"
+                                 "\t\tgl_Position = gl_in[i].gl_Position;\n");
         if (fDesc.fEmitsPointSize) {
             segments->fGSCode.append("\t\tgl_PointSize = 1.0;\n");
         }
@@ -379,8 +380,7 @@ void GrGLProgram::genGeometryShader(GrGLShaderBuilder* segments) const {
         }
         segments->fGSCode.append("\t\tEmitVertex();\n"
                                  "\t}\n"
-                                 "\tEndPrimitive();\n"
-                                 "}\n");
+                                 "\tEndPrimitive();\n");
     }
 #endif
 }
@@ -571,9 +571,8 @@ bool GrGLProgram::genProgram(const GrCustomStage** customStages) {
                                      GrGLShaderVar::kAttribute_TypeModifier,
                                      POS_ATTR_NAME);
 
-    builder.fVSCode.appendf("void main() {\n"
-                              "\tvec3 pos3 = %s * vec3("POS_ATTR_NAME", 1);\n"
-                              "\tgl_Position = vec4(pos3.xy, 0, pos3.z);\n",
+    builder.fVSCode.appendf("\tvec3 pos3 = %s * vec3("POS_ATTR_NAME", 1);\n"
+                            "\tgl_Position = vec4(pos3.xy, 0, pos3.z);\n",
                             viewMName);
 
     // incoming color to current stage being processed.
@@ -587,8 +586,6 @@ bool GrGLProgram::genProgram(const GrCustomStage** customStages) {
     if (fDesc.fEmitsPointSize && !builder.fUsesGS){
         builder.fVSCode.append("\tgl_PointSize = 1.0;\n");
     }
-
-    builder.fFSCode.append("void main() {\n");
 
     // add texture coordinates that are used to the list of vertex attr decls
     SkString texCoordAttrs[GrDrawState::kMaxTexCoords];
@@ -791,9 +788,6 @@ bool GrGLProgram::genProgram(const GrCustomStage** customStages) {
         }
     }
 
-    builder.fVSCode.append("}\n");
-    builder.fFSCode.append("}\n");
-
     ///////////////////////////////////////////////////////////////////////////
     // insert GS
 #if GR_DEBUG
@@ -815,6 +809,7 @@ bool GrGLProgram::genProgram(const GrCustomStage** customStages) {
 
     builder.finished(fProgramID);
     this->initSamplerUniforms();
+    fUniforms.fRTHeight = builder.getRTHeightUniform();
 
     return true;
 }
@@ -937,9 +932,6 @@ GrGLProgramStage* GrGLProgram::GenStageCode(const GrCustomStage* stage,
                         &varyingFSName);
     builder->setupTextureAccess(varyingFSName, texCoordVaryingType);
 
-    // Must setup variables after calling setupTextureAccess
-    glStage->setupVariables(builder);
-
     int numTextures = stage->numTextures();
     SkSTArray<8, GrGLShaderBuilder::TextureSampler> textureSamplers;
 
@@ -960,14 +952,27 @@ GrGLProgramStage* GrGLProgram::GenStageCode(const GrCustomStage* stage,
                                   vector_all_coords(GrSLTypeToVecLength(texCoordVaryingType)));
     }
 
-    builder->fVSCode.appendf("\t{ // %s\n", glStage->name());
-    glStage->emitVS(builder, varyingVSName);
-    builder->fVSCode.appendf("\t}\n");
-
     // Enclose custom code in a block to avoid namespace conflicts
+    builder->fVSCode.appendf("\t{ // %s\n", glStage->name());
     builder->fFSCode.appendf("\t{ // %s \n", glStage->name());
-    glStage->emitFS(builder, fsOutColor, fsInColor, textureSamplers);
+    glStage->emitCode(builder, varyingVSName, fsOutColor, fsInColor, textureSamplers);
+    builder->fVSCode.appendf("\t}\n");
     builder->fFSCode.appendf("\t}\n");
 
     return glStage;
+}
+
+void GrGLProgram::setData(const GrDrawState& drawState) {
+    int rtHeight = drawState.getRenderTarget()->height();
+    if (GrGLUniformManager::kInvalidUniformHandle != fUniforms.fRTHeight && fRTHeight != rtHeight) {
+        fUniformManager.set1f(fUniforms.fRTHeight, GrIntToScalar(rtHeight));
+        fRTHeight = rtHeight;
+    }
+    for (int s = 0; s < GrDrawState::kNumStages; ++s) {
+        if (NULL != fProgramStage[s]) {
+            const GrSamplerState& sampler = drawState.getSampler(s);
+            GrAssert(NULL != sampler.getCustomStage());
+            fProgramStage[s]->setData(fUniformManager, *sampler.getCustomStage());
+        }
+    }
 }

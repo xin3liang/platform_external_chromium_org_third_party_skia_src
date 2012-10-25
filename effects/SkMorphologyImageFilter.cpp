@@ -266,7 +266,7 @@ private:
 
 ///////////////////////////////////////////////////////////////////////////////
 
-class GrGLMorphologyEffect  : public GrGLProgramStage {
+class GrGLMorphologyEffect  : public GrGLLegacyProgramStage {
 public:
     GrGLMorphologyEffect (const GrProgramStageFactory& factory,
                           const GrCustomStage& stage);
@@ -281,10 +281,7 @@ public:
 
     static inline StageKey GenKey(const GrCustomStage& s, const GrGLCaps& caps);
 
-    virtual void setData(const GrGLUniformManager&,
-                         const GrCustomStage&,
-                         const GrRenderTarget*,
-                         int stageNum) SK_OVERRIDE;
+    virtual void setData(const GrGLUniformManager&, const GrCustomStage&) SK_OVERRIDE;
 
 private:
     int width() const { return GrMorphologyEffect::WidthFromRadius(fRadius); }
@@ -293,12 +290,12 @@ private:
     GrMorphologyEffect::MorphologyType  fType;
     GrGLUniformManager::UniformHandle   fImageIncrementUni;
 
-    typedef GrGLProgramStage INHERITED;
+    typedef GrGLLegacyProgramStage INHERITED;
 };
 
 GrGLMorphologyEffect::GrGLMorphologyEffect(const GrProgramStageFactory& factory,
                                            const GrCustomStage& stage)
-    : GrGLProgramStage(factory)
+    : INHERITED(factory)
     , fImageIncrementUni(GrGLUniformManager::kInvalidUniformHandle) {
     const GrMorphologyEffect& m = static_cast<const GrMorphologyEffect&>(stage);
     fRadius = m.radius();
@@ -352,10 +349,7 @@ GrGLProgramStage::StageKey GrGLMorphologyEffect::GenKey(const GrCustomStage& s,
     return key;
 }
 
-void GrGLMorphologyEffect::setData(const GrGLUniformManager& uman,
-                                   const GrCustomStage& data,
-                                   const GrRenderTarget*,
-                                   int stageNum) {
+void GrGLMorphologyEffect::setData(const GrGLUniformManager& uman, const GrCustomStage& data) {
     const Gr1DKernelEffect& kern =
         static_cast<const Gr1DKernelEffect&>(data);
     GrGLTexture& texture =

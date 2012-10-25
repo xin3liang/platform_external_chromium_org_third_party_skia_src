@@ -72,7 +72,7 @@ private:
 // For brevity
 typedef GrGLUniformManager::UniformHandle UniformHandle;
 
-class GrGLMagnifierEffect : public GrGLProgramStage {
+class GrGLMagnifierEffect : public GrGLLegacyProgramStage {
 public:
     GrGLMagnifierEffect(const GrProgramStageFactory& factory,
                         const GrCustomStage& stage);
@@ -86,9 +86,7 @@ public:
                         const TextureSamplerArray&) SK_OVERRIDE;
 
     virtual void setData(const GrGLUniformManager& uman,
-                         const GrCustomStage& data,
-                         const GrRenderTarget*,
-                         int stageNum) SK_OVERRIDE;
+                         const GrCustomStage& data) SK_OVERRIDE;
 
     static inline StageKey GenKey(const GrCustomStage&, const GrGLCaps&);
 
@@ -98,12 +96,12 @@ private:
     UniformHandle  fZoomVar;
     UniformHandle  fInsetVar;
 
-    typedef GrGLProgramStage INHERITED;
+    typedef GrGLLegacyProgramStage INHERITED;
 };
 
 GrGLMagnifierEffect::GrGLMagnifierEffect(const GrProgramStageFactory& factory,
                                          const GrCustomStage& stage)
-    : GrGLProgramStage(factory)
+    : INHERITED(factory)
     , fOffsetVar(GrGLUniformManager::kInvalidUniformHandle)
     , fZoomVar(GrGLUniformManager::kInvalidUniformHandle)
     , fInsetVar(GrGLUniformManager::kInvalidUniformHandle) {
@@ -167,9 +165,7 @@ void GrGLMagnifierEffect::emitFS(GrGLShaderBuilder* state,
 }
 
 void GrGLMagnifierEffect::setData(const GrGLUniformManager& uman,
-                                  const GrCustomStage& data,
-                                  const GrRenderTarget*,
-                                  int stageNum) {
+                                  const GrCustomStage& data) {
     const GrMagnifierEffect& zoom =
         static_cast<const GrMagnifierEffect&>(data);
 

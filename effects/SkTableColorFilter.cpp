@@ -244,7 +244,7 @@ private:
     typedef GrCustomStage INHERITED;
 };
 
-class GLColorTableEffect : public GrGLProgramStage {
+class GLColorTableEffect : public GrGLLegacyProgramStage {
 public:
     GLColorTableEffect(const GrProgramStageFactory& factory,
                          const GrCustomStage& stage);
@@ -257,16 +257,13 @@ public:
                         const char* inputColor,
                         const TextureSamplerArray&) SK_OVERRIDE;
 
-    virtual void setData(const GrGLUniformManager&,
-                         const GrCustomStage&,
-                         const GrRenderTarget*,
-                         int stageNum) SK_OVERRIDE {}
+    virtual void setData(const GrGLUniformManager&, const GrCustomStage&) SK_OVERRIDE {}
 
     static StageKey GenKey(const GrCustomStage&, const GrGLCaps&);
 
 private:
 
-    typedef GrGLProgramStage INHERITED;
+    typedef GrGLLegacyProgramStage INHERITED;
 };
 
 GLColorTableEffect::GLColorTableEffect(

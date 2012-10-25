@@ -279,7 +279,7 @@ private:
     typedef GrSingleTextureEffect INHERITED;
 };
 
-class GrGLMatrixConvolutionEffect : public GrGLProgramStage {
+class GrGLMatrixConvolutionEffect : public GrGLLegacyProgramStage {
 public:
     GrGLMatrixConvolutionEffect(const GrProgramStageFactory& factory,
                                 const GrCustomStage& stage);
@@ -293,10 +293,7 @@ public:
 
     static inline StageKey GenKey(const GrCustomStage& s, const GrGLCaps& caps);
 
-    virtual void setData(const GrGLUniformManager&,
-                         const GrCustomStage&,
-                         const GrRenderTarget*,
-                         int stageNum) SK_OVERRIDE;
+    virtual void setData(const GrGLUniformManager&, const GrCustomStage&) SK_OVERRIDE;
 
 private:
     typedef GrGLUniformManager::UniformHandle        UniformHandle;
@@ -310,11 +307,13 @@ private:
     UniformHandle  fTargetUni;
     UniformHandle  fGainUni;
     UniformHandle  fBiasUni;
+
+    typedef GrGLLegacyProgramStage INHERITED;
 };
 
 GrGLMatrixConvolutionEffect::GrGLMatrixConvolutionEffect(const GrProgramStageFactory& factory,
                                            const GrCustomStage& stage)
-    : GrGLProgramStage(factory)
+    : INHERITED(factory)
     , fKernelUni(GrGLUniformManager::kInvalidUniformHandle)
     , fImageIncrementUni(GrGLUniformManager::kInvalidUniformHandle)
     , fTargetUni(GrGLUniformManager::kInvalidUniformHandle)
@@ -426,9 +425,7 @@ GrGLProgramStage::StageKey GrGLMatrixConvolutionEffect::GenKey(const GrCustomSta
 }
 
 void GrGLMatrixConvolutionEffect::setData(const GrGLUniformManager& uman,
-                                   const GrCustomStage& data,
-                                   const GrRenderTarget*,
-                                   int stageNum) {
+                                          const GrCustomStage& data) {
     const GrMatrixConvolutionEffect& effect =
         static_cast<const GrMatrixConvolutionEffect&>(data);
     GrGLTexture& texture =

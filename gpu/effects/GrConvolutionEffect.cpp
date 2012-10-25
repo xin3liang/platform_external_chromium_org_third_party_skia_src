@@ -15,7 +15,7 @@
 typedef GrGLUniformManager::UniformHandle UniformHandle;
 static const UniformHandle kInvalidUniformHandle = GrGLUniformManager::kInvalidUniformHandle;
 
-class GrGLConvolutionEffect : public GrGLProgramStage {
+class GrGLConvolutionEffect : public GrGLLegacyProgramStage {
 public:
     GrGLConvolutionEffect(const GrProgramStageFactory& factory,
                           const GrCustomStage& stage);
@@ -28,10 +28,7 @@ public:
                         const char* inputColor,
                         const TextureSamplerArray&) SK_OVERRIDE;
 
-    virtual void setData(const GrGLUniformManager& uman,
-                         const GrCustomStage&,
-                         const GrRenderTarget*,
-                         int stageNum) SK_OVERRIDE;
+    virtual void setData(const GrGLUniformManager& uman, const GrCustomStage&) SK_OVERRIDE;
 
     static inline StageKey GenKey(const GrCustomStage&, const GrGLCaps&);
 
@@ -42,12 +39,12 @@ private:
     UniformHandle   fKernelUni;
     UniformHandle   fImageIncrementUni;
 
-    typedef GrGLProgramStage INHERITED;
+    typedef GrGLLegacyProgramStage INHERITED;
 };
 
 GrGLConvolutionEffect::GrGLConvolutionEffect(const GrProgramStageFactory& factory,
                                              const GrCustomStage& stage)
-    : GrGLProgramStage(factory)
+    : INHERITED(factory)
     , fKernelUni(kInvalidUniformHandle)
     , fImageIncrementUni(kInvalidUniformHandle) {
     const GrConvolutionEffect& c =
@@ -91,10 +88,7 @@ void GrGLConvolutionEffect::emitFS(GrGLShaderBuilder* builder,
     GrGLSLMulVarBy4f(&builder->fFSCode, 2, outputColor, inputColor);
 }
 
-void GrGLConvolutionEffect::setData(const GrGLUniformManager& uman,
-                                    const GrCustomStage& data,
-                                    const GrRenderTarget*,
-                                    int stageNum) {
+void GrGLConvolutionEffect::setData(const GrGLUniformManager& uman, const GrCustomStage& data) {
     const GrConvolutionEffect& conv =
         static_cast<const GrConvolutionEffect&>(data);
     GrTexture& texture = *data.texture(0);
