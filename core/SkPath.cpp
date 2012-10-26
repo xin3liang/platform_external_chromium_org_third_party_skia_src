@@ -157,7 +157,9 @@ private:
     // returns true if we should proceed
     void init(SkPath* path) {
         fPath = path;
-        fDirty = SkToBool(path->fBoundsIsDirty);
+        // Mark the path's bounds as dirty if (1) they are, or (2) the path
+        // is non-finite, and therefore its bounds are not meaningful
+        fDirty = SkToBool(path->fBoundsIsDirty) || !path->fIsFinite;
         fDegenerate = is_degenerate(*path);
         fEmpty = path->isEmpty();
         // Cannot use fRect for our bounds unless we know it is sorted
@@ -1032,7 +1034,7 @@ static int build_arc_points(const SkRect& oval, SkScalar startAngle,
         return 1;
     } else if (0 == oval.width() && 0 == oval.height()) {
         // Chrome will sometimes create 0 radius round rects. Having degenerate
-        // quad segments in the path prevents the path from being recognized as 
+        // quad segments in the path prevents the path from being recognized as
         // a rect.
         // TODO: optimizing the case where only one of width or height is zero
         // should also be considered. This case, however, doesn't seem to be

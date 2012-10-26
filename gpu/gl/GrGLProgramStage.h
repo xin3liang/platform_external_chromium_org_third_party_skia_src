@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#ifndef GrGLCustomStage_DEFINED
-#define GrGLCustomStage_DEFINED
+#ifndef GrGLProgramStage_DEFINED
+#define GrGLProgramStage_DEFINED
 
 #include "GrAllocator.h"
-#include "GrCustomStage.h"
+#include "GrEffect.h"
 #include "GrGLProgram.h"
 #include "GrGLShaderBuilder.h"
 #include "GrGLShaderVar.h"
@@ -20,20 +20,20 @@ class GrGLTexture;
 
 /** @file
     This file contains specializations for OpenGL of the shader stages declared in
-    include/gpu/GrCustomStage.h. Objects of type GrGLProgramStage are responsible for emitting the
-    GLSL code that implements a GrCustomStage and for uploading uniforms at draw time. They also
+    include/gpu/GrEffect.h. Objects of type GrGLProgramStage are responsible for emitting the
+    GLSL code that implements a GrEffect and for uploading uniforms at draw time. They also
     must have a function:
-        static inline StageKey GenKey(const GrCustomStage&, const GrGLCaps&)
-    that is used to implement a program cache. When two GrCustomStages produce the same key this
-    means that their GrGLProgramStages would emit the same GLSL code.
+        static inline StageKey GenKey(const GrEffect&, const GrGLCaps&)
+    that is used to implement a program cache. When two GrEffects produce the same key this means
+    that their GrGLProgramStages would emit the same GLSL code.
 
-    These objects are created by the factory object returned by the GrCustomStage::getFactory().
+    These objects are created by the factory object returned by the GrEffect::getFactory().
 */
 
 class GrGLProgramStage {
 
 public:
-    typedef GrCustomStage::StageKey StageKey;
+    typedef GrEffect::StageKey StageKey;
     enum {
         // the number of bits in StageKey available to GenKey
         kProgramStageKeyBits = GrProgramStageFactory::kProgramStageKeyBits,
@@ -50,6 +50,8 @@ public:
         stages.
 
         @param builder      Interface used to emit code in the shaders.
+        @param effect       The effect that generated this program stage.
+        @param key          The key that was computed by StageKey() from the generating GrEffect.
         @param vertexCoords A vec2 of texture coordinates in the VS, which may be altered. This will
                             be removed soon and stages will be responsible for computing their own
                             coords.
@@ -59,26 +61,27 @@ public:
                             NULL in which case the implied input is solid white (all ones).
                             TODO: Better system for communicating optimization info (e.g. input
                             color is solid white, trans black, known to be opaque, etc.) that allows
-                            the custom stage to communicate back similar known info about its
-                            output.
-        @param samplers     One entry for each GrTextureAccess of the GrCustomStage that generated
-                            the GrGLProgramStage. These can be passed to the builder to emit texture
+                            the effect to communicate back similar known info about its output.
+        @param samplers     One entry for each GrTextureAccess of the GrEffect that generated the
+                            GrGLProgramStage. These can be passed to the builder to emit texture
                             reads in the generated code.
         */
     virtual void emitCode(GrGLShaderBuilder* builder,
+                          const GrEffect& effect,
+                          StageKey key,
                           const char* vertexCoords,
                           const char* outputColor,
                           const char* inputColor,
                           const TextureSamplerArray& samplers) = 0;
 
-    /** A GrGLProgramStage instance can be reused with any GrCustomStage that produces the same
-        stage key; this function reads data from a stage and uploads any uniform variables required
+    /** A GrGLProgramStage instance can be reused with any GrEffect that produces the same stage
+        key; this function reads data from a stage and uploads any uniform variables required
         by the shaders created in emitCode(). */
-    virtual void setData(const GrGLUniformManager&, const GrCustomStage& stage);
+    virtual void setData(const GrGLUniformManager&, const GrEffect& stage);
 
     const char* name() const { return fFactory.name(); }
 
-    static StageKey GenTextureKey(const GrCustomStage&, const GrGLCaps&);
+    static StageKey GenTextureKey(const GrEffect&, const GrGLCaps&);
 
 protected:
 
@@ -103,6 +106,8 @@ public:
                         const TextureSamplerArray&) = 0;
 
     virtual void emitCode(GrGLShaderBuilder* builder,
+                          const GrEffect&,
+                          StageKey,
                           const char* vertexCoords,
                           const char* outputColor,
                           const char* inputColor,

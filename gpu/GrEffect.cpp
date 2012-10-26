@@ -6,20 +6,20 @@
  */
 
 #include "GrContext.h"
-#include "GrCustomStage.h"
+#include "GrEffect.h"
 #include "GrMemoryPool.h"
 #include "SkTLS.h"
 
-SK_DEFINE_INST_COUNT(GrCustomStage)
+SK_DEFINE_INST_COUNT(GrEffect)
 
 #if SK_ALLOW_STATIC_GLOBAL_INITIALIZERS
-SkTArray<GrCustomStageTestFactory*, true>* GrCustomStageTestFactory::GetFactories() {
-    static SkTArray<GrCustomStageTestFactory*, true> gFactories;
+SkTArray<GrEffectTestFactory*, true>* GrEffectTestFactory::GetFactories() {
+    static SkTArray<GrEffectTestFactory*, true> gFactories;
     return &gFactories;
 }
 #endif
 
-class GrCustomStage_Globals {
+class GrEffect_Globals {
 public:
     static GrMemoryPool* GetTLS() {
         return (GrMemoryPool*)SkTLS::Get(CreateTLS, DeleteTLS);
@@ -38,19 +38,19 @@ private:
 int32_t GrProgramStageFactory::fCurrStageClassID =
                                     GrProgramStageFactory::kIllegalStageClassID;
 
-GrCustomStage::GrCustomStage(int numTextures)
+GrEffect::GrEffect(int numTextures)
     : fNumTextures(numTextures) {
 }
 
-GrCustomStage::~GrCustomStage() {
+GrEffect::~GrEffect() {
 
 }
 
-bool GrCustomStage::isOpaque(bool inputTextureIsOpaque) const {
+bool GrEffect::isOpaque(bool inputTextureIsOpaque) const {
     return false;
 }
 
-bool GrCustomStage::isEqual(const GrCustomStage& s) const {
+bool GrEffect::isEqual(const GrEffect& s) const {
     if (this->numTextures() != s.numTextures()) {
         return false;
     }
@@ -62,16 +62,16 @@ bool GrCustomStage::isEqual(const GrCustomStage& s) const {
     return true;
 }
 
-const GrTextureAccess& GrCustomStage::textureAccess(int index) const {
+const GrTextureAccess& GrEffect::textureAccess(int index) const {
     GrCrash("We shouldn't be calling this function on the base class.");
     static GrTextureAccess kDummy;
     return kDummy;
 }
 
-void * GrCustomStage::operator new(size_t size) {
-    return GrCustomStage_Globals::GetTLS()->allocate(size);
+void * GrEffect::operator new(size_t size) {
+    return GrEffect_Globals::GetTLS()->allocate(size);
 }
 
-void GrCustomStage::operator delete(void* target) {
-    GrCustomStage_Globals::GetTLS()->release(target);
+void GrEffect::operator delete(void* target) {
+    GrEffect_Globals::GetTLS()->release(target);
 }

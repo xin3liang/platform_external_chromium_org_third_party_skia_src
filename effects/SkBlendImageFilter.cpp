@@ -113,7 +113,7 @@ bool SkBlendImageFilter::onFilterImage(Proxy* proxy,
 class GrGLBlendEffect  : public GrGLLegacyProgramStage {
 public:
     GrGLBlendEffect(const GrProgramStageFactory& factory,
-                    const GrCustomStage& stage);
+                    const GrEffect& stage);
     virtual ~GrGLBlendEffect();
 
     virtual void emitFS(GrGLShaderBuilder* builder,
@@ -124,7 +124,7 @@ public:
     virtual void emitVS(GrGLShaderBuilder* builder,
                         const char* vertexCoords) SK_OVERRIDE {}
 
-    static inline StageKey GenKey(const GrCustomStage& s, const GrGLCaps&);
+    static inline StageKey GenKey(const GrEffect& s, const GrGLCaps&);
 
 private:
     typedef GrGLLegacyProgramStage INHERITED;
@@ -138,7 +138,7 @@ public:
     GrBlendEffect(SkBlendImageFilter::Mode mode, GrTexture* foreground);
     virtual ~GrBlendEffect();
 
-    virtual bool isEqual(const GrCustomStage&) const SK_OVERRIDE;
+    virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
     const GrProgramStageFactory& getFactory() const;
     SkBlendImageFilter::Mode mode() const { return fMode; }
 
@@ -203,11 +203,14 @@ GrTexture* SkBlendImageFilter::onFilterImageGPU(Proxy* proxy, GrTexture* src, co
     GrContext::AutoRenderTarget art(context, dst->asRenderTarget());
     GrContext::AutoClip ac(context, rect);
 
-    GrMatrix sampleM;
-    sampleM.setIDiv(background->width(), background->height());
+    GrMatrix backgroundTexMatrix, foregroundTexMatrix;
+    backgroundTexMatrix.setIDiv(background->width(), background->height());
+    foregroundTexMatrix.setIDiv(foreground->width(), foreground->height());
     GrPaint paint;
-    paint.colorSampler(0)->setCustomStage(SkNEW_ARGS(GrSingleTextureEffect, (background.get())), sampleM)->unref();
-    paint.colorSampler(1)->setCustomStage(SkNEW_ARGS(GrBlendEffect, (fMode, foreground.get())), sampleM)->unref();
+    paint.colorSampler(0)->setEffect(
+        SkNEW_ARGS(GrSingleTextureEffect, (background.get())), backgroundTexMatrix)->unref();
+    paint.colorSampler(1)->setEffect(
+        SkNEW_ARGS(GrBlendEffect, (fMode, foreground.get())), foregroundTexMatrix)->unref();
     context->drawRect(paint, rect);
     return dst;
 }
@@ -221,7 +224,7 @@ GrBlendEffect::GrBlendEffect(SkBlendImageFilter::Mode mode, GrTexture* foregroun
 GrBlendEffect::~GrBlendEffect() {
 }
 
-bool GrBlendEffect::isEqual(const GrCustomStage& sBase) const {
+bool GrBlendEffect::isEqual(const GrEffect& sBase) const {
     const GrBlendEffect& s = static_cast<const GrBlendEffect&>(sBase);
     return INHERITED::isEqual(sBase) &&
            fMode == s.fMode;
@@ -234,7 +237,7 @@ const GrProgramStageFactory& GrBlendEffect::getFactory() const {
 ///////////////////////////////////////////////////////////////////////////////
 
 GrGLBlendEffect::GrGLBlendEffect(const GrProgramStageFactory& factory,
-                                 const GrCustomStage& stage)
+                                 const GrEffect& stage)
     : INHERITED(factory),
       fMode(static_cast<const GrBlendEffect&>(stage).mode()) {
 }
@@ -272,7 +275,7 @@ void GrGLBlendEffect::emitFS(GrGLShaderBuilder* builder,
     }
 }
 
-GrGLProgramStage::StageKey GrGLBlendEffect::GenKey(const GrCustomStage& s, const GrGLCaps&) {
+GrGLProgramStage::StageKey GrGLBlendEffect::GenKey(const GrEffect& s, const GrGLCaps&) {
     return static_cast<const GrBlendEffect&>(s).mode();
 }
 #endif

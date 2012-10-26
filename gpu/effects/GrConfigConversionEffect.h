@@ -34,7 +34,7 @@ public:
     };
 
     // This will fail if the config is not 8888 and a PM conversion is requested.
-    static GrCustomStage* Create(GrTexture*,
+    static GrEffect* Create(GrTexture*,
                                  bool swapRedAndBlue,
                                  PMConversion pmConversion = kNone_PMConversion);
 
@@ -42,7 +42,7 @@ public:
     typedef GrGLConfigConversionEffect GLProgramStage;
 
     virtual const GrProgramStageFactory& getFactory() const SK_OVERRIDE;
-    virtual bool isEqual(const GrCustomStage&) const SK_OVERRIDE;
+    virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
 
     bool swapsRedAndBlue() const { return fSwapRedAndBlue; }
     PMConversion  pmConversion() const { return fPMConversion; }
@@ -64,7 +64,7 @@ private:
     bool            fSwapRedAndBlue;
     PMConversion    fPMConversion;
 
-    GR_DECLARE_CUSTOM_STAGE_TEST;
+    GR_DECLARE_EFFECT_TEST;
 
     typedef GrSingleTextureEffect INHERITED;
 };

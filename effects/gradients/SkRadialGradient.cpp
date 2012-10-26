@@ -477,7 +477,7 @@ class GrGLRadialGradient : public GrGLGradientStage {
 public:
 
     GrGLRadialGradient(const GrProgramStageFactory& factory,
-                       const GrCustomStage&) : INHERITED (factory) { }
+                       const GrEffect&) : INHERITED (factory) { }
     virtual ~GrGLRadialGradient() { }
 
     virtual void emitVS(GrGLShaderBuilder* builder,
@@ -487,7 +487,7 @@ public:
                         const char* inputColor,
                         const TextureSamplerArray&) SK_OVERRIDE;
 
-    static StageKey GenKey(const GrCustomStage& s, const GrGLCaps& caps) { return 0; }
+    static StageKey GenKey(const GrEffect& s, const GrGLCaps& caps) { return 0; }
 
 private:
 
@@ -514,18 +514,18 @@ public:
     typedef GrGLRadialGradient GLProgramStage;
 
 private:
-    GR_DECLARE_CUSTOM_STAGE_TEST;
+    GR_DECLARE_EFFECT_TEST;
 
     typedef GrGradientEffect INHERITED;
 };
 
 /////////////////////////////////////////////////////////////////////
 
-GR_DEFINE_CUSTOM_STAGE_TEST(GrRadialGradient);
+GR_DEFINE_EFFECT_TEST(GrRadialGradient);
 
-GrCustomStage* GrRadialGradient::TestCreate(SkRandom* random,
-                                            GrContext* context,
-                                            GrTexture**) {
+GrEffect* GrRadialGradient::TestCreate(SkRandom* random,
+                                       GrContext* context,
+                                       GrTexture**) {
     SkPoint center = {random->nextUScalar1(), random->nextUScalar1()};
     SkScalar radius = random->nextUScalar1();
 
@@ -538,11 +538,11 @@ GrCustomStage* GrRadialGradient::TestCreate(SkRandom* random,
                                                                  colors, stops, colorCount,
                                                                  tm));
     GrSamplerState sampler;
-    shader->asNewCustomStage(context, &sampler);
-    GrAssert(NULL != sampler.getCustomStage());
-    // const_cast and ref is a hack! Will remove when asNewCustomStage returns GrCustomStage*
-    sampler.getCustomStage()->ref();
-    return const_cast<GrCustomStage*>(sampler.getCustomStage());
+    shader->asNewEffect(context, &sampler);
+    GrAssert(NULL != sampler.getEffect());
+    // const_cast and ref is a hack! Will remove when asNewEffect returns GrEffect*
+    sampler.getEffect()->ref();
+    return const_cast<GrEffect*>(sampler.getEffect());
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -558,9 +558,9 @@ void GrGLRadialGradient::emitFS(GrGLShaderBuilder* builder,
 
 /////////////////////////////////////////////////////////////////////
 
-bool SkRadialGradient::asNewCustomStage(GrContext* context, GrSamplerState* sampler) const {
+bool SkRadialGradient::asNewEffect(GrContext* context, GrSamplerState* sampler) const {
     SkASSERT(NULL != context && NULL != sampler);
-    SkAutoTUnref<GrCustomStage> stage(SkNEW_ARGS(GrRadialGradient, (context, *this, fTileMode)));
+    SkAutoTUnref<GrEffect> stage(SkNEW_ARGS(GrRadialGradient, (context, *this, fTileMode)));
 
     SkMatrix matrix;
     if (this->getLocalMatrix(&matrix)) {
@@ -568,9 +568,9 @@ bool SkRadialGradient::asNewCustomStage(GrContext* context, GrSamplerState* samp
             return false;
         }
         matrix.postConcat(fPtsToUnit);
-        sampler->setCustomStage(stage, matrix);
+        sampler->setEffect(stage, matrix);
     } else {
-        sampler->setCustomStage(stage, fPtsToUnit);
+        sampler->setEffect(stage, fPtsToUnit);
     }
 
     return true;
@@ -578,7 +578,7 @@ bool SkRadialGradient::asNewCustomStage(GrContext* context, GrSamplerState* samp
 
 #else
 
-bool SkRadialGradient::asNewCustomStage(GrContext*, GrSamplerState*) const {
+bool SkRadialGradient::asNewEffect(GrContext*, GrSamplerState*) const {
     SkDEBUGFAIL("Should not call in GPU-less build");
     return false;
 }

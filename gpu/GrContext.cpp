@@ -205,7 +205,7 @@ void convolve_gaussian(GrDrawTarget* target,
     SkAutoTUnref<GrConvolutionEffect> conv(SkNEW_ARGS(GrConvolutionEffect,
                                                       (texture, direction, radius,
                                                        sigma)));
-    drawState->sampler(0)->setCustomStage(conv, sampleM);
+    drawState->sampler(0)->setEffect(conv, sampleM);
     target->drawSimpleRect(rect, NULL);
 }
 
@@ -1317,7 +1317,7 @@ bool GrContext::readRenderTargetPixels(GrRenderTarget* target,
         ast.set(this, desc, match);
         GrTexture* texture = ast.texture();
         if (texture) {
-            SkAutoTUnref<GrCustomStage> stage;
+            SkAutoTUnref<GrEffect> stage;
             if (unpremul) {
                 stage.reset(this->createPMToUPMEffect(src, swapRAndB));
             }
@@ -1345,7 +1345,7 @@ bool GrContext::readRenderTargetPixels(GrRenderTarget* target,
                     matrix.setTranslate(SK_Scalar1 *left, SK_Scalar1 *top);
                 }
                 matrix.postIDiv(src->width(), src->height());
-                drawState->sampler(0)->setCustomStage(stage, matrix);
+                drawState->sampler(0)->setEffect(stage, matrix);
                 GrRect rect = GrRect::MakeWH(GrIntToScalar(width), GrIntToScalar(height));
                 fGpu->drawSimpleRect(rect, NULL);
                 // we want to read back from the scratch's origin
@@ -1490,7 +1490,7 @@ void GrContext::writeRenderTargetPixels(GrRenderTarget* target,
         return;
     }
 #endif
-    SkAutoTUnref<GrCustomStage> stage;
+    SkAutoTUnref<GrEffect> stage;
     bool swapRAndB = (fGpu->preferredReadPixelsConfig(config) == GrPixelConfigSwapRAndB(config));
 
     GrPixelConfig textureConfig;
@@ -1553,7 +1553,7 @@ void GrContext::writeRenderTargetPixels(GrRenderTarget* target,
     drawState->setRenderTarget(target);
 
     matrix.setIDiv(texture->width(), texture->height());
-    drawState->sampler(0)->setCustomStage(stage, matrix);
+    drawState->sampler(0)->setEffect(stage, matrix);
 
     fGpu->drawSimpleRect(GrRect::MakeWH(SkIntToScalar(width), SkIntToScalar(height)), NULL);
 }
@@ -1736,7 +1736,7 @@ void test_pm_conversions(GrContext* ctx, int* pmToUPMValue, int* upmToPMValue) {
 }
 }
 
-GrCustomStage* GrContext::createPMToUPMEffect(GrTexture* texture, bool swapRAndB) {
+GrEffect* GrContext::createPMToUPMEffect(GrTexture* texture, bool swapRAndB) {
     if (!fDidTestPMConversions) {
         test_pm_conversions(this, &fPMToUPMConversion, &fUPMToPMConversion);
         fDidTestPMConversions = true;
@@ -1750,7 +1750,7 @@ GrCustomStage* GrContext::createPMToUPMEffect(GrTexture* texture, bool swapRAndB
     }
 }
 
-GrCustomStage* GrContext::createUPMToPMEffect(GrTexture* texture, bool swapRAndB) {
+GrEffect* GrContext::createUPMToPMEffect(GrTexture* texture, bool swapRAndB) {
     if (!fDidTestPMConversions) {
         test_pm_conversions(this, &fPMToUPMConversion, &fUPMToPMConversion);
         fDidTestPMConversions = true;
@@ -1817,8 +1817,8 @@ GrTexture* GrContext::gaussianBlur(GrTexture* srcTexture,
         scale_rect(&dstRect, i < scaleFactorX ? 0.5f : 1.0f,
                              i < scaleFactorY ? 0.5f : 1.0f);
 
-        paint.colorSampler(0)->setCustomStage(SkNEW_ARGS(GrSingleTextureEffect,
-                                                         (srcTexture, true)), matrix)->unref();
+        paint.colorSampler(0)->setEffect(SkNEW_ARGS(GrSingleTextureEffect,
+                                                    (srcTexture, true)), matrix)->unref();
         this->drawRectToRect(paint, dstRect, srcRect);
         srcRect = dstRect;
         srcTexture = dstTexture;
@@ -1875,9 +1875,8 @@ GrTexture* GrContext::gaussianBlur(GrTexture* srcTexture,
         // FIXME:  This should be mitchell, not bilinear.
         matrix.setIDiv(srcTexture->width(), srcTexture->height());
         this->setRenderTarget(dstTexture->asRenderTarget());
-        paint.colorSampler(0)->setCustomStage(SkNEW_ARGS(GrSingleTextureEffect,
-                                                         (srcTexture, true)),
-                                              matrix)->unref();
+        paint.colorSampler(0)->setEffect(SkNEW_ARGS(GrSingleTextureEffect,(srcTexture, true)),
+                                         matrix)->unref();
         SkRect dstRect(srcRect);
         scale_rect(&dstRect, (float) scaleFactorX, (float) scaleFactorY);
         this->drawRectToRect(paint, dstRect, srcRect);

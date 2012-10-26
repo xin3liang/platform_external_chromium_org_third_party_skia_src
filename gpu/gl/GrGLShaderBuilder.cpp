@@ -99,9 +99,9 @@ GrGLShaderBuilder::GrGLShaderBuilder(const GrGLContextInfo& ctx, GrGLUniformMana
 }
 
 void GrGLShaderBuilder::setupTextureAccess(const char* varyingFSName, GrSLType varyingType) {
-    // FIXME: We don't know how the custom stage will manipulate the coords. So we give up on using
-    // projective texturing and always give the stage 2D coords. This will be fixed when custom
-    // stages are responsible for setting up their own tex coords / tex matrices.
+    // FIXME: We don't know how the effect will manipulate the coords. So we give up on using
+    // projective texturing and always give the stage 2D coords. This will be fixed when effects
+    // are responsible for setting up their own tex coords / tex matrices.
     switch (varyingType) {
         case kVec2f_GrSLType:
             fDefaultTexCoordsName = varyingFSName;
@@ -153,9 +153,9 @@ void GrGLShaderBuilder::appendTextureLookupAndModulate(
     GrGLSLModulate4f(out, modulation, lookup.c_str());
 }
 
-GrCustomStage::StageKey GrGLShaderBuilder::KeyForTextureAccess(const GrTextureAccess& access,
+GrEffect::StageKey GrGLShaderBuilder::KeyForTextureAccess(const GrTextureAccess& access,
                                                                const GrGLCaps& caps) {
-    GrCustomStage::StageKey key = 0;
+    GrEffect::StageKey key = 0;
 
     // Assume that swizzle support implies that we never have to modify a shader to adjust
     // for texture format/swizzle settings.
@@ -292,13 +292,13 @@ const char* GrGLShaderBuilder::fragmentPosition() {
             fFSHeader.append("layout(origin_upper_left) in vec4 gl_FragCoord;\n");
             fSetupFragPosition = true;
         }
-        return "gl_FragCoord";        
+        return "gl_FragCoord";
     } else {
         static const char* kCoordName = "fragCoordYDown";
         if (!fSetupFragPosition) {
             GrAssert(GrGLUniformManager::kInvalidUniformHandle == fRTHeightUniform);
             const char* rtHeightName;
-        
+
             // temporarily change the stage index because we're inserting a uniform whose name
             // shouldn't be mangled to be stage-specific.
             int oldStageIdx = fCurrentStage;
@@ -308,7 +308,7 @@ const char* GrGLShaderBuilder::fragmentPosition() {
                                                 "RTHeight",
                                                 &rtHeightName);
             fCurrentStage = oldStageIdx;
-        
+
             this->fFSCode.prependf("\tvec4 %s = vec4(gl_FragCoord.x, %s - gl_FragCoord.y, gl_FragCoord.zw);\n",
                                    kCoordName, rtHeightName);
             fSetupFragPosition = true;

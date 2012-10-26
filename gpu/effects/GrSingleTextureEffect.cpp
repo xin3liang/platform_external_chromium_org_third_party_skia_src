@@ -15,7 +15,7 @@
 class GrGLSingleTextureEffect : public GrGLLegacyProgramStage {
 public:
     GrGLSingleTextureEffect(const GrProgramStageFactory& factory,
-                            const GrCustomStage& stage) : INHERITED (factory) { }
+                            const GrEffect& stage) : INHERITED (factory) { }
 
     virtual void emitVS(GrGLShaderBuilder* builder,
                         const char* vertexCoords) SK_OVERRIDE { }
@@ -28,7 +28,7 @@ public:
         builder->fFSCode.append(";\n");
     }
 
-    static inline StageKey GenKey(const GrCustomStage&, const GrGLCaps&) { return 0; }
+    static inline StageKey GenKey(const GrEffect&, const GrGLCaps&) { return 0; }
 
 private:
 
@@ -66,12 +66,12 @@ const GrProgramStageFactory& GrSingleTextureEffect::getFactory() const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-GR_DEFINE_CUSTOM_STAGE_TEST(GrSingleTextureEffect);
+GR_DEFINE_EFFECT_TEST(GrSingleTextureEffect);
 
-GrCustomStage* GrSingleTextureEffect::TestCreate(SkRandom* random,
-                                                 GrContext* context,
-                                                 GrTexture* textures[]) {
-    int texIdx = random->nextBool() ? GrCustomStageUnitTest::kSkiaPMTextureIdx :
-                                      GrCustomStageUnitTest::kAlphaTextureIdx;
+GrEffect* GrSingleTextureEffect::TestCreate(SkRandom* random,
+                                            GrContext* context,
+                                            GrTexture* textures[]) {
+    int texIdx = random->nextBool() ? GrEffectUnitTest::kSkiaPMTextureIdx :
+                                      GrEffectUnitTest::kAlphaTextureIdx;
     return SkNEW_ARGS(GrSingleTextureEffect, (textures[texIdx]));
 }
