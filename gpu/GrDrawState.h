@@ -11,7 +11,7 @@
 #include "GrColor.h"
 #include "GrMatrix.h"
 #include "GrRefCnt.h"
-#include "GrSamplerState.h"
+#include "GrEffectStage.h"
 #include "GrStencil.h"
 #include "GrTexture.h"
 #include "GrRenderTarget.h"
@@ -26,23 +26,26 @@ public:
     SK_DECLARE_INST_COUNT(GrDrawState)
 
     /**
-     * Number of effect stages. Each stage takes as input a color and
-     * 2D texture coordinates. The color input to the first enabled stage is the
-     * per-vertex color or the constant color (setColor/setAlpha) if there are
-     * no per-vertex colors. For subsequent stages the input color is the output
-     * color from the previous enabled stage. The output color of each stage is
-     * the input color modulated with the result of a texture lookup. Texture
-     * lookups are specified by a texture a sampler (setSamplerState). Texture
-     * coordinates for each stage come from the vertices based on a
-     * GrVertexLayout bitfield. The output fragment color is the output color of
-     * the last enabled stage. The presence or absence of texture coordinates
-     * for each stage in the vertex layout indicates whether a stage is enabled
-     * or not.
+     * Total number of effect stages. Each stage can host a GrEffect. A stage is enabled if it has a
+     * GrEffect. The effect produces an output color in the fragment shader. It's inputs are the
+     * output from the previous enabled stage and a position. The position is either derived from
+     * the interpolated vertex positions or explicit per-vertex coords, depending upon the
+     * GrVertexLayout used to draw.
      *
-     * Stages 0 through GrPaint::kTotalStages-1 are reserved for setting up
-     * the draw (i.e., textures and filter masks). Stages GrPaint::kTotalStages
-     * through kNumStages-2 are earmarked for use by GrTextContext and
-     * GrPathRenderer-derived classes. kNumStages-1 is earmarked for clipping
+     * The stages are divided into two sets, color-computing and coverage-computing. The final color
+     * stage produces the final pixel color. The coverage-computing stages function exactly as the
+     * color-computing but the output of the final coverage stage is treated as a fractional pixel
+     * coverage rather than as input to the src/dst color blend step.
+     *
+     * The input color to the first enabled color-stage is either the constant color or interpolated
+     * per-vertex colors, depending upon GrVertexLayout. The input to the first coverage stage is
+     * either a constant coverage (usually full-coverage), interpolated per-vertex coverage, or
+     * edge-AA computed coverage. (This latter is going away as soon as it can be rewritten as a
+     * GrEffect).
+     *
+     * Stages 0 through GrPaint::kTotalStages-1 are reserved for stages copied from the client's
+     * GrPaint. Stages GrPaint::kTotalStages through kNumStages-2 are earmarked for use by
+     * GrTextContext and GrPathRenderer-derived classes. kNumStages-1 is earmarked for clipping
      * by GrClipMaskManager.
      */
     enum {
@@ -69,7 +72,7 @@ public:
 
     /**
      * Resets to the default state.
-     * Sampler states *will* be modified: textures or GrEffect objects will be released.
+     * GrEffects will be removed from all stages.
      */
     void reset() {
 
@@ -188,35 +191,36 @@ public:
     /**
      * Creates a GrSingleTextureEffect.
      */
-    void createTextureEffect(int stage, GrTexture* texture) {
-        GrAssert(!this->getSampler(stage).getEffect());
-        this->sampler(stage)->setEffect(SkNEW_ARGS(GrSingleTextureEffect, (texture)))->unref();
+    void createTextureEffect(int stageIdx, GrTexture* texture) {
+        GrAssert(!this->getStage(stageIdx).getEffect());
+        this->stage(stageIdx)->setEffect(SkNEW_ARGS(GrSingleTextureEffect, (texture)))->unref();
     }
-    void createTextureEffect(int stage, GrTexture* texture, const GrMatrix& matrix) {
-        GrAssert(!this->getSampler(stage).getEffect());
+    void createTextureEffect(int stageIdx, GrTexture* texture, const GrMatrix& matrix) {
+        GrAssert(!this->getStage(stageIdx).getEffect());
         GrEffect* effect = SkNEW_ARGS(GrSingleTextureEffect, (texture));
-        this->sampler(stage)->setEffect(effect, matrix)->unref();
+        this->stage(stageIdx)->setEffect(effect, matrix)->unref();
     }
-    void createTextureEffect(int stage, GrTexture* texture,
+    void createTextureEffect(int stageIdx,
+                             GrTexture* texture,
                              const GrMatrix& matrix,
                              const GrTextureParams& params) {
-        GrAssert(!this->getSampler(stage).getEffect());
+        GrAssert(!this->getStage(stageIdx).getEffect());
         GrEffect* effect = SkNEW_ARGS(GrSingleTextureEffect, (texture, params));
-        this->sampler(stage)->setEffect(effect, matrix)->unref();
+        this->stage(stageIdx)->setEffect(effect, matrix)->unref();
     }
 
 
     bool stagesDisabled() {
         for (int i = 0; i < kNumStages; ++i) {
-            if (NULL != fSamplerStates[i].getEffect()) {
+            if (NULL != fStages[i].getEffect()) {
                 return false;
             }
         }
         return true;
     }
 
-    void disableStage(int index) {
-        fSamplerStates[index].setEffect(NULL);
+    void disableStage(int stageIdx) {
+        fStages[stageIdx].setEffect(NULL);
     }
 
     /**
@@ -243,33 +247,33 @@ public:
     /// @}
 
     ///////////////////////////////////////////////////////////////////////////
-    /// @name Samplers
+    /// @name Stages
     ////
 
     /**
-     * Returns the current sampler for a stage.
+     * Returns the current stage by index.
      */
-    const GrSamplerState& getSampler(int stage) const {
-        GrAssert((unsigned)stage < kNumStages);
-        return fSamplerStates[stage];
+    const GrEffectStage& getStage(int stageIdx) const {
+        GrAssert((unsigned)stageIdx < kNumStages);
+        return fStages[stageIdx];
     }
 
     /**
-     * Writable pointer to a stage's sampler.
+     * Writable pointer to a stage.
      */
-    GrSamplerState* sampler(int stage) {
-        GrAssert((unsigned)stage < kNumStages);
-        return fSamplerStates + stage;
+    GrEffectStage* stage(int stageIdx) {
+        GrAssert((unsigned)stageIdx < kNumStages);
+        return fStages + stageIdx;
     }
 
     /**
      * Called when the source coord system is changing. preConcat gives the transformation from the
      * old coord system to the new coord system.
      */
-    void preConcatSamplerMatrices(const GrMatrix& preConcat) {
+    void preConcatStageMatrices(const GrMatrix& preConcat) {
         for (int i = 0; i < kNumStages; ++i) {
             if (this->isStageEnabled(i)) {
-                fSamplerStates[i].preConcatCoordChange(preConcat);
+                fStages[i].preConcatCoordChange(preConcat);
             }
         }
     }
@@ -279,7 +283,7 @@ public:
      * transformation from the old coord system to the new coord system. Returns false if the matrix
      * cannot be inverted.
      */
-    bool preConcatSamplerMatricesWithInverse(const GrMatrix& preConcatInverse) {
+    bool preConcatStageMatricesWithInverse(const GrMatrix& preConcatInverse) {
         GrMatrix inv;
         bool computed = false;
         for (int i = 0; i < kNumStages; ++i) {
@@ -289,7 +293,7 @@ public:
                 } else {
                     computed = true;
                 }
-                fSamplerStates[i].preConcatCoordChange(preConcatInverse);
+                fStages[i].preConcatCoordChange(preConcatInverse);
             }
         }
         return true;
@@ -502,7 +506,7 @@ public:
     private:
         GrDrawState*                        fDrawState;
         GrMatrix                            fViewMatrix;
-        GrSamplerState::SavedCoordChange    fSavedCoordChanges[GrDrawState::kNumStages];
+        GrEffectStage::SavedCoordChange     fSavedCoordChanges[GrDrawState::kNumStages];
         uint32_t                            fRestoreMask;
     };
 
@@ -556,7 +560,7 @@ public:
     private:
         GrDrawState*                        fDrawState;
         GrMatrix                            fViewMatrix;
-        GrSamplerState::SavedCoordChange    fSavedCoordChanges[GrDrawState::kNumStages];
+        GrEffectStage::SavedCoordChange     fSavedCoordChanges[GrDrawState::kNumStages];
         uint32_t                            fRestoreMask;
     };
 
@@ -822,7 +826,7 @@ public:
 
     bool isStageEnabled(int s) const {
         GrAssert((unsigned)s < kNumStages);
-        return (NULL != fSamplerStates[s].getEffect());
+        return (NULL != fStages[s].getEffect());
     }
 
     // Most stages are usually not used, so conditionals here
@@ -850,7 +854,7 @@ public:
             if (enabled != s.isStageEnabled(i)) {
                 return false;
             }
-            if (enabled && this->fSamplerStates[i] != s.fSamplerStates[i]) {
+            if (enabled && this->fStages[i] != s.fStages[i]) {
                 return false;
             }
         }
@@ -878,7 +882,7 @@ public:
 
         for (int i = 0; i < kNumStages; i++) {
             if (s.isStageEnabled(i)) {
-                this->fSamplerStates[i] = s.fSamplerStates[i];
+                this->fStages[i] = s.fStages[i];
             }
         }
 
@@ -905,7 +909,7 @@ private:
 
     // This field must be last; it will not be copied or compared
     // if the corresponding fTexture[] is NULL.
-    GrSamplerState      fSamplerStates[kNumStages];
+    GrEffectStage       fStages[kNumStages];
 
     typedef GrRefCnt INHERITED;
 };
