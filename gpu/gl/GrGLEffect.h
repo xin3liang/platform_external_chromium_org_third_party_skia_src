@@ -5,8 +5,8 @@
  * found in the LICENSE file.
  */
 
-#ifndef GrGLProgramStage_DEFINED
-#define GrGLProgramStage_DEFINED
+#ifndef GrGLEffect_DEFINED
+#define GrGLEffect_DEFINED
 
 #include "GrAllocator.h"
 #include "GrEffect.h"
@@ -20,30 +20,30 @@ class GrGLTexture;
 
 /** @file
     This file contains specializations for OpenGL of the shader stages declared in
-    include/gpu/GrEffect.h. Objects of type GrGLProgramStage are responsible for emitting the
+    include/gpu/GrEffect.h. Objects of type GrGLEffect are responsible for emitting the
     GLSL code that implements a GrEffect and for uploading uniforms at draw time. They also
     must have a function:
-        static inline StageKey GenKey(const GrEffect&, const GrGLCaps&)
+        static inline EffectKey GenKey(const GrEffect&, const GrGLCaps&)
     that is used to implement a program cache. When two GrEffects produce the same key this means
-    that their GrGLProgramStages would emit the same GLSL code.
+    that their GrGLEffects would emit the same GLSL code.
 
     These objects are created by the factory object returned by the GrEffect::getFactory().
 */
 
-class GrGLProgramStage {
+class GrGLEffect {
 
 public:
-    typedef GrEffect::StageKey StageKey;
+    typedef GrEffect::EffectKey EffectKey;
     enum {
-        // the number of bits in StageKey available to GenKey
-        kProgramStageKeyBits = GrProgramStageFactory::kProgramStageKeyBits,
+        // the number of bits in EffectKey available to GenKey
+        kEffectKeyBits = GrBackendEffectFactory::kEffectKeyBits,
     };
 
     typedef GrGLShaderBuilder::TextureSamplerArray TextureSamplerArray;
 
-    GrGLProgramStage(const GrProgramStageFactory&);
+    GrGLEffect(const GrBackendEffectFactory&);
 
-    virtual ~GrGLProgramStage();
+    virtual ~GrGLEffect();
 
     /** Called when the program stage should insert its code into the shaders. The code in each
         shader will be in its own block ({}) and so locally scoped names will not collide across
@@ -51,7 +51,7 @@ public:
 
         @param builder      Interface used to emit code in the shaders.
         @param effect       The effect that generated this program stage.
-        @param key          The key that was computed by StageKey() from the generating GrEffect.
+        @param key          The key that was computed by EffectKey() from the generating GrEffect.
         @param vertexCoords A vec2 of texture coordinates in the VS, which may be altered. This will
                             be removed soon and stages will be responsible for computing their own
                             coords.
@@ -63,39 +63,39 @@ public:
                             color is solid white, trans black, known to be opaque, etc.) that allows
                             the effect to communicate back similar known info about its output.
         @param samplers     One entry for each GrTextureAccess of the GrEffect that generated the
-                            GrGLProgramStage. These can be passed to the builder to emit texture
+                            GrGLEffect. These can be passed to the builder to emit texture
                             reads in the generated code.
         */
     virtual void emitCode(GrGLShaderBuilder* builder,
                           const GrEffect& effect,
-                          StageKey key,
+                          EffectKey key,
                           const char* vertexCoords,
                           const char* outputColor,
                           const char* inputColor,
                           const TextureSamplerArray& samplers) = 0;
 
-    /** A GrGLProgramStage instance can be reused with any GrEffect that produces the same stage
+    /** A GrGLEffect instance can be reused with any GrEffect that produces the same stage
         key; this function reads data from a stage and uploads any uniform variables required
         by the shaders created in emitCode(). */
-    virtual void setData(const GrGLUniformManager&, const GrEffect& stage);
+    virtual void setData(const GrGLUniformManager&, const GrEffect&);
 
     const char* name() const { return fFactory.name(); }
 
-    static StageKey GenTextureKey(const GrEffect&, const GrGLCaps&);
+    static EffectKey GenTextureKey(const GrEffect&, const GrGLCaps&);
 
 protected:
 
-    const GrProgramStageFactory& fFactory;
+    const GrBackendEffectFactory& fFactory;
 };
 
 /**
- * This allows program stages that implemented an older set of virtual functions on GrGLProgramStage
+ * This allows program stages that implemented an older set of virtual functions on GrGLEffect
  * to continue to work by change their parent class to this class. New program stages should not use
  * this interface. It will be removed once older stages are modified to implement emitCode().
  */
-class GrGLLegacyProgramStage : public GrGLProgramStage {
+class GrGLLegacyEffect : public GrGLEffect {
 public:
-    GrGLLegacyProgramStage(const GrProgramStageFactory& factory) : GrGLProgramStage(factory) {}
+    GrGLLegacyEffect(const GrBackendEffectFactory& factory) : GrGLEffect(factory) {}
 
     virtual void setupVariables(GrGLShaderBuilder* builder) {};
     virtual void emitVS(GrGLShaderBuilder* builder,
@@ -107,7 +107,7 @@ public:
 
     virtual void emitCode(GrGLShaderBuilder* builder,
                           const GrEffect&,
-                          StageKey,
+                          EffectKey,
                           const char* vertexCoords,
                           const char* outputColor,
                           const char* inputColor,

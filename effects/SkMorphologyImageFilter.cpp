@@ -14,7 +14,7 @@
 #include "GrContext.h"
 #include "GrTexture.h"
 #include "GrGpu.h"
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
 #include "effects/Gr1DKernelEffect.h"
 #endif
 
@@ -249,9 +249,9 @@ public:
 
     static const char* Name() { return "Morphology"; }
 
-    typedef GrGLMorphologyEffect GLProgramStage;
+    typedef GrGLMorphologyEffect GLEffect;
 
-    virtual const GrProgramStageFactory& getFactory() const SK_OVERRIDE;
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
     virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
 
 protected:
@@ -266,10 +266,10 @@ private:
 
 ///////////////////////////////////////////////////////////////////////////////
 
-class GrGLMorphologyEffect  : public GrGLLegacyProgramStage {
+class GrGLMorphologyEffect  : public GrGLLegacyEffect {
 public:
-    GrGLMorphologyEffect (const GrProgramStageFactory& factory,
-                          const GrEffect& stage);
+    GrGLMorphologyEffect (const GrBackendEffectFactory& factory,
+                          const GrEffect& effect);
 
     virtual void setupVariables(GrGLShaderBuilder* builder) SK_OVERRIDE;
     virtual void emitVS(GrGLShaderBuilder* state,
@@ -279,7 +279,7 @@ public:
                         const char* inputColor,
                         const TextureSamplerArray&) SK_OVERRIDE;
 
-    static inline StageKey GenKey(const GrEffect& s, const GrGLCaps& caps);
+    static inline EffectKey GenKey(const GrEffect& s, const GrGLCaps& caps);
 
     virtual void setData(const GrGLUniformManager&, const GrEffect&) SK_OVERRIDE;
 
@@ -290,14 +290,14 @@ private:
     GrMorphologyEffect::MorphologyType  fType;
     GrGLUniformManager::UniformHandle   fImageIncrementUni;
 
-    typedef GrGLLegacyProgramStage INHERITED;
+    typedef GrGLLegacyEffect INHERITED;
 };
 
-GrGLMorphologyEffect::GrGLMorphologyEffect(const GrProgramStageFactory& factory,
-                                           const GrEffect& stage)
+GrGLMorphologyEffect::GrGLMorphologyEffect(const GrBackendEffectFactory& factory,
+                                           const GrEffect& effect)
     : INHERITED(factory)
     , fImageIncrementUni(GrGLUniformManager::kInvalidUniformHandle) {
-    const GrMorphologyEffect& m = static_cast<const GrMorphologyEffect&>(stage);
+    const GrMorphologyEffect& m = static_cast<const GrMorphologyEffect&>(effect);
     fRadius = m.radius();
     fType = m.type();
 }
@@ -341,10 +341,10 @@ void GrGLMorphologyEffect::emitFS(GrGLShaderBuilder* builder,
     GrGLSLMulVarBy4f(code, 2, outputColor, inputColor);
 }
 
-GrGLProgramStage::StageKey GrGLMorphologyEffect::GenKey(const GrEffect& s,
+GrGLEffect::EffectKey GrGLMorphologyEffect::GenKey(const GrEffect& s,
                                                         const GrGLCaps& caps) {
     const GrMorphologyEffect& m = static_cast<const GrMorphologyEffect&>(s);
-    StageKey key = static_cast<StageKey>(m.radius());
+    EffectKey key = static_cast<EffectKey>(m.radius());
     key |= (m.type() << 8);
     return key;
 }
@@ -383,8 +383,8 @@ GrMorphologyEffect::GrMorphologyEffect(GrTexture* texture,
 GrMorphologyEffect::~GrMorphologyEffect() {
 }
 
-const GrProgramStageFactory& GrMorphologyEffect::getFactory() const {
-    return GrTProgramStageFactory<GrMorphologyEffect>::getInstance();
+const GrBackendEffectFactory& GrMorphologyEffect::getFactory() const {
+    return GrTBackendEffectFactory<GrMorphologyEffect>::getInstance();
 }
 
 bool GrMorphologyEffect::isEqual(const GrEffect& sBase) const {

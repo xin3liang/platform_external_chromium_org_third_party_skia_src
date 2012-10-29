@@ -320,7 +320,7 @@ bool SkColorMatrixFilter::asColorMatrix(SkScalar matrix[20]) {
 
 #if SK_SUPPORT_GPU
 #include "GrEffect.h"
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
 
 class ColorMatrixEffect : public GrEffect {
 public:
@@ -328,8 +328,8 @@ public:
 
     ColorMatrixEffect(const SkColorMatrix& matrix) : GrEffect(0), fMatrix(matrix) {}
 
-    virtual const GrProgramStageFactory& getFactory() const SK_OVERRIDE {
-        return GrTProgramStageFactory<ColorMatrixEffect>::getInstance();
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<ColorMatrixEffect>::getInstance();
     }
 
     virtual bool isEqual(const GrEffect& s) const {
@@ -339,13 +339,13 @@ public:
 
     GR_DECLARE_EFFECT_TEST;
 
-    class GLProgramStage : public GrGLLegacyProgramStage {
+    class GLEffect : public GrGLLegacyEffect {
     public:
         // this class always generates the same code.
-        static StageKey GenKey(const GrEffect& s, const GrGLCaps&) { return 0; }
+        static EffectKey GenKey(const GrEffect& s, const GrGLCaps&) { return 0; }
 
-        GLProgramStage(const GrProgramStageFactory& factory,
-                       const GrEffect& stage)
+        GLEffect(const GrBackendEffectFactory& factory,
+                 const GrEffect& effect)
         : INHERITED(factory)
         , fMatrixHandle(GrGLUniformManager::kInvalidUniformHandle)
         , fVectorHandle(GrGLUniformManager::kInvalidUniformHandle) {
@@ -383,8 +383,8 @@ public:
         }
 
         virtual void setData(const GrGLUniformManager& uniManager,
-                             const GrEffect& stage) SK_OVERRIDE {
-            const ColorMatrixEffect& cme = static_cast<const ColorMatrixEffect&>(stage);
+                             const GrEffect& effect) SK_OVERRIDE {
+            const ColorMatrixEffect& cme = static_cast<const ColorMatrixEffect&>(effect);
             const float* m = cme.fMatrix.fMat;
             // The GL matrix is transposed from SkColorMatrix.
             GrGLfloat mt[]  = {
@@ -409,7 +409,7 @@ public:
 private:
     SkColorMatrix fMatrix;
 
-    typedef GrGLLegacyProgramStage INHERITED;
+    typedef GrGLLegacyEffect INHERITED;
 };
 
 GR_DEFINE_EFFECT_TEST(ColorMatrixEffect);

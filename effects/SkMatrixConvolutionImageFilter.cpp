@@ -13,7 +13,7 @@
 #include "SkUnPreMultiply.h"
 
 #if SK_SUPPORT_GPU
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
 #endif
 
 SkMatrixConvolutionImageFilter::SkMatrixConvolutionImageFilter(const SkISize& kernelSize, const SkScalar* kernel, SkScalar gain, SkScalar bias, const SkIPoint& target, TileMode tileMode, bool convolveAlpha, SkImageFilter* input)
@@ -260,9 +260,9 @@ public:
     TileMode tileMode() const { return fTileMode; }
     bool convolveAlpha() const { return fConvolveAlpha; }
 
-    typedef GrGLMatrixConvolutionEffect GLProgramStage;
+    typedef GrGLMatrixConvolutionEffect GLEffect;
 
-    virtual const GrProgramStageFactory& getFactory() const SK_OVERRIDE;
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
     virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
 
 private:
@@ -279,10 +279,10 @@ private:
     typedef GrSingleTextureEffect INHERITED;
 };
 
-class GrGLMatrixConvolutionEffect : public GrGLLegacyProgramStage {
+class GrGLMatrixConvolutionEffect : public GrGLLegacyEffect {
 public:
-    GrGLMatrixConvolutionEffect(const GrProgramStageFactory& factory,
-                                const GrEffect& stage);
+    GrGLMatrixConvolutionEffect(const GrBackendEffectFactory& factory,
+                                const GrEffect& effect);
     virtual void setupVariables(GrGLShaderBuilder* builder) SK_OVERRIDE;
     virtual void emitVS(GrGLShaderBuilder* state,
                         const char* vertexCoords) SK_OVERRIDE {}
@@ -291,7 +291,7 @@ public:
                         const char* inputColor,
                         const TextureSamplerArray&) SK_OVERRIDE;
 
-    static inline StageKey GenKey(const GrEffect& s, const GrGLCaps& caps);
+    static inline EffectKey GenKey(const GrEffect& s, const GrGLCaps& caps);
 
     virtual void setData(const GrGLUniformManager&, const GrEffect&) SK_OVERRIDE;
 
@@ -308,18 +308,18 @@ private:
     UniformHandle  fGainUni;
     UniformHandle  fBiasUni;
 
-    typedef GrGLLegacyProgramStage INHERITED;
+    typedef GrGLLegacyEffect INHERITED;
 };
 
-GrGLMatrixConvolutionEffect::GrGLMatrixConvolutionEffect(const GrProgramStageFactory& factory,
-                                           const GrEffect& stage)
+GrGLMatrixConvolutionEffect::GrGLMatrixConvolutionEffect(const GrBackendEffectFactory& factory,
+                                           const GrEffect& effect)
     : INHERITED(factory)
     , fKernelUni(GrGLUniformManager::kInvalidUniformHandle)
     , fImageIncrementUni(GrGLUniformManager::kInvalidUniformHandle)
     , fTargetUni(GrGLUniformManager::kInvalidUniformHandle)
     , fGainUni(GrGLUniformManager::kInvalidUniformHandle)
     , fBiasUni(GrGLUniformManager::kInvalidUniformHandle) {
-    const GrMatrixConvolutionEffect& m = static_cast<const GrMatrixConvolutionEffect&>(stage);
+    const GrMatrixConvolutionEffect& m = static_cast<const GrMatrixConvolutionEffect&>(effect);
     fKernelSize = m.kernelSize();
     fTileMode = m.tileMode();
     fConvolveAlpha = m.convolveAlpha();
@@ -415,10 +415,10 @@ int encodeXY(int x, int y) {
 
 };
 
-GrGLProgramStage::StageKey GrGLMatrixConvolutionEffect::GenKey(const GrEffect& s,
+GrGLEffect::EffectKey GrGLMatrixConvolutionEffect::GenKey(const GrEffect& s,
                                                         const GrGLCaps& caps) {
     const GrMatrixConvolutionEffect& m = static_cast<const GrMatrixConvolutionEffect&>(s);
-    StageKey key = encodeXY(m.kernelSize().width(), m.kernelSize().height());
+    EffectKey key = encodeXY(m.kernelSize().width(), m.kernelSize().height());
     key |= m.tileMode() << 7;
     key |= m.convolveAlpha() ? 1 << 9 : 0;
     return key;
@@ -469,8 +469,8 @@ GrMatrixConvolutionEffect::~GrMatrixConvolutionEffect() {
     delete[] fKernel;
 }
 
-const GrProgramStageFactory& GrMatrixConvolutionEffect::getFactory() const {
-    return GrTProgramStageFactory<GrMatrixConvolutionEffect>::getInstance();
+const GrBackendEffectFactory& GrMatrixConvolutionEffect::getFactory() const {
+    return GrTBackendEffectFactory<GrMatrixConvolutionEffect>::getInstance();
 }
 
 bool GrMatrixConvolutionEffect::isEqual(const GrEffect& sBase) const {
@@ -521,18 +521,18 @@ GrEffect* GrMatrixConvolutionEffect::TestCreate(SkRandom* random,
 
 }
 
-bool SkMatrixConvolutionImageFilter::asNewEffect(GrEffect** stage,
+bool SkMatrixConvolutionImageFilter::asNewEffect(GrEffect** effect,
                                                  GrTexture* texture) const {
     bool ok = fKernelSize.width() * fKernelSize.height() <= MAX_KERNEL_SIZE;
-    if (ok && stage) {
-        *stage = SkNEW_ARGS(GrMatrixConvolutionEffect, (texture,
-                                                        fKernelSize,
-                                                        fKernel,
-                                                        fGain,
-                                                        fBias,
-                                                        fTarget,
-                                                        fTileMode,
-                                                        fConvolveAlpha));
+    if (ok && effect) {
+        *effect = SkNEW_ARGS(GrMatrixConvolutionEffect, (texture,
+                                                         fKernelSize,
+                                                         fKernel,
+                                                         fGain,
+                                                         fBias,
+                                                         fTarget,
+                                                         fTileMode,
+                                                         fConvolveAlpha));
     }
     return ok;
 }

@@ -217,7 +217,7 @@ bool SkTable_ColorFilter::asComponentTable(SkBitmap* table) const {
 #if SK_SUPPORT_GPU
 
 #include "GrEffect.h"
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
 #include "SkGr.h"
 
 class GLColorTableEffect;
@@ -229,12 +229,12 @@ public:
     virtual ~ColorTableEffect();
 
     static const char* Name() { return "ColorTable"; }
-    virtual const GrProgramStageFactory& getFactory() const SK_OVERRIDE;
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
     virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
 
     virtual const GrTextureAccess& textureAccess(int index) const SK_OVERRIDE;
 
-    typedef GLColorTableEffect GLProgramStage;
+    typedef GLColorTableEffect GLEffect;
 
 private:
     GR_DECLARE_EFFECT_TEST;
@@ -244,10 +244,10 @@ private:
     typedef GrEffect INHERITED;
 };
 
-class GLColorTableEffect : public GrGLLegacyProgramStage {
+class GLColorTableEffect : public GrGLLegacyEffect {
 public:
-    GLColorTableEffect(const GrProgramStageFactory& factory,
-                         const GrEffect& stage);
+    GLColorTableEffect(const GrBackendEffectFactory& factory,
+                         const GrEffect& effect);
 
     virtual void setupVariables(GrGLShaderBuilder* state) SK_OVERRIDE {}
     virtual void emitVS(GrGLShaderBuilder* state,
@@ -259,15 +259,15 @@ public:
 
     virtual void setData(const GrGLUniformManager&, const GrEffect&) SK_OVERRIDE {}
 
-    static StageKey GenKey(const GrEffect&, const GrGLCaps&);
+    static EffectKey GenKey(const GrEffect&, const GrGLCaps&);
 
 private:
 
-    typedef GrGLLegacyProgramStage INHERITED;
+    typedef GrGLLegacyEffect INHERITED;
 };
 
 GLColorTableEffect::GLColorTableEffect(
-    const GrProgramStageFactory& factory, const GrEffect& stage)
+    const GrBackendEffectFactory& factory, const GrEffect& effect)
     : INHERITED(factory) {
  }
 
@@ -312,7 +312,7 @@ void GLColorTableEffect::emitFS(GrGLShaderBuilder* builder,
     code->appendf("\t\t%s.rgb *= %s.a;\n", outputColor, outputColor);
 }
 
-GrGLProgramStage::StageKey GLColorTableEffect::GenKey(const GrEffect& s,
+GrGLEffect::EffectKey GLColorTableEffect::GenKey(const GrEffect& s,
                                                         const GrGLCaps& caps) {
     return 0;
 }
@@ -327,8 +327,8 @@ ColorTableEffect::ColorTableEffect(GrTexture* texture)
 ColorTableEffect::~ColorTableEffect() {
 }
 
-const GrProgramStageFactory&  ColorTableEffect::getFactory() const {
-    return GrTProgramStageFactory<ColorTableEffect>::getInstance();
+const GrBackendEffectFactory&  ColorTableEffect::getFactory() const {
+    return GrTBackendEffectFactory<ColorTableEffect>::getInstance();
 }
 
 bool ColorTableEffect::isEqual(const GrEffect& sBase) const {
@@ -355,13 +355,13 @@ GrEffect* SkTable_ColorFilter::asNewEffect(GrContext* context) const {
     this->asComponentTable(&bitmap);
     // passing NULL because this effect does no tiling or filtering.
     GrTexture* texture = GrLockCachedBitmapTexture(context, bitmap, NULL);
-    GrEffect* stage = SkNEW_ARGS(ColorTableEffect, (texture));
+    GrEffect* effect = SkNEW_ARGS(ColorTableEffect, (texture));
 
     // Unlock immediately, this is not great, but we don't have a way of
     // knowing when else to unlock it currently. TODO: Remove this when
     // unref becomes the unlock replacement for all types of textures.
     GrUnlockCachedBitmapTexture(texture);
-    return stage;
+    return effect;
 }
 
 #endif // SK_SUPPORT_GPU

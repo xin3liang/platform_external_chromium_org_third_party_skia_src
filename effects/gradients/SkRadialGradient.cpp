@@ -473,10 +473,10 @@ void SkRadialGradient::shadeSpan(int x, int y,
 
 #if SK_SUPPORT_GPU
 
-class GrGLRadialGradient : public GrGLGradientStage {
+class GrGLRadialGradient : public GrGLGradientEffect {
 public:
 
-    GrGLRadialGradient(const GrProgramStageFactory& factory,
+    GrGLRadialGradient(const GrBackendEffectFactory& factory,
                        const GrEffect&) : INHERITED (factory) { }
     virtual ~GrGLRadialGradient() { }
 
@@ -487,11 +487,11 @@ public:
                         const char* inputColor,
                         const TextureSamplerArray&) SK_OVERRIDE;
 
-    static StageKey GenKey(const GrEffect& s, const GrGLCaps& caps) { return 0; }
+    static EffectKey GenKey(const GrEffect& s, const GrGLCaps& caps) { return 0; }
 
 private:
 
-    typedef GrGLGradientStage INHERITED;
+    typedef GrGLGradientEffect INHERITED;
 
 };
 
@@ -507,11 +507,11 @@ public:
     virtual ~GrRadialGradient() { }
 
     static const char* Name() { return "Radial Gradient"; }
-    virtual const GrProgramStageFactory& getFactory() const SK_OVERRIDE {
-        return GrTProgramStageFactory<GrRadialGradient>::getInstance();
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<GrRadialGradient>::getInstance();
     }
 
-    typedef GrGLRadialGradient GLProgramStage;
+    typedef GrGLRadialGradient GLEffect;
 
 private:
     GR_DECLARE_EFFECT_TEST;
@@ -560,7 +560,7 @@ void GrGLRadialGradient::emitFS(GrGLShaderBuilder* builder,
 
 bool SkRadialGradient::asNewEffect(GrContext* context, GrSamplerState* sampler) const {
     SkASSERT(NULL != context && NULL != sampler);
-    SkAutoTUnref<GrEffect> stage(SkNEW_ARGS(GrRadialGradient, (context, *this, fTileMode)));
+    SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(GrRadialGradient, (context, *this, fTileMode)));
 
     SkMatrix matrix;
     if (this->getLocalMatrix(&matrix)) {
@@ -568,9 +568,9 @@ bool SkRadialGradient::asNewEffect(GrContext* context, GrSamplerState* sampler) 
             return false;
         }
         matrix.postConcat(fPtsToUnit);
-        sampler->setEffect(stage, matrix);
+        sampler->setEffect(effect, matrix);
     } else {
-        sampler->setEffect(stage, fPtsToUnit);
+        sampler->setEffect(effect, fPtsToUnit);
     }
 
     return true;

@@ -476,10 +476,10 @@ void SkLinearGradient::shadeSpan16(int x, int y,
 
 /////////////////////////////////////////////////////////////////////
 
-class GrGLLinearGradient : public GrGLGradientStage {
+class GrGLLinearGradient : public GrGLGradientEffect {
 public:
 
-    GrGLLinearGradient(const GrProgramStageFactory& factory,
+    GrGLLinearGradient(const GrBackendEffectFactory& factory,
                        const GrEffect&)
                        : INHERITED (factory) { }
 
@@ -491,11 +491,11 @@ public:
                         const char* outputColor,
                         const char* inputColor,
                         const TextureSamplerArray&) SK_OVERRIDE;
-    static StageKey GenKey(const GrEffect& s, const GrGLCaps& caps) { return 0; }
+    static EffectKey GenKey(const GrEffect& s, const GrGLCaps& caps) { return 0; }
 
 private:
 
-    typedef GrGLGradientStage INHERITED;
+    typedef GrGLGradientEffect INHERITED;
 };
 
 /////////////////////////////////////////////////////////////////////
@@ -508,11 +508,11 @@ public:
     virtual ~GrLinearGradient() { }
 
     static const char* Name() { return "Linear Gradient"; }
-    const GrProgramStageFactory& getFactory() const SK_OVERRIDE {
-        return GrTProgramStageFactory<GrLinearGradient>::getInstance();
+    const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<GrLinearGradient>::getInstance();
     }
 
-    typedef GrGLLinearGradient GLProgramStage;
+    typedef GrGLLinearGradient GLEffect;
 
 private:
     GR_DECLARE_EFFECT_TEST;
@@ -562,7 +562,7 @@ void GrGLLinearGradient::emitFS(GrGLShaderBuilder* builder,
 bool SkLinearGradient::asNewEffect(GrContext* context, GrSamplerState* sampler) const {
     SkASSERT(NULL != context && NULL != sampler);
 
-    SkAutoTUnref<GrEffect> stage(SkNEW_ARGS(GrLinearGradient, (context, *this, fTileMode)));
+    SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(GrLinearGradient, (context, *this, fTileMode)));
 
     SkMatrix matrix;
     if (this->getLocalMatrix(&matrix)) {
@@ -570,9 +570,9 @@ bool SkLinearGradient::asNewEffect(GrContext* context, GrSamplerState* sampler) 
             return false;
         }
         matrix.postConcat(fPtsToUnit);
-        sampler->setEffect(stage, matrix);
+        sampler->setEffect(effect, matrix);
     } else {
-        sampler->setEffect(stage, fPtsToUnit);
+        sampler->setEffect(effect, fPtsToUnit);
     }
 
     return true;

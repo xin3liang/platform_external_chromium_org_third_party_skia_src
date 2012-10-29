@@ -319,10 +319,10 @@ void SkTwoPointConicalGradient::flatten(
 typedef GrGLUniformManager::UniformHandle UniformHandle;
 static const UniformHandle kInvalidUniformHandle = GrGLUniformManager::kInvalidUniformHandle;
 
-class GrGLConical2Gradient : public GrGLGradientStage {
+class GrGLConical2Gradient : public GrGLGradientEffect {
 public:
 
-    GrGLConical2Gradient(const GrProgramStageFactory& factory,
+    GrGLConical2Gradient(const GrBackendEffectFactory& factory,
                          const GrEffect&);
     virtual ~GrGLConical2Gradient() { }
 
@@ -335,7 +335,7 @@ public:
                         const TextureSamplerArray&) SK_OVERRIDE;
     virtual void setData(const GrGLUniformManager&, const GrEffect&) SK_OVERRIDE;
 
-    static StageKey GenKey(const GrEffect& s, const GrGLCaps& caps);
+    static EffectKey GenKey(const GrEffect& s, const GrGLCaps& caps);
 
 protected:
 
@@ -358,7 +358,7 @@ protected:
 
 private:
 
-    typedef GrGLGradientStage INHERITED;
+    typedef GrGLGradientEffect INHERITED;
 
 };
 
@@ -378,8 +378,8 @@ public:
     virtual ~GrConical2Gradient() { }
 
     static const char* Name() { return "Two-Point Conical Gradient"; }
-    virtual const GrProgramStageFactory& getFactory() const SK_OVERRIDE {
-        return GrTProgramStageFactory<GrConical2Gradient>::getInstance();
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<GrConical2Gradient>::getInstance();
     }
     virtual bool isEqual(const GrEffect& sBase) const SK_OVERRIDE {
         const GrConical2Gradient& s = static_cast<const GrConical2Gradient&>(sBase);
@@ -395,7 +395,7 @@ public:
     GrScalar diffRadius() const { return fDiffRadius; }
     GrScalar radius() const { return fRadius0; }
 
-    typedef GrGLConical2Gradient GLProgramStage;
+    typedef GrGLConical2Gradient GLEffect;
 
 private:
     GR_DECLARE_EFFECT_TEST;
@@ -449,7 +449,7 @@ GrEffect* GrConical2Gradient::TestCreate(SkRandom* random,
 /////////////////////////////////////////////////////////////////////
 
 GrGLConical2Gradient::GrGLConical2Gradient(
-        const GrProgramStageFactory& factory,
+        const GrBackendEffectFactory& factory,
         const GrEffect& baseData)
     : INHERITED(factory)
     , fVSParamUni(kInvalidUniformHandle)
@@ -663,7 +663,7 @@ void GrGLConical2Gradient::setData(const GrGLUniformManager& uman, const GrEffec
     }
 }
 
-GrEffect::StageKey GrGLConical2Gradient::GenKey(const GrEffect& s, const GrGLCaps& caps) {
+GrEffect::EffectKey GrGLConical2Gradient::GenKey(const GrEffect& s, const GrGLCaps& caps) {
     return (static_cast<const GrConical2Gradient&>(s).isDegenerate());
 }
 

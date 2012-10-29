@@ -153,9 +153,9 @@ void GrGLShaderBuilder::appendTextureLookupAndModulate(
     GrGLSLModulate4f(out, modulation, lookup.c_str());
 }
 
-GrEffect::StageKey GrGLShaderBuilder::KeyForTextureAccess(const GrTextureAccess& access,
-                                                               const GrGLCaps& caps) {
-    GrEffect::StageKey key = 0;
+GrEffect::EffectKey GrGLShaderBuilder::KeyForTextureAccess(const GrTextureAccess& access,
+                                                           const GrGLCaps& caps) {
+    GrEffect::EffectKey key = 0;
 
     // Assume that swizzle support implies that we never have to modify a shader to adjust
     // for texture format/swizzle settings.
@@ -289,7 +289,11 @@ const char* GrGLShaderBuilder::fragmentPosition() {
     if (fContext.caps().fragCoordConventionsSupport()) {
         if (!fSetupFragPosition) {
             fFSHeader.append("#extension GL_ARB_fragment_coord_conventions: require\n");
-            fFSHeader.append("layout(origin_upper_left) in vec4 gl_FragCoord;\n");
+            fFSInputs.push_back().set(kVec4f_GrSLType,
+                                      GrGLShaderVar::kIn_TypeModifier,
+                                      "gl_FragCoord",
+                                      GrGLShaderVar::kDefault_Precision,
+                                      GrGLShaderVar::kUpperLeft_Origin);
             fSetupFragPosition = true;
         }
         return "gl_FragCoord";

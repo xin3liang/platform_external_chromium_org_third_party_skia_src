@@ -26,7 +26,7 @@ public:
     SK_DECLARE_INST_COUNT(GrDrawState)
 
     /**
-     * Number of texture stages. Each stage takes as input a color and
+     * Number of effect stages. Each stage takes as input a color and
      * 2D texture coordinates. The color input to the first enabled stage is the
      * per-vertex color or the constant color (setColor/setAlpha) if there are
      * no per-vertex colors. For subsequent stages the input color is the output
@@ -190,8 +190,7 @@ public:
      */
     void createTextureEffect(int stage, GrTexture* texture) {
         GrAssert(!this->getSampler(stage).getEffect());
-        this->sampler(stage)->setEffect(
-            SkNEW_ARGS(GrSingleTextureEffect, (texture)))->unref();
+        this->sampler(stage)->setEffect(SkNEW_ARGS(GrSingleTextureEffect, (texture)))->unref();
     }
     void createTextureEffect(int stage, GrTexture* texture, const GrMatrix& matrix) {
         GrAssert(!this->getSampler(stage).getEffect());
@@ -474,7 +473,7 @@ public:
 
     /**
      * Preconcats the current view matrix and restores the previous view matrix in the destructor.
-     * Stage matrices are automatically adjusted to compensate.
+     * Effect matrices are automatically adjusted to compensate.
      */
     class AutoViewMatrixRestore : public ::GrNoncopyable {
     public:

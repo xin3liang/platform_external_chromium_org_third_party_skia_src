@@ -19,7 +19,7 @@
 #include "SkXfermode.h"
 
 class GrBinHashKeyBuilder;
-class GrGLProgramStage;
+class GrGLEffect;
 class GrGLShaderBuilder;
 
 // optionally compile the experimental GS code. Set to GR_DEBUG
@@ -96,9 +96,8 @@ public:
 
             uint8_t fOptFlags;
 
-            /** Non-zero if user-supplied code will write the stage's
-                contribution to the fragment shader. */
-            GrProgramStageFactory::StageKey fCustomStageKey;
+            /** Non-zero if this stage has an effect */
+            GrBackendEffectFactory::EffectKey fEffectKey;
 
             inline bool isEnabled() const {
                 return SkToBool(fOptFlags & kIsEnabled_OptFlagBit);
@@ -175,7 +174,7 @@ private:
 
     void genInputColor(GrGLShaderBuilder* builder, SkString* inColor);
 
-    static GrGLProgramStage* GenStageCode(const GrEffect* stage,
+    static GrGLEffect* GenStageCode(const GrEffect* effect,
                                           const StageDesc& desc, // TODO: Eliminate this
                                           StageUniforms* stageUniforms, // TODO: Eliminate this
                                           const char* fsInColor, // NULL means no incoming color
@@ -254,7 +253,7 @@ private:
     GrMatrix                    fTextureMatrices[GrDrawState::kNumStages];
     GrGLTexture::Orientation    fTextureOrientation[GrDrawState::kNumStages];
 
-    GrGLProgramStage*           fProgramStage[GrDrawState::kNumStages];
+    GrGLEffect*                 fEffects[GrDrawState::kNumStages];
 
     Desc fDesc;
     const GrGLContextInfo&      fContextInfo;

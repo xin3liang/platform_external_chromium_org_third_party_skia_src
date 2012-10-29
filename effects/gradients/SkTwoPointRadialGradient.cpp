@@ -353,11 +353,11 @@ void SkTwoPointRadialGradient::init() {
 typedef GrGLUniformManager::UniformHandle UniformHandle;
 static const UniformHandle kInvalidUniformHandle = GrGLUniformManager::kInvalidUniformHandle;
 
-class GrGLRadial2Gradient : public GrGLGradientStage {
+class GrGLRadial2Gradient : public GrGLGradientEffect {
 
 public:
 
-    GrGLRadial2Gradient(const GrProgramStageFactory& factory,
+    GrGLRadial2Gradient(const GrBackendEffectFactory& factory,
                         const GrEffect&);
     virtual ~GrGLRadial2Gradient() { }
 
@@ -370,7 +370,7 @@ public:
                         const TextureSamplerArray&) SK_OVERRIDE;
     virtual void setData(const GrGLUniformManager&, const GrEffect&) SK_OVERRIDE;
 
-    static StageKey GenKey(const GrEffect& s, const GrGLCaps& caps);
+    static EffectKey GenKey(const GrEffect& s, const GrGLCaps& caps);
 
 protected:
 
@@ -393,7 +393,7 @@ protected:
 
 private:
 
-    typedef GrGLGradientStage INHERITED;
+    typedef GrGLGradientEffect INHERITED;
 
 };
 
@@ -410,8 +410,8 @@ public:
     virtual ~GrRadial2Gradient() { }
 
     static const char* Name() { return "Two-Point Radial Gradient"; }
-    virtual const GrProgramStageFactory& getFactory() const SK_OVERRIDE {
-        return GrTProgramStageFactory<GrRadial2Gradient>::getInstance();
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<GrRadial2Gradient>::getInstance();
     }
     virtual bool isEqual(const GrEffect& sBase) const SK_OVERRIDE {
         const GrRadial2Gradient& s = static_cast<const GrRadial2Gradient&>(sBase);
@@ -427,7 +427,7 @@ public:
     GrScalar radius() const { return fRadius0; }
     bool isPosRoot() const { return SkToBool(fPosRoot); }
 
-    typedef GrGLRadial2Gradient GLProgramStage;
+    typedef GrGLRadial2Gradient GLEffect;
 
 private:
     GR_DECLARE_EFFECT_TEST;
@@ -482,7 +482,7 @@ GrEffect* GrRadial2Gradient::TestCreate(SkRandom* random,
 /////////////////////////////////////////////////////////////////////
 
 GrGLRadial2Gradient::GrGLRadial2Gradient(
-        const GrProgramStageFactory& factory,
+        const GrBackendEffectFactory& factory,
         const GrEffect& baseData)
     : INHERITED(factory)
     , fVSParamUni(kInvalidUniformHandle)
@@ -636,7 +636,7 @@ void GrGLRadial2Gradient::setData(const GrGLUniformManager& uman, const GrEffect
     }
 }
 
-GrEffect::StageKey GrGLRadial2Gradient::GenKey(const GrEffect& s, const GrGLCaps& caps) {
+GrEffect::EffectKey GrGLRadial2Gradient::GenKey(const GrEffect& s, const GrGLCaps& caps) {
     return (static_cast<const GrRadial2Gradient&>(s).isDegenerate());
 }
 

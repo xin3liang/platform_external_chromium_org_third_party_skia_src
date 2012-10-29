@@ -6,16 +6,17 @@
  */
 
 #include "effects/GrSingleTextureEffect.h"
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
 #include "gl/GrGLSL.h"
 #include "gl/GrGLTexture.h"
-#include "GrProgramStageFactory.h"
+#include "GrBackendEffectFactory.h"
 #include "GrTexture.h"
 
-class GrGLSingleTextureEffect : public GrGLLegacyProgramStage {
+class GrGLSingleTextureEffect : public GrGLLegacyEffect {
 public:
-    GrGLSingleTextureEffect(const GrProgramStageFactory& factory,
-                            const GrEffect& stage) : INHERITED (factory) { }
+    GrGLSingleTextureEffect(const GrBackendEffectFactory& factory, const GrEffect&)
+    : INHERITED (factory) {
+    }
 
     virtual void emitVS(GrGLShaderBuilder* builder,
                         const char* vertexCoords) SK_OVERRIDE { }
@@ -28,11 +29,11 @@ public:
         builder->fFSCode.append(";\n");
     }
 
-    static inline StageKey GenKey(const GrEffect&, const GrGLCaps&) { return 0; }
+    static inline EffectKey GenKey(const GrEffect&, const GrGLCaps&) { return 0; }
 
 private:
 
-    typedef GrGLLegacyProgramStage INHERITED;
+    typedef GrGLLegacyEffect INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -60,8 +61,8 @@ const GrTextureAccess& GrSingleTextureEffect::textureAccess(int index) const {
     return fTextureAccess;
 }
 
-const GrProgramStageFactory& GrSingleTextureEffect::getFactory() const {
-    return GrTProgramStageFactory<GrSingleTextureEffect>::getInstance();
+const GrBackendEffectFactory& GrSingleTextureEffect::getFactory() const {
+    return GrTBackendEffectFactory<GrSingleTextureEffect>::getInstance();
 }
 
 ///////////////////////////////////////////////////////////////////////////////

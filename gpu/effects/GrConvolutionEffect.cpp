@@ -6,19 +6,18 @@
  */
 
 #include "GrConvolutionEffect.h"
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
 #include "gl/GrGLSL.h"
 #include "gl/GrGLTexture.h"
-#include "GrProgramStageFactory.h"
+#include "GrBackendEffectFactory.h"
 
 // For brevity
 typedef GrGLUniformManager::UniformHandle UniformHandle;
 static const UniformHandle kInvalidUniformHandle = GrGLUniformManager::kInvalidUniformHandle;
 
-class GrGLConvolutionEffect : public GrGLLegacyProgramStage {
+class GrGLConvolutionEffect : public GrGLLegacyEffect {
 public:
-    GrGLConvolutionEffect(const GrProgramStageFactory& factory,
-                          const GrEffect& stage);
+    GrGLConvolutionEffect(const GrBackendEffectFactory&, const GrEffect&);
 
     virtual void setupVariables(GrGLShaderBuilder* builder) SK_OVERRIDE;
     virtual void emitVS(GrGLShaderBuilder* builder,
@@ -30,7 +29,7 @@ public:
 
     virtual void setData(const GrGLUniformManager& uman, const GrEffect&) SK_OVERRIDE;
 
-    static inline StageKey GenKey(const GrEffect&, const GrGLCaps&);
+    static inline EffectKey GenKey(const GrEffect&, const GrGLCaps&);
 
 private:
     int width() const { return Gr1DKernelEffect::WidthFromRadius(fRadius); }
@@ -39,16 +38,16 @@ private:
     UniformHandle   fKernelUni;
     UniformHandle   fImageIncrementUni;
 
-    typedef GrGLLegacyProgramStage INHERITED;
+    typedef GrGLLegacyEffect INHERITED;
 };
 
-GrGLConvolutionEffect::GrGLConvolutionEffect(const GrProgramStageFactory& factory,
-                                             const GrEffect& stage)
+GrGLConvolutionEffect::GrGLConvolutionEffect(const GrBackendEffectFactory& factory,
+                                             const GrEffect& effect)
     : INHERITED(factory)
     , fKernelUni(kInvalidUniformHandle)
     , fImageIncrementUni(kInvalidUniformHandle) {
     const GrConvolutionEffect& c =
-        static_cast<const GrConvolutionEffect&>(stage);
+        static_cast<const GrConvolutionEffect&>(effect);
     fRadius = c.radius();
 }
 
@@ -109,7 +108,7 @@ void GrGLConvolutionEffect::setData(const GrGLUniformManager& uman, const GrEffe
     uman.set1fv(fKernelUni, 0, this->width(), conv.kernel());
 }
 
-GrGLProgramStage::StageKey GrGLConvolutionEffect::GenKey(const GrEffect& s,
+GrGLEffect::EffectKey GrGLConvolutionEffect::GenKey(const GrEffect& s,
                                                          const GrGLCaps& caps) {
     return static_cast<const GrConvolutionEffect&>(s).radius();
 }
@@ -157,8 +156,8 @@ GrConvolutionEffect::GrConvolutionEffect(GrTexture* texture,
 GrConvolutionEffect::~GrConvolutionEffect() {
 }
 
-const GrProgramStageFactory& GrConvolutionEffect::getFactory() const {
-    return GrTProgramStageFactory<GrConvolutionEffect>::getInstance();
+const GrBackendEffectFactory& GrConvolutionEffect::getFactory() const {
+    return GrTBackendEffectFactory<GrConvolutionEffect>::getInstance();
 }
 
 bool GrConvolutionEffect::isEqual(const GrEffect& sBase) const {

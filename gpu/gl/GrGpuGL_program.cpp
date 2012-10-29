@@ -8,7 +8,7 @@
 #include "GrGpuGL.h"
 
 #include "GrEffect.h"
-#include "GrGLProgramStage.h"
+#include "GrGLEffect.h"
 #include "GrGpuVertex.h"
 
 typedef GrGLUniformManager::UniformHandle UniformHandle;
@@ -199,11 +199,11 @@ void GrGpuGL::flushTextureMatrix(int s) {
     const GrDrawState& drawState = this->getDrawState();
 
     // FIXME: Still assuming only a single texture per effect
-    const GrEffect* stage = drawState.getSampler(s).getEffect();
-    if (0 == stage->numTextures()) {
+    const GrEffect* effect = drawState.getSampler(s).getEffect();
+    if (0 == effect->numTextures()) {
         return;
     }
-    const GrGLTexture* texture = static_cast<const GrGLTexture*>(stage->texture(0));
+    const GrGLTexture* texture = static_cast<const GrGLTexture*>(effect->texture(0));
     if (NULL != texture) {
 
         bool orientationChange = fCurrentProgram->fTextureOrientation[s] !=
@@ -572,11 +572,11 @@ void setup_effect(GrGLProgram::Desc::StageDesc* stage,
                   GrGLProgram* program, int index) {
     const GrEffect* effect = sampler.getEffect();
     if (effect) {
-        const GrProgramStageFactory& factory = effect->getFactory();
-        stage->fCustomStageKey = factory.glStageKey(*effect, caps);
+        const GrBackendEffectFactory& factory = effect->getFactory();
+        stage->fEffectKey = factory.glEffectKey(*effect, caps);
         effects[index] = effect;
     } else {
-        stage->fCustomStageKey = 0;
+        stage->fEffectKey = 0;
         effects[index] = NULL;
     }
 }
@@ -695,8 +695,8 @@ void GrGpuGL::buildProgram(bool isPoints,
             setup_effect(&stage, sampler, this->glCaps(), effects, fCurrentProgram.get(), s);
 
         } else {
-            stage.fOptFlags         = 0;
-            stage.fCustomStageKey   = 0;
+            stage.fOptFlags  = 0;
+            stage.fEffectKey = 0;
             effects[s] = NULL;
         }
     }

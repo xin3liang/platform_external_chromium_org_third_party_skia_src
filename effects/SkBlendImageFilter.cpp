@@ -12,7 +12,7 @@
 #if SK_SUPPORT_GPU
 #include "SkGr.h"
 #include "SkGrPixelRef.h"
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
 #endif
 
 namespace {
@@ -110,10 +110,10 @@ bool SkBlendImageFilter::onFilterImage(Proxy* proxy,
 ///////////////////////////////////////////////////////////////////////////////
 
 #if SK_SUPPORT_GPU
-class GrGLBlendEffect  : public GrGLLegacyProgramStage {
+class GrGLBlendEffect  : public GrGLLegacyEffect {
 public:
-    GrGLBlendEffect(const GrProgramStageFactory& factory,
-                    const GrEffect& stage);
+    GrGLBlendEffect(const GrBackendEffectFactory& factory,
+                    const GrEffect& effect);
     virtual ~GrGLBlendEffect();
 
     virtual void emitFS(GrGLShaderBuilder* builder,
@@ -124,10 +124,10 @@ public:
     virtual void emitVS(GrGLShaderBuilder* builder,
                         const char* vertexCoords) SK_OVERRIDE {}
 
-    static inline StageKey GenKey(const GrEffect& s, const GrGLCaps&);
+    static inline EffectKey GenKey(const GrEffect& s, const GrGLCaps&);
 
 private:
-    typedef GrGLLegacyProgramStage INHERITED;
+    typedef GrGLLegacyEffect INHERITED;
     SkBlendImageFilter::Mode fMode;
 };
 
@@ -139,10 +139,10 @@ public:
     virtual ~GrBlendEffect();
 
     virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
-    const GrProgramStageFactory& getFactory() const;
+    const GrBackendEffectFactory& getFactory() const;
     SkBlendImageFilter::Mode mode() const { return fMode; }
 
-    typedef GrGLBlendEffect GLProgramStage;
+    typedef GrGLBlendEffect GLEffect;
     static const char* Name() { return "Blend"; }
 
 private:
@@ -230,16 +230,16 @@ bool GrBlendEffect::isEqual(const GrEffect& sBase) const {
            fMode == s.fMode;
 }
 
-const GrProgramStageFactory& GrBlendEffect::getFactory() const {
-    return GrTProgramStageFactory<GrBlendEffect>::getInstance();
+const GrBackendEffectFactory& GrBlendEffect::getFactory() const {
+    return GrTBackendEffectFactory<GrBlendEffect>::getInstance();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-GrGLBlendEffect::GrGLBlendEffect(const GrProgramStageFactory& factory,
-                                 const GrEffect& stage)
+GrGLBlendEffect::GrGLBlendEffect(const GrBackendEffectFactory& factory,
+                                 const GrEffect& effect)
     : INHERITED(factory),
-      fMode(static_cast<const GrBlendEffect&>(stage).mode()) {
+      fMode(static_cast<const GrBlendEffect&>(effect).mode()) {
 }
 
 GrGLBlendEffect::~GrGLBlendEffect() {
@@ -275,7 +275,7 @@ void GrGLBlendEffect::emitFS(GrGLShaderBuilder* builder,
     }
 }
 
-GrGLProgramStage::StageKey GrGLBlendEffect::GenKey(const GrEffect& s, const GrGLCaps&) {
+GrGLEffect::EffectKey GrGLBlendEffect::GenKey(const GrEffect& s, const GrGLCaps&) {
     return static_cast<const GrBlendEffect&>(s).mode();
 }
 #endif

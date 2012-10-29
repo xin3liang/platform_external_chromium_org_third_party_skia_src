@@ -9,10 +9,10 @@
 
 #include "GrAllocator.h"
 #include "GrEffect.h"
-#include "GrGLProgramStage.h"
+#include "GrGLEffect.h"
 #include "gl/GrGLShaderBuilder.h"
 #include "GrGLShaderVar.h"
-#include "GrProgramStageFactory.h"
+#include "GrBackendEffectFactory.h"
 #include "SkTrace.h"
 #include "SkXfermode.h"
 
@@ -80,7 +80,7 @@ GrGLProgram::GrGLProgram(const GrGLContextInfo& gl,
     fRTHeight = -1;
 
     for (int s = 0; s < GrDrawState::kNumStages; ++s) {
-        fProgramStage[s] = NULL;
+        fEffects[s] = NULL;
         fTextureMatrices[s] = GrMatrix::InvalidMatrix();
         // this is arbitrary, just initialize to something
         fTextureOrientation[s] = GrGLTexture::kBottomUp_Orientation;
@@ -104,7 +104,7 @@ GrGLProgram::~GrGLProgram() {
     }
 
     for (int i = 0; i < GrDrawState::kNumStages; ++i) {
-        delete fProgramStage[i];
+        delete fEffects[i];
     }
 }
 
@@ -624,13 +624,13 @@ bool GrGLProgram::genProgram(const GrEffect** effects) {
                 }
 
                 builder.setCurrentStage(s);
-                fProgramStage[s] = GenStageCode(effects[s],
-                                                fDesc.fStages[s],
-                                                &fUniforms.fStages[s],
-                                                inColor.size() ? inColor.c_str() : NULL,
-                                                outColor.c_str(),
-                                                inCoords,
-                                                &builder);
+                fEffects[s] = GenStageCode(effects[s],
+                                           fDesc.fStages[s],
+                                           &fUniforms.fStages[s],
+                                           inColor.size() ? inColor.c_str() : NULL,
+                                           outColor.c_str(),
+                                           inCoords,
+                                           &builder);
                 builder.setNonStage();
                 inColor = outColor;
             }
@@ -729,13 +729,13 @@ bool GrGLProgram::genProgram(const GrEffect** effects) {
                         inCoverage.append("4");
                     }
                     builder.setCurrentStage(s);
-                    fProgramStage[s] = GenStageCode(effects[s],
-                                                    fDesc.fStages[s],
-                                                    &fUniforms.fStages[s],
-                                                    inCoverage.size() ? inCoverage.c_str() : NULL,
-                                                    outCoverage.c_str(),
-                                                    inCoords,
-                                                    &builder);
+                    fEffects[s] = GenStageCode(effects[s],
+                                               fDesc.fStages[s],
+                                               &fUniforms.fStages[s],
+                                               inCoverage.size() ? inCoverage.c_str() : NULL,
+                                               outCoverage.c_str(),
+                                               inCoords,
+                                               &builder);
                     builder.setNonStage();
                     inCoverage = outCoverage;
                 }
@@ -896,7 +896,7 @@ void GrGLProgram::initSamplerUniforms() {
 // Stage code generation
 
 // TODO: Move this function to GrGLShaderBuilder
-GrGLProgramStage* GrGLProgram::GenStageCode(const GrEffect* stage,
+GrGLEffect* GrGLProgram::GenStageCode(const GrEffect* effect,
                                             const StageDesc& desc,
                                             StageUniforms* uniforms,
                                             const char* fsInColor, // NULL means no incoming color
@@ -904,7 +904,7 @@ GrGLProgramStage* GrGLProgram::GenStageCode(const GrEffect* stage,
                                             const char* vsInCoord,
                                             GrGLShaderBuilder* builder) {
 
-    GrGLProgramStage* glStage = stage->getFactory().createGLInstance(*stage);
+    GrGLEffect* glEffect = effect->getFactory().createGLInstance(*effect);
 
     /// Vertex Shader Stuff
 
@@ -932,13 +932,13 @@ GrGLProgramStage* GrGLProgram::GenStageCode(const GrEffect* stage,
                         &varyingFSName);
     builder->setupTextureAccess(varyingFSName, texCoordVaryingType);
 
-    int numTextures = stage->numTextures();
+    int numTextures = effect->numTextures();
     SkSTArray<8, GrGLShaderBuilder::TextureSampler> textureSamplers;
 
     textureSamplers.push_back_n(numTextures);
 
     for (int i = 0; i < numTextures; ++i) {
-        textureSamplers[i].init(builder, &stage->textureAccess(i));
+        textureSamplers[i].init(builder, &effect->textureAccess(i));
         uniforms->fSamplerUniforms.push_back(textureSamplers[i].fSamplerUniform);
     }
 
@@ -953,19 +953,19 @@ GrGLProgramStage* GrGLProgram::GenStageCode(const GrEffect* stage,
     }
 
     // Enclose custom code in a block to avoid namespace conflicts
-    builder->fVSCode.appendf("\t{ // %s\n", glStage->name());
-    builder->fFSCode.appendf("\t{ // %s \n", glStage->name());
-    glStage->emitCode(builder,
-                      *stage,
-                      desc.fCustomStageKey,
-                      varyingVSName,
-                      fsOutColor,
-                      fsInColor,
-                      textureSamplers);
+    builder->fVSCode.appendf("\t{ // %s\n", glEffect->name());
+    builder->fFSCode.appendf("\t{ // %s \n", glEffect->name());
+    glEffect->emitCode(builder,
+                       *effect,
+                       desc.fEffectKey,
+                       varyingVSName,
+                       fsOutColor,
+                       fsInColor,
+                       textureSamplers);
     builder->fVSCode.appendf("\t}\n");
     builder->fFSCode.appendf("\t}\n");
 
-    return glStage;
+    return glEffect;
 }
 
 void GrGLProgram::setData(const GrDrawState& drawState) {
@@ -975,10 +975,10 @@ void GrGLProgram::setData(const GrDrawState& drawState) {
         fRTHeight = rtHeight;
     }
     for (int s = 0; s < GrDrawState::kNumStages; ++s) {
-        if (NULL != fProgramStage[s]) {
+        if (NULL != fEffects[s]) {
             const GrSamplerState& sampler = drawState.getSampler(s);
             GrAssert(NULL != sampler.getEffect());
-            fProgramStage[s]->setData(fUniformManager, *sampler.getEffect());
+            fEffects[s]->setData(fUniformManager, *sampler.getEffect());
         }
     }
 }

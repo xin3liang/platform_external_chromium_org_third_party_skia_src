@@ -192,10 +192,10 @@ private:
 
 #if SK_SUPPORT_GPU
 
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
 
 class GrSamplerState;
-class GrProgramStageFactory;
+class GrBackendEffectFactory;
 
 /*
  * The intepretation of the texture matrix depends on the sample mode. The
@@ -237,9 +237,9 @@ public:
     bool useAtlas() const { return SkToBool(-1 != fRow); }
     GrScalar getYCoord() const { return fYCoord; };
 
-    virtual bool isEqual(const GrEffect& stage) const SK_OVERRIDE {
-        const GrGradientEffect& s = static_cast<const GrGradientEffect&>(stage);
-        return INHERITED::isEqual(stage) && this->useAtlas() == s.useAtlas() &&
+    virtual bool isEqual(const GrEffect& effect) const SK_OVERRIDE {
+        const GrGradientEffect& s = static_cast<const GrGradientEffect&>(effect);
+        return INHERITED::isEqual(effect) && this->useAtlas() == s.useAtlas() &&
                fYCoord == s.getYCoord();
     }
 
@@ -271,11 +271,11 @@ private:
 ///////////////////////////////////////////////////////////////////////////////
 
 // Base class for GL gradient effects
-class GrGLGradientStage : public GrGLLegacyProgramStage {
+class GrGLGradientEffect : public GrGLLegacyEffect {
 public:
 
-    GrGLGradientStage(const GrProgramStageFactory& factory);
-    virtual ~GrGLGradientStage();
+    GrGLGradientEffect(const GrBackendEffectFactory& factory);
+    virtual ~GrGLGradientEffect();
 
     virtual void setupVariables(GrGLShaderBuilder* builder) SK_OVERRIDE;
     virtual void setData(const GrGLUniformManager&, const GrEffect&) SK_OVERRIDE;
@@ -293,7 +293,7 @@ private:
     GrScalar fCachedYCoord;
     GrGLUniformManager::UniformHandle fFSYUni;
 
-    typedef GrGLLegacyProgramStage INHERITED;
+    typedef GrGLLegacyEffect INHERITED;
 };
 
 #endif
