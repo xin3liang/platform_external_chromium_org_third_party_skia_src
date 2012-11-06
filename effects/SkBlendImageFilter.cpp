@@ -14,6 +14,7 @@
 #include "SkGrPixelRef.h"
 #include "gl/GrGLEffect.h"
 #include "gl/GrGLEffectMatrix.h"
+#include "effects/GrSingleTextureEffect.h"
 #include "GrTBackendEffectFactory.h"
 #endif
 
@@ -246,7 +247,6 @@ GrGLBlendEffect::GrGLBlendEffect(const GrBackendEffectFactory& factory,
                                  const GrEffect& effect)
     : INHERITED(factory),
       fMode(static_cast<const GrBlendEffect&>(effect).mode()) {
-    fRequiresTextureMatrix = false;
 }
 
 GrGLBlendEffect::~GrGLBlendEffect() {
@@ -295,7 +295,7 @@ void GrGLBlendEffect::setData(const GrGLUniformManager& uman, const GrEffectStag
 
 GrGLEffect::EffectKey GrGLBlendEffect::GenKey(const GrEffectStage& stage, const GrGLCaps&) {
     const GrBlendEffect& blend = static_cast<const GrBlendEffect&>(*stage.getEffect());
-    EffectKey key = 
+    EffectKey key =
         GrGLEffectMatrix::GenKey(blend.getMatrix(), stage.getCoordChangeMatrix(), blend.texture(0));
     key |= (blend.mode() << GrGLEffectMatrix::kKeyBits);
     return key;

@@ -679,7 +679,6 @@ GrGLGradientEffect::GrGLGradientEffect(const GrBackendEffectFactory& factory)
     : INHERITED(factory)
     , fCachedYCoord(SK_ScalarMax)
     , fFSYUni(GrGLUniformManager::kInvalidUniformHandle) {
-    fRequiresTextureMatrix = false;
 }
 
 GrGLGradientEffect::~GrGLGradientEffect() { }
@@ -704,7 +703,7 @@ void GrGLGradientEffect::setData(const GrGLUniformManager& uman, const GrEffectS
 GrGLEffect::EffectKey GrGLGradientEffect::GenMatrixKey(const GrEffectStage& s) {
     const GrGradientEffect& e = static_cast<const GrGradientEffect&>(*s.getEffect());
     const GrTexture* texture = e.texture(0);
-    return GrGLEffectMatrix::GenKey(e.getMatrix(), s.getCoordChangeMatrix(), texture); 
+    return GrGLEffectMatrix::GenKey(e.getMatrix(), s.getCoordChangeMatrix(), texture);
 }
 
 void GrGLGradientEffect::setupMatrix(GrGLShaderBuilder* builder,

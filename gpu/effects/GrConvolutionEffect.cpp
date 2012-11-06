@@ -7,6 +7,7 @@
 
 #include "GrConvolutionEffect.h"
 #include "gl/GrGLEffect.h"
+#include "gl/GrGLEffectMatrix.h"
 #include "gl/GrGLSL.h"
 #include "gl/GrGLTexture.h"
 #include "GrTBackendEffectFactory.h"
@@ -34,9 +35,10 @@ public:
 private:
     int width() const { return Gr1DKernelEffect::WidthFromRadius(fRadius); }
 
-    int             fRadius;
-    UniformHandle   fKernelUni;
-    UniformHandle   fImageIncrementUni;
+    int                 fRadius;
+    UniformHandle       fKernelUni;
+    UniformHandle       fImageIncrementUni;
+    GrGLEffectMatrix    fEffectMatrix;
 
     typedef GrGLEffect INHERITED;
 };
@@ -53,11 +55,13 @@ GrGLConvolutionEffect::GrGLConvolutionEffect(const GrBackendEffectFactory& facto
 
 void GrGLConvolutionEffect::emitCode(GrGLShaderBuilder* builder,
                                      const GrEffectStage&,
-                                     EffectKey,
+                                     EffectKey key,
                                      const char* vertexCoords,
                                      const char* outputColor,
                                      const char* inputColor,
                                      const TextureSamplerArray& samplers) {
+    const char* coords;
+    fEffectMatrix.emitCodeMakeFSCoords2D(builder, key, vertexCoords, &coords);
     fImageIncrementUni = builder->addUniform(GrGLShaderBuilder::kFragment_ShaderType,
                                              kVec2f_GrSLType, "ImageIncrement");
     fKernelUni = builder->addUniformArray(GrGLShaderBuilder::kFragment_ShaderType,
@@ -70,8 +74,7 @@ void GrGLConvolutionEffect::emitCode(GrGLShaderBuilder* builder,
     const GrGLShaderVar& kernel = builder->getUniformVariable(fKernelUni);
     const char* imgInc = builder->getUniformCStr(fImageIncrementUni);
 
-    code->appendf("\t\tvec2 coord = %s - %d.0 * %s;\n",
-                  builder->defaultTexCoordsName(), fRadius, imgInc);
+    code->appendf("\t\tvec2 coord = %s - %d.0 * %s;\n", coords, fRadius, imgInc);
 
     // Manually unroll loop because some drivers don't; yields 20-30% speedup.
     for (int i = 0; i < width; i++) {
@@ -105,10 +108,17 @@ void GrGLConvolutionEffect::setData(const GrGLUniformManager& uman, const GrEffe
     }
     uman.set2fv(fImageIncrementUni, 0, 1, imageIncrement);
     uman.set1fv(fKernelUni, 0, this->width(), conv.kernel());
+    fEffectMatrix.setData(uman, conv.getMatrix(), stage.getCoordChangeMatrix(), conv.texture(0));
 }
 
 GrGLEffect::EffectKey GrGLConvolutionEffect::GenKey(const GrEffectStage& s, const GrGLCaps&) {
-    return static_cast<const GrConvolutionEffect&>(*s.getEffect()).radius();
+    const GrConvolutionEffect& conv = static_cast<const GrConvolutionEffect&>(*s.getEffect());
+    EffectKey key = static_cast<const GrConvolutionEffect&>(*s.getEffect()).radius();
+    key <<= GrGLEffectMatrix::kKeyBits;
+    EffectKey matrixKey = GrGLEffectMatrix::GenKey(conv.getMatrix(),
+                                                   s.getCoordChangeMatrix(),
+                                                   conv.texture(0));
+    return key | matrixKey;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -119,11 +129,10 @@ GrConvolutionEffect::GrConvolutionEffect(GrTexture* texture,
                                          const float* kernel)
     : Gr1DKernelEffect(texture, direction, radius) {
     GrAssert(radius <= kMaxKernelRadius);
+    GrAssert(NULL != kernel);
     int width = this->width();
-    if (NULL != kernel) {
-        for (int i = 0; i < width; i++) {
-            fKernel[i] = kernel[i];
-        }
+    for (int i = 0; i < width; i++) {
+        fKernel[i] = kernel[i];
     }
 }
 

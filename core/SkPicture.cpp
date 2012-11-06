@@ -157,6 +157,12 @@ void SkPicture::clone(SkPicture* pictures, int count) const {
         clone->fHeight = fHeight;
         clone->fRecord = NULL;
 
+        if (NULL != clone->fRecord) {
+            clone->fRecord->unref();
+            clone->fRecord = NULL;
+        }
+        SkDELETE(clone->fPlayback);
+
         /*  We want to copy the src's playback. However, if that hasn't been built
             yet, we need to fake a call to endRecording() without actually calling
             it (since it is destructive, and we don't want to change src).
@@ -208,7 +214,7 @@ SkCanvas* SkPicture::beginRecording(int width, int height,
 }
 
 SkBBoxHierarchy* SkPicture::createBBoxHierarchy() const {
-    // These values were empirically determined to produce reasonable 
+    // These values were empirically determined to produce reasonable
     // performance in most cases.
     static const int kRTreeMinChildren = 6;
     static const int kRTreeMaxChildren = 11;
