@@ -126,7 +126,7 @@ size_t GrDrawTarget::VertexSize(GrVertexLayout vertexLayout) {
         size += sizeof(GrColor);
     }
     if (vertexLayout & kEdge_VertexLayoutBit) {
-        size += 4 * sizeof(GrScalar);
+        size += 4 * sizeof(SkScalar);
     }
     return size;
 }
@@ -269,7 +269,7 @@ int GrDrawTarget::VertexSizeAndOffsetsByIdx(
         if (NULL != edgeOffset) {
             *edgeOffset = size;
         }
-        size += 4 * sizeof(GrScalar);
+        size += 4 * sizeof(SkScalar);
     } else {
         if (NULL != edgeOffset) {
             *edgeOffset = -1;
@@ -323,7 +323,7 @@ int GrDrawTarget::VertexTexCoordsForStage(int stageIdx,
         // bits are ordered T0S0, T0S1, T0S2, ..., T1S0, T1S1, ...
         // and start at bit 0.
         GR_STATIC_ASSERT(sizeof(GrVertexLayout) <= sizeof(uint32_t));
-        return (32 - Gr_clz(bit) - 1) / GrDrawState::kNumStages;
+        return (32 - SkCLZ(bit) - 1) / GrDrawState::kNumStages;
     }
     return -1;
 }
@@ -1027,9 +1027,9 @@ void GrDrawTarget::drawIndexedInstances(GrPrimitiveType type,
 ////////////////////////////////////////////////////////////////////////////////
 
 void GrDrawTarget::drawRect(const GrRect& rect,
-                            const GrMatrix* matrix,
+                            const SkMatrix* matrix,
                             const GrRect* srcRects[],
-                            const GrMatrix* srcMatrices[]) {
+                            const SkMatrix* srcMatrices[]) {
     GrVertexLayout layout = GetRectVertexLayout(srcRects);
 
     AutoReleaseGeometry geo(this, layout, 4, 0);
@@ -1070,9 +1070,9 @@ GrVertexLayout GrDrawTarget::GetRectVertexLayout(const GrRect* srcRects[]) {
 // Note: the color parameter will only be used when kColor_VertexLayoutBit
 // is present in 'layout'
 void GrDrawTarget::SetRectVertices(const GrRect& rect,
-                                   const GrMatrix* matrix,
+                                   const SkMatrix* matrix,
                                    const GrRect* srcRects[],
-                                   const GrMatrix* srcMatrices[],
+                                   const SkMatrix* srcMatrices[],
                                    GrColor color,
                                    GrVertexLayout layout,
                                    void* vertices) {

@@ -9,6 +9,7 @@
 #define GrSingleTextureEffect_DEFINED
 
 #include "GrEffect.h"
+#include "SkMatrix.h"
 
 class GrGLSingleTextureEffect;
 
@@ -18,13 +19,15 @@ class GrGLSingleTextureEffect;
 class GrSingleTextureEffect : public GrEffect {
 
 public:
-    /** Uses default texture params (unfiltered, clamp) */
-    GrSingleTextureEffect(GrTexture* texture);
-
-    /** Uses default tile mode (clamp) */
-    GrSingleTextureEffect(GrTexture* texture, bool bilerp);
-
+    /** These three constructors assume an identity matrix */
+    GrSingleTextureEffect(GrTexture* texture); /* unfiltered, clamp mode */
+    GrSingleTextureEffect(GrTexture* texture, bool bilerp); /* clamp mode */
     GrSingleTextureEffect(GrTexture* texture, const GrTextureParams&);
+
+    /** These three constructors take an explicit matrix */
+    GrSingleTextureEffect(GrTexture*, const SkMatrix&); /* unfiltered, clamp mode */
+    GrSingleTextureEffect(GrTexture*, const SkMatrix&, bool bilerp); /* clamp mode */
+    GrSingleTextureEffect(GrTexture*, const SkMatrix&, const GrTextureParams&);
 
     virtual ~GrSingleTextureEffect();
 
@@ -32,14 +35,21 @@ public:
 
     static const char* Name() { return "Single Texture"; }
 
+    const SkMatrix& getMatrix() const { return fMatrix; }
+
     typedef GrGLSingleTextureEffect GLEffect;
 
     virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
 
+    virtual bool isEqual(const GrEffect& effect) const SK_OVERRIDE {
+        const GrSingleTextureEffect& ste = static_cast<const GrSingleTextureEffect&>(effect);
+        return INHERITED::isEqual(effect) && fMatrix.cheapEqualTo(ste.getMatrix());
+    }
 private:
     GR_DECLARE_EFFECT_TEST;
 
     GrTextureAccess fTextureAccess;
+    SkMatrix        fMatrix;
 
     typedef GrEffect INHERITED;
 };

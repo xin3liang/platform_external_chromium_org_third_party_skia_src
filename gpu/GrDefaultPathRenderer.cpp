@@ -183,7 +183,7 @@ static inline void append_countour_edge_indices(GrPathFill fillType,
 
 bool GrDefaultPathRenderer::createGeom(const SkPath& path,
                                        GrPathFill fill,
-                                       GrScalar srcSpaceTol,
+                                       SkScalar srcSpaceTol,
                                        GrDrawTarget* target,
                                        GrPrimitiveType* primType,
                                        int* vertexCnt,
@@ -192,7 +192,7 @@ bool GrDefaultPathRenderer::createGeom(const SkPath& path,
     {
     SK_TRACE_EVENT0("GrDefaultPathRenderer::createGeom");
 
-    GrScalar srcSpaceTolSqd = GrMul(srcSpaceTol, srcSpaceTol);
+    SkScalar srcSpaceTolSqd = SkScalarMul(srcSpaceTol, srcSpaceTol);
     int contourCnt;
     int maxPts = GrPathUtils::worstCasePointCount(path, &contourCnt,
                                                   srcSpaceTol);
@@ -320,8 +320,8 @@ bool GrDefaultPathRenderer::internalDrawPath(const SkPath& path,
                                              GrDrawTarget* target,
                                              bool stencilOnly) {
 
-    GrMatrix viewM = target->getDrawState().getViewMatrix();
-    GrScalar tol = GR_Scalar1;
+    SkMatrix viewM = target->getDrawState().getViewMatrix();
+    SkScalar tol = SK_Scalar1;
     tol = GrPathUtils::scaleToleranceToSrc(tol, viewM, path.getBounds());
 
     int vertexCnt;
@@ -455,9 +455,9 @@ bool GrDefaultPathRenderer::internalDrawPath(const SkPath& path,
                 GrAssert(NULL != drawState->getRenderTarget());
                 // draw over the whole world.
                 bounds.setLTRB(0, 0,
-                               GrIntToScalar(drawState->getRenderTarget()->width()),
-                               GrIntToScalar(drawState->getRenderTarget()->height()));
-                GrMatrix vmi;
+                               SkIntToScalar(drawState->getRenderTarget()->width()),
+                               SkIntToScalar(drawState->getRenderTarget()->height()));
+                SkMatrix vmi;
                 // mapRect through persp matrix may not be correct
                 if (!drawState->getViewMatrix().hasPerspective() &&
                     drawState->getViewInverse(&vmi)) {

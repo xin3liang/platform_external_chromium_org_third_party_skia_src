@@ -100,7 +100,7 @@ void GrSWMaskHelper::draw(const SkPath& path, SkRegion::Op op,
 }
 
 bool GrSWMaskHelper::init(const GrIRect& resultBounds,
-                          const GrMatrix* matrix) {
+                          const SkMatrix* matrix) {
     if (NULL != matrix) {
         fMatrix = *matrix;
     } else {
@@ -177,7 +177,7 @@ GrTexture* GrSWMaskHelper::DrawPathMaskToTexture(GrContext* context,
                                                  const GrIRect& resultBounds,
                                                  GrPathFill fill,
                                                  bool antiAlias,
-                                                 GrMatrix* matrix) {
+                                                 SkMatrix* matrix) {
     GrAutoScratchTexture ast;
 
     GrSWMaskHelper helper(context);
@@ -214,8 +214,8 @@ void GrSWMaskHelper::DrawToTargetWithPathMask(GrTexture* texture,
     GrAssert(!drawState->isStageEnabled(kPathMaskStage));
     drawState->stage(kPathMaskStage)->reset();
     drawState->createTextureEffect(kPathMaskStage, texture);
-    GrScalar w = GrIntToScalar(rect.width());
-    GrScalar h = GrIntToScalar(rect.height());
+    SkScalar w = SkIntToScalar(rect.width());
+    SkScalar h = SkIntToScalar(rect.height());
     GrRect maskRect = GrRect::MakeWH(w / texture->width(),
                                      h / texture->height());
 
