@@ -724,6 +724,21 @@ bool operator!=(const SkClipStack::Iter::Clip& a,
     return !(a == b);
 }
 
+const SkRect& SkClipStack::Iter::Clip::getBounds() const {
+    if (NULL != fRect) {
+        return *fRect;
+    } else if (NULL != fPath) {
+        return fPath->getBounds();
+    } else {
+        static const SkRect kEmpty = {0, 0, 0, 0};
+        return kEmpty;
+    }
+}
+
+bool SkClipStack::Iter::Clip::isInverseFilled() const {
+    return NULL != fPath && fPath->isInverseFillType();
+}
+
 SkClipStack::Iter::Iter(const SkClipStack& stack, IterStart startLoc)
     : fStack(&stack) {
     this->reset(stack, startLoc);
@@ -806,6 +821,69 @@ const SkClipStack::Iter::Clip* SkClipStack::Iter::skipToTopmost(SkRegion::Op op)
     }
 
     return this->next();
+}
+
+const SkClipStack::Iter::Clip* SkClipStack::Iter::skipToNext(SkRegion::Op op) {
+    const SkClipStack::Rec* rec;
+    do {
+        rec = (const SkClipStack::Rec*)fIter.next();
+        if (NULL == rec) {
+            return NULL;
+        }
+    } while (rec->fOp != op);
+    this->updateClip(rec);
+    return &fClip;
+}
+
+const SkClipStack::Iter::Clip* SkClipStack::Iter::nextCombined() {
+    const Clip* clip;
+
+    if (NULL != (clip = this->next()) &&
+        SkRegion::kIntersect_Op == clip->fOp &&
+        NULL != clip->fRect) {
+        fCombinedRect = *clip->fRect;
+        bool doAA = clip->fDoAA;
+
+        while(NULL != (clip = this->next()) &&
+              SkRegion::kIntersect_Op == clip->fOp &&
+              NULL != clip->fRect) { // backup if non-null
+            /**
+             * If the AA settings don't match on consecutive rects we can still continue if
+             * either contains the other. Otherwise, we must stop.
+             */
+            if (doAA != clip->fDoAA) {
+                if (fCombinedRect.contains(*clip->fRect)) {
+                    fCombinedRect = *clip->fRect;
+                    doAA = clip->fDoAA;
+                } else if (!clip->fRect->contains(fCombinedRect)) {
+                    break;
+                }
+            } else if (!fCombinedRect.intersect(*fClip.fRect)) {
+                fCombinedRect.setEmpty();
+                clip = NULL; // prevents unnecessary rewind below.
+                break;
+            }
+        }
+        // If we got here and clip is non-NULL then we got an element that we weren't able to
+        // combine. We need to backup one to ensure that the callers next next() call returns it.
+        if (NULL != clip) {
+            // If next() above returned the last element then due to Iter's internal workings prev()
+            // will return NULL. In that case we reset to the last element.
+            if (NULL == this->prev()) {
+                this->reset(*fStack, SkClipStack::Iter::kTop_IterStart);
+            }
+        }
+
+        // Must do this last because it is overwritten in the above backup.
+        fClip.fRect = &fCombinedRect;
+        fClip.fPath = NULL;
+        fClip.fOp = SkRegion::kIntersect_Op;
+        fClip.fDoAA = doAA;
+        fClip.fGenID = kInvalidGenID;
+        return &fClip;
+    } else {
+        return clip;
+    }
 }
 
 void SkClipStack::Iter::reset(const SkClipStack& stack, IterStart startLoc) {

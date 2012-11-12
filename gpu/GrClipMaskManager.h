@@ -126,10 +126,13 @@ private:
 
     bool drawClipShape(GrTexture* target,
                        const SkClipStack::Iter::Clip* clip,
-                       const GrIRect& resultBounds);
+                       const SkIRect& clipRect);
 
-    void drawTexture(GrTexture* target,
-                     GrTexture* texture);
+    void mergeMask(GrTexture* dstMask,
+                   GrTexture* srcMask,
+                   SkRegion::Op op,
+                   const GrIRect& dstBound,
+                   const GrIRect& srcBound);
 
     void getTemp(const GrIRect& bounds, GrAutoScratchTexture* temp);
 
