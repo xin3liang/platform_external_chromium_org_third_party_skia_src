@@ -42,7 +42,7 @@ void SkMatrix44::asColMajorf(float dst[]) const {
     for (int i = 0; i < 16; ++i) {
         dst[i] = SkMScalarToFloat(src[i]);
     }
-#else
+#elif defined SK_MSCALAR_IS_FLOAT
     memcpy(dst, src, 16 * sizeof(float));
 #endif
 }
@@ -51,7 +51,7 @@ void SkMatrix44::asColMajord(double dst[]) const {
     const SkMScalar* src = &fMat[0][0];
 #ifdef SK_MSCALAR_IS_DOUBLE
     memcpy(dst, src, 16 * sizeof(double));
-#else
+#elif defined SK_MSCALAR_IS_FLOAT
     for (int i = 0; i < 16; ++i) {
         dst[i] = SkMScalarToDouble(src[i]);
     }
@@ -323,7 +323,18 @@ bool SkMatrix44::invert(SkMatrix44* inverse) const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void SkMatrix44::map(const SkScalar src[4], SkScalar dst[4]) const {
+void SkMatrix44::transpose() {
+    SkTSwap(fMat[0][1], fMat[1][0]);
+    SkTSwap(fMat[0][2], fMat[2][0]);
+    SkTSwap(fMat[0][3], fMat[3][0]);
+    SkTSwap(fMat[1][2], fMat[2][1]);
+    SkTSwap(fMat[1][3], fMat[3][1]);
+    SkTSwap(fMat[2][3], fMat[3][2]);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+void SkMatrix44::mapScalars(const SkScalar src[4], SkScalar dst[4]) const {
     SkScalar result[4];
     for (int i = 0; i < 4; i++) {
         SkMScalar value = 0;
@@ -334,6 +345,20 @@ void SkMatrix44::map(const SkScalar src[4], SkScalar dst[4]) const {
     }
     memcpy(dst, result, sizeof(result));
 }
+
+#ifdef SK_MSCALAR_IS_DOUBLE
+void SkMatrix44::mapMScalars(const SkMScalar src[4], SkMScalar dst[4]) const {
+    SkMScalar result[4];
+    for (int i = 0; i < 4; i++) {
+        SkMScalar value = 0;
+        for (int j = 0; j < 4; j++) {
+            value += fMat[j][i] * src[j];
+        }
+        result[i] = SkMScalarToScalar(value);
+    }
+    memcpy(dst, result, sizeof(result));
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
