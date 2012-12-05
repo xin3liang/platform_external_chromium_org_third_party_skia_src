@@ -24,6 +24,7 @@ GR_DEFINE_RESOURCE_CACHE_DOMAIN(GrClipMaskManager, GetAlphaMaskDomain)
 #define GR_AA_CLIP 1
 #define GR_SW_CLIP 1
 
+typedef SkClipStack::Element Element;
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace GrReducedClip {
@@ -38,37 +39,48 @@ based on later intersect operations, and perhaps remove intersect-rects. We coul
 take a rect in case the caller knows a bound on what is to be drawn through this clip.
 */
 void GrReduceClipStack(const SkClipStack& stack,
-                       SkTDArray<SkClipStack::Iter::Clip>* resultClips,
-                       SkRect* resultBounds,
-                       bool* resultsAreBounded,
+                       const SkRect& queryBounds,
+                       ElementList* result,
                        InitialState* initialState) {
-    resultClips->reset();
+    result->reset();
 
     if (stack.isWideOpen()) {
         *initialState = kAllIn_InitialState;
-        *resultsAreBounded = false;
         return;
     }
 
-    SkClipStack::BoundsType type;
+    SkClipStack::BoundsType stackBoundsType;
+    SkRect stackBounds;
     bool iior;
-    stack.getBounds(resultBounds, &type, &iior);
+    stack.getBounds(&stackBounds, &stackBoundsType, &iior);
+
     if (iior) {
-        *resultsAreBounded = true;
-        *initialState = kAllOut_InitialState;
-        SkClipStack::Iter::Clip* clip = resultClips->append();
-        // append doesn't call the default cons.
-        *clip = SkClipStack::Iter::Clip();
-
-        // iior should only be true if aa/non-aa status matches.
-        SkClipStack::Iter iter(stack, SkClipStack::Iter::kTop_IterStart);
-        clip->fDoAA = iter.prev()->fDoAA;
-        clip->fOp = SkRegion::kReplace_Op;
-        clip->fRect = resultBounds;
+        SkASSERT(SkClipStack::kNormal_BoundsType == stackBoundsType);
+        SkRect isectRect;
+        if (stackBounds.contains(queryBounds)) {
+            *initialState = kAllIn_InitialState;
+        } else if (isectRect.intersect(stackBounds, queryBounds)) {
+            // iior should only be true if aa/non-aa status matches among all elements.
+            SkClipStack::Iter iter(stack, SkClipStack::Iter::kTop_IterStart);
+            bool doAA = iter.prev()->isAA();
+            SkNEW_INSERT_AT_LLIST_HEAD(result, Element, (isectRect, SkRegion::kReplace_Op, doAA));
+        } else {
+            *initialState = kAllOut_InitialState;
+        }
         return;
+    } else {
+        if (SkClipStack::kNormal_BoundsType == stackBoundsType) {
+            if (!SkRect::Intersects(stackBounds, queryBounds)) {
+                *initialState = kAllOut_InitialState;
+                return;
+            }
+        } else {
+            if (stackBounds.contains(queryBounds)) {
+                *initialState = kAllOut_InitialState;
+                return;
+            }
+        }
     }
-
-    *resultsAreBounded = SkClipStack::kNormal_BoundsType == type && !resultBounds->isEmpty();
 
     // walk backwards until we get to:
     //  a) the beginning
@@ -85,16 +97,16 @@ void GrReduceClipStack(const SkClipStack& stack,
 
     SkClipStack::Iter iter(stack, SkClipStack::Iter::kTop_IterStart);
     while ((kUnknown_InitialState == *initialState)) {
-        const SkClipStack::Iter::Clip* clip = iter.prev();
-        if (NULL == clip) {
+        const Element* element = iter.prev();
+        if (NULL == element) {
             *initialState = kAllIn_InitialState;
             break;
         }
-        if (SkClipStack::kEmptyGenID == clip->fGenID) {
+        if (SkClipStack::kEmptyGenID == element->getGenID()) {
             *initialState = kAllOut_InitialState;
             break;
         }
-        if (SkClipStack::kWideOpenGenID == clip->fGenID) {
+        if (SkClipStack::kWideOpenGenID == element->getGenID()) {
             *initialState = kAllIn_InitialState;
             break;
         }
@@ -102,25 +114,23 @@ void GrReduceClipStack(const SkClipStack& stack,
         bool skippable = false;
         bool isFlip = false; // does this op just flip the in/out state of every point in the bounds
 
-        switch (clip->fOp) {
+        switch (element->getOp()) {
             case SkRegion::kDifference_Op:
-                if (*resultsAreBounded) {
-                    // check if the shape subtracted either contains the entire bounds (and makes
-                    // the clip empty) or is outside the bounds and therefore can be skipped.
-                    if (clip->isInverseFilled()) {
-                        if (clip->contains(*resultBounds)) {
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            *initialState = kAllOut_InitialState;
-                            skippable = true;
-                        }
-                    } else {
-                        if (clip->contains(*resultBounds)) {
-                            *initialState = kAllOut_InitialState;
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            skippable = true;
-                        }
+                // check if the shape subtracted either contains the entire bounds (and makes
+                // the clip empty) or is outside the bounds and therefore can be skipped.
+                if (element->isInverseFilled()) {
+                    if (element->contains(queryBounds)) {
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        *initialState = kAllOut_InitialState;
+                        skippable = true;
+                    }
+                } else {
+                    if (element->contains(queryBounds)) {
+                        *initialState = kAllOut_InitialState;
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        skippable = true;
                     }
                 }
                 if (!skippable) {
@@ -128,24 +138,22 @@ void GrReduceClipStack(const SkClipStack& stack,
                 }
                 break;
             case SkRegion::kIntersect_Op:
-                if (*resultsAreBounded) {
-                    // check if the shape intersected contains the entire bounds and therefore can
-                    // be skipped or it is outside the entire bounds and therefore makes the clip
-                    // empty.
-                    if (clip->isInverseFilled()) {
-                        if (clip->contains(*resultBounds)) {
-                            *initialState = kAllOut_InitialState;
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            skippable = true;
-                        }
-                    } else {
-                        if (clip->contains(*resultBounds)) {
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            *initialState = kAllOut_InitialState;
-                            skippable = true;
-                        }
+                // check if the shape intersected contains the entire bounds and therefore can
+                // be skipped or it is outside the entire bounds and therefore makes the clip
+                // empty.
+                if (element->isInverseFilled()) {
+                    if (element->contains(queryBounds)) {
+                        *initialState = kAllOut_InitialState;
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        skippable = true;
+                    }
+                } else {
+                    if (element->contains(queryBounds)) {
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        *initialState = kAllOut_InitialState;
+                        skippable = true;
                     }
                 }
                 if (!skippable) {
@@ -153,24 +161,22 @@ void GrReduceClipStack(const SkClipStack& stack,
                 }
                 break;
             case SkRegion::kUnion_Op:
-                if (*resultsAreBounded) {
-                    // If the union-ed shape contains the entire bounds then after this element
-                    // the bounds is entirely inside the clip. If the union-ed shape is outside the
-                    // bounds then this op can be skipped.
-                    if (clip->isInverseFilled()) {
-                        if (clip->contains(*resultBounds)) {
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            *initialState = kAllIn_InitialState;
-                            skippable = true;
-                        }
-                    } else {
-                        if (clip->contains(*resultBounds)) {
-                            *initialState = kAllIn_InitialState;
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            skippable = true;
-                        }
+                // If the union-ed shape contains the entire bounds then after this element
+                // the bounds is entirely inside the clip. If the union-ed shape is outside the
+                // bounds then this op can be skipped.
+                if (element->isInverseFilled()) {
+                    if (element->contains(queryBounds)) {
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        *initialState = kAllIn_InitialState;
+                        skippable = true;
+                    }
+                } else {
+                    if (element->contains(queryBounds)) {
+                        *initialState = kAllIn_InitialState;
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        skippable = true;
                     }
                 }
                 if (!skippable) {
@@ -178,23 +184,21 @@ void GrReduceClipStack(const SkClipStack& stack,
                 }
                 break;
             case SkRegion::kXOR_Op:
-                if (*resultsAreBounded) {
-                    // If the bounds is entirely inside the shape being xor-ed then the effect is
-                    // to flip the inside/outside state of every point in the bounds. We may be
-                    // able to take advantage of this in the forward pass. If the xor-ed shape
-                    // doesn't intersect the bounds then it can be skipped.
-                    if (clip->isInverseFilled()) {
-                        if (clip->contains(*resultBounds)) {
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            isFlip = true;
-                        }
-                    } else {
-                        if (clip->contains(*resultBounds)) {
-                            isFlip = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            skippable = true;
-                        }
+                // If the bounds is entirely inside the shape being xor-ed then the effect is
+                // to flip the inside/outside state of every point in the bounds. We may be
+                // able to take advantage of this in the forward pass. If the xor-ed shape
+                // doesn't intersect the bounds then it can be skipped.
+                if (element->isInverseFilled()) {
+                    if (element->contains(queryBounds)) {
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        isFlip = true;
+                    }
+                } else {
+                    if (element->contains(queryBounds)) {
+                        isFlip = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        skippable = true;
                     }
                 }
                 if (!skippable) {
@@ -206,21 +210,19 @@ void GrReduceClipStack(const SkClipStack& stack,
                 // and reverses every point inside the bounds. If the shape is completely outside
                 // the bounds then we know after this element is applied that the bounds will be
                 // all outside the current clip.B
-                if (*resultsAreBounded) {
-                    if (clip->isInverseFilled()) {
-                        if (clip->contains(*resultBounds)) {
-                            *initialState = kAllOut_InitialState;
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            isFlip = true;
-                        }
-                    } else {
-                        if (clip->contains(*resultBounds)) {
-                            isFlip = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            *initialState = kAllOut_InitialState;
-                            skippable = true;
-                        }
+                if (element->isInverseFilled()) {
+                    if (element->contains(queryBounds)) {
+                        *initialState = kAllOut_InitialState;
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        isFlip = true;
+                    }
+                } else {
+                    if (element->contains(queryBounds)) {
+                        isFlip = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        *initialState = kAllOut_InitialState;
+                        skippable = true;
                     }
                 }
                 if (!skippable) {
@@ -232,23 +234,21 @@ void GrReduceClipStack(const SkClipStack& stack,
                 // at the replace op or detect here than the shape is either completely inside
                 // or completely outside the bounds. In this latter case it can be skipped by
                 // setting the correct value for initialState.
-                if (*resultsAreBounded) {
-                    if (clip->isInverseFilled()) {
-                        if (clip->contains(*resultBounds)) {
-                            *initialState = kAllOut_InitialState;
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            *initialState = kAllIn_InitialState;
-                            skippable = true;
-                        }
-                    } else {
-                        if (clip->contains(*resultBounds)) {
-                            *initialState = kAllIn_InitialState;
-                            skippable = true;
-                        } else if (!SkRect::Intersects(clip->getBounds(), *resultBounds)) {
-                            *initialState = kAllOut_InitialState;
-                            skippable = true;
-                        }
+                if (element->isInverseFilled()) {
+                    if (element->contains(queryBounds)) {
+                        *initialState = kAllOut_InitialState;
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        *initialState = kAllIn_InitialState;
+                        skippable = true;
+                    }
+                } else {
+                    if (element->contains(queryBounds)) {
+                        *initialState = kAllIn_InitialState;
+                        skippable = true;
+                    } else if (!SkRect::Intersects(element->getBounds(), queryBounds)) {
+                        *initialState = kAllOut_InitialState;
+                        skippable = true;
                     }
                 }
                 if (!skippable) {
@@ -261,32 +261,28 @@ void GrReduceClipStack(const SkClipStack& stack,
                 break;
         }
         if (!skippable) {
-            SkClipStack::Iter::Clip* newClip = resultClips->prepend();
             // if it is a flip, change it to a bounds-filling rect
             if (isFlip) {
-                SkASSERT(SkRegion::kXOR_Op == clip->fOp ||
-                         SkRegion::kReverseDifference_Op == clip->fOp);
-                newClip->fPath = NULL;
-                newClip->fRect = resultBounds;
-                // assuming this is faster to perform on GPU with stenciling than xor.
-                newClip->fOp = SkRegion::kReverseDifference_Op;
-                newClip->fDoAA = false;
-                newClip->fGenID = SkClipStack::kInvalidGenID;
+                SkASSERT(SkRegion::kXOR_Op == element->getOp() ||
+                         SkRegion::kReverseDifference_Op == element->getOp());
+                SkNEW_INSERT_AT_LLIST_HEAD(result,
+                                           Element,
+                                           (queryBounds, SkRegion::kReverseDifference_Op, false));
             } else {
-                *newClip = *clip;
+                result->addToHead(*element);
             }
         }
     }
 
     if ((kAllOut_InitialState == *initialState && !embiggens) ||
         (kAllIn_InitialState == *initialState && !emsmallens)) {
-        resultClips->reset();
+        result->reset();
     } else {
         int clipsToSkip = 0;
-        while (1) {
-            SkClipStack::Iter::Clip* clip = &(*resultClips)[clipsToSkip];
+        Element* element = result->headIter().get();
+        while (NULL != element) {
             bool skippable = false;
-            switch (clip->fOp) {
+            switch (element->getOp()) {
                 case SkRegion::kDifference_Op:
                     // subtracting from the empty set yields the empty set.
                     skippable = kAllOut_InitialState == *initialState;
@@ -301,13 +297,13 @@ void GrReduceClipStack(const SkClipStack& stack,
                         skippable = true;
                     } else {
                         // unioning the empty set with a shape is the shape.
-                        clip->fOp = SkRegion::kReplace_Op;
+                        element->setOp(SkRegion::kReplace_Op);
                     }
                     break;
                 case SkRegion::kXOR_Op:
                     if (kAllOut_InitialState == *initialState) {
                         // xor could be changed to diff in the kAllIn case, not sure it's a win.
-                        clip->fOp = SkRegion::kReplace_Op;
+                        element->setOp(SkRegion::kReplace_Op);
                     }
                     break;
                 case SkRegion::kReverseDifference_Op:
@@ -317,15 +313,13 @@ void GrReduceClipStack(const SkClipStack& stack,
                         *initialState = kAllOut_InitialState;
                     } else {
                         // this picks up flips inserted in the backwards pass.
-                        if (*resultsAreBounded && NULL != clip->fRect) {
-                            skippable = clip->isInverseFilled() ?
-                                !SkRect::Intersects(clip->getBounds(), *resultBounds) :
-                                clip->contains(*resultBounds);
-                        }
+                        skippable = element->isInverseFilled() ?
+                            !SkRect::Intersects(element->getBounds(), queryBounds) :
+                            element->contains(queryBounds);
                         if (skippable) {
                             *initialState = kAllIn_InitialState;
                         } else {
-                            clip->fOp = SkRegion::kReplace_Op;
+                            element->setOp(SkRegion::kReplace_Op);
                         }
                     }
                     break;
@@ -341,13 +335,10 @@ void GrReduceClipStack(const SkClipStack& stack,
             if (!skippable) {
                 break;
             } else {
-                ++clipsToSkip;
-                if (clipsToSkip == resultClips->count()) {
-                    break;
-                }
+                result->popHead();
+                element = result->headIter().get();
             }
         }
-        resultClips->remove(0, clipsToSkip);
     }
 }
 } // namespace GrReducedClip
@@ -413,12 +404,12 @@ bool requires_AA(const SkClipStack& clipIn) {
     SkClipStack::Iter iter;
     iter.reset(clipIn, SkClipStack::Iter::kBottom_IterStart);
 
-    const SkClipStack::Iter::Clip* clip = NULL;
-    for (clip = iter.skipToTopmost(SkRegion::kReplace_Op);
-         NULL != clip;
-         clip = iter.next()) {
+    const Element* element = NULL;
+    for (element = iter.skipToTopmost(SkRegion::kReplace_Op);
+         NULL != element;
+         element = iter.next()) {
 
-        if (clip->fDoAA) {
+        if (element->isAA()) {
             return true;
         }
     }
@@ -441,19 +432,19 @@ bool GrClipMaskManager::useSWOnlyPath(const SkClipStack& clipIn) {
     bool useSW = false;
 
     SkClipStack::Iter iter(clipIn, SkClipStack::Iter::kBottom_IterStart);
-    const SkClipStack::Iter::Clip* clip = NULL;
+    const Element* element = NULL;
 
-    for (clip = iter.skipToTopmost(SkRegion::kReplace_Op);
-         NULL != clip;
-         clip = iter.next()) {
+    for (element = iter.skipToTopmost(SkRegion::kReplace_Op);
+         NULL != element;
+         element = iter.next()) {
 
         // rects can always be drawn directly w/o using the software path
         // so only paths need to be checked
-        if (NULL != clip->fPath &&
+        if (Element::kPath_Type == element->getType() &&
             path_needs_SW_renderer(this->getContext(), fGpu,
-                                   *clip->fPath,
-                                   get_path_fill(*clip->fPath),
-                                   clip->fDoAA)) {
+                                   element->getPath(),
+                                   get_path_fill(element->getPath()),
+                                   element->isAA())) {
             useSW = true;
         }
     }
@@ -598,7 +589,7 @@ bool contains(const SkRect& canvContainer,
 // determines how many elements at the head of the clip can be skipped and
 // whether the initial clear should be to the inside- or outside-the-clip value,
 // and what op should be used to draw the first element that isn't skipped.
-const SkClipStack::Iter::Clip* process_initial_clip_elements(
+const SkClipStack::Element* process_initial_clip_elements(
                                   SkClipStack::Iter* iter,
                                   const GrIRect& devBounds,
                                   bool* clearToInside,
@@ -615,12 +606,12 @@ const SkClipStack::Iter::Clip* process_initial_clip_elements(
     bool done = false;
     *clearToInside = true;
 
-    const SkClipStack::Iter::Clip* clip = NULL;
+    const SkClipStack::Element* element = NULL;
 
-    for (clip = iter->skipToTopmost(SkRegion::kReplace_Op);
-         NULL != clip && !done;
-         clip = iter->next()) {
-        switch (clip->fOp) {
+    for (element = iter->skipToTopmost(SkRegion::kReplace_Op);
+         NULL != element && !done;
+         element = iter->next()) {
+        switch (element->getOp()) {
             case SkRegion::kReplace_Op:
                 // replace ignores everything previous
                 *firstOp = SkRegion::kReplace_Op;
@@ -630,8 +621,8 @@ const SkClipStack::Iter::Clip* process_initial_clip_elements(
             case SkRegion::kIntersect_Op:
                 // if this element contains the entire bounds then we
                 // can skip it.
-                if (NULL != clip->fRect &&
-                    contains(*clip->fRect, devBounds, clipData.fOrigin)) {
+                if (Element::kRect_Type == element->getType() &&
+                    contains(element->getRect(), devBounds, clipData.fOrigin)) {
                     break;
                 }
                 // if everything is initially clearToInside then intersect is
@@ -674,7 +665,7 @@ const SkClipStack::Iter::Clip* process_initial_clip_elements(
                 break;
             case SkRegion::kReverseDifference_Op:
                 // if all pixels are clearToInside then reverse difference
-                // produces empty set. Otherise it is same as replace
+                // produces empty set. Otherwise it is same as replace
                 if (*clearToInside) {
                     *clearToInside = false;
                 } else {
@@ -692,7 +683,7 @@ const SkClipStack::Iter::Clip* process_initial_clip_elements(
             break;
         }
     }
-    return clip;
+    return element;
 }
 
 }
@@ -786,27 +777,31 @@ void device_to_canvas(SkRect* rect, const SkIPoint& origin) {
 
 ////////////////////////////////////////////////////////////////////////////////
 bool GrClipMaskManager::drawClipShape(GrTexture* target,
-                                      const SkClipStack::Iter::Clip* clip,
+                                      const SkClipStack::Element* element,
                                       const GrIRect& resultBounds) {
     GrDrawState* drawState = fGpu->drawState();
     GrAssert(NULL != drawState);
 
     drawState->setRenderTarget(target->asRenderTarget());
 
-    if (NULL != clip->fRect) {
-        if (clip->fDoAA) {
-            getContext()->getAARectRenderer()->fillAARect(fGpu, fGpu,
-                                                          *clip->fRect,
-                                                          true);
-        } else {
-            fGpu->drawSimpleRect(*clip->fRect, NULL);
-        }
-    } else if (NULL != clip->fPath) {
-        return draw_path(this->getContext(), fGpu,
-                         *clip->fPath,
-                         get_path_fill(*clip->fPath),
-                         clip->fDoAA,
-                         resultBounds);
+    switch (element->getType()) {
+        case Element::kRect_Type:
+            if (element->isAA()) {
+                getContext()->getAARectRenderer()->fillAARect(fGpu, fGpu, element->getRect(), true);
+            } else {
+                fGpu->drawSimpleRect(element->getRect(), NULL);
+            }
+            return true;
+        case Element::kPath_Type:
+            return draw_path(this->getContext(), fGpu,
+                             element->getPath(),
+                             get_path_fill(element->getPath()),
+                             element->isAA(),
+                             resultBounds);
+        default:
+            // something is wrong if we're trying to draw an empty element.
+            GrCrash("Unexpected element type");
+            return false;
     }
     return true;
 }
@@ -951,11 +946,11 @@ bool GrClipMaskManager::createAlphaClipMask(const GrClipData& clipDataIn,
 
     SkClipStack::Iter iter(*clipDataIn.fClipStack,
                            SkClipStack::Iter::kBottom_IterStart);
-    const SkClipStack::Iter::Clip* clip = process_initial_clip_elements(&iter,
-                                                              *devResultBounds,
-                                                              &clearToInside,
-                                                              &firstOp,
-                                                              clipDataIn);
+    const Element* element = process_initial_clip_elements(&iter,
+                                                           *devResultBounds,
+                                                           &clearToInside,
+                                                           &firstOp,
+                                                           clipDataIn);
     // The scratch texture that we are drawing into can be substantially larger than the mask. Only
     // clear the part that we care about.
     fGpu->clear(&maskResultBounds,
@@ -966,9 +961,9 @@ bool GrClipMaskManager::createAlphaClipMask(const GrClipData& clipDataIn,
     GrAutoScratchTexture temp;
     bool first = true;
     // walk through each clip element and perform its set op
-    for ( ; NULL != clip; clip = iter.next()) {
+    for ( ; NULL != element; element = iter.next()) {
 
-        SkRegion::Op op = clip->fOp;
+        SkRegion::Op op = element->getOp();
         if (first) {
             first = false;
             op = firstOp;
@@ -981,13 +976,13 @@ bool GrClipMaskManager::createAlphaClipMask(const GrClipData& clipDataIn,
             }
 
             setup_boolean_blendcoeffs(drawState, op);
-            this->drawClipShape(accum, clip, *devResultBounds);
+            this->drawClipShape(accum, element, *devResultBounds);
 
         } else if (SkRegion::kReverseDifference_Op == op ||
                    SkRegion::kIntersect_Op == op) {
             // there is no point in intersecting a screen filling rectangle.
-            if (SkRegion::kIntersect_Op == op && NULL != clip->fRect &&
-                contains(*clip->fRect, *devResultBounds, clipDataIn.fOrigin)) {
+            if (SkRegion::kIntersect_Op == op && Element::kRect_Type == element->getType() &&
+                contains(element->getRect(), *devResultBounds, clipDataIn.fOrigin)) {
                 continue;
             }
 
@@ -1001,7 +996,7 @@ bool GrClipMaskManager::createAlphaClipMask(const GrClipData& clipDataIn,
             // mask buffer can be substantially larger than the actually clip stack element. We
             // touch the minimum number of pixels necessary and use decal mode to combine it with
             // the accumulator
-            GrRect elementMaskBounds = clip->getBounds();
+            GrRect elementMaskBounds = element->getBounds();
             elementMaskBounds.offset(clipToMaskOffset);
             GrIRect elementMaskIBounds;
             elementMaskBounds.roundOut(&elementMaskIBounds);
@@ -1010,7 +1005,7 @@ bool GrClipMaskManager::createAlphaClipMask(const GrClipData& clipDataIn,
             fGpu->clear(&elementMaskIBounds, 0x00000000, temp.texture()->asRenderTarget());
 
             setup_boolean_blendcoeffs(drawState, SkRegion::kReplace_Op);
-            this->drawClipShape(temp.texture(), clip, elementMaskIBounds);
+            this->drawClipShape(temp.texture(), element, elementMaskIBounds);
 
             // Now draw into the accumulator using the real operation
             // and the temp buffer as a texture
@@ -1019,7 +1014,7 @@ bool GrClipMaskManager::createAlphaClipMask(const GrClipData& clipDataIn,
             // all the remaining ops can just be directly draw into
             // the accumulation buffer
             setup_boolean_blendcoeffs(drawState, op);
-            this->drawClipShape(accum, clip, *devResultBounds);
+            this->drawClipShape(accum, element, *devResultBounds);
         }
         accumClearedToZero = false;
     }
@@ -1096,25 +1091,25 @@ bool GrClipMaskManager::createStencilClipMask(const GrClipData& clipDataIn,
 
         SkClipStack::Iter iter(*oldClipData->fClipStack,
                                SkClipStack::Iter::kBottom_IterStart);
-        const SkClipStack::Iter::Clip* clip = process_initial_clip_elements(&iter,
-                                                  devRTRect,
-                                                  &clearToInside,
-                                                  &firstOp,
-                                                  clipDataIn);
+        const Element* element = process_initial_clip_elements(&iter,
+                                                               devRTRect,
+                                                               &clearToInside,
+                                                               &firstOp,
+                                                               clipDataIn);
 
         fGpu->clearStencilClip(devClipBounds, clearToInside);
         bool first = true;
 
         // walk through each clip element and perform its set op
         // with the existing clip.
-        for ( ; NULL != clip; clip = iter.next()) {
+        for ( ; NULL != element; element = iter.next()) {
             GrPathFill fill;
             bool fillInverted = false;
             // enabled at bottom of loop
             drawState->disableState(GrGpu::kModifyStencilClip_StateBit);
             // if the target is MSAA then we want MSAA enabled when the clip is soft
             if (rt->isMultisampled()) {
-                drawState->setState(GrDrawState::kHWAntialias_StateBit, clip->fDoAA);
+                drawState->setState(GrDrawState::kHWAntialias_StateBit, element->isAA());
             }
 
             // Can the clip element be drawn directly to the stencil buffer
@@ -1122,7 +1117,7 @@ bool GrClipMaskManager::createStencilClipMask(const GrClipData& clipDataIn,
             // resolve in/out status?
             bool canRenderDirectToStencil = false;
 
-            SkRegion::Op op = clip->fOp;
+            SkRegion::Op op = element->getOp();
             if (first) {
                 first = false;
                 op = firstOp;
@@ -1130,22 +1125,22 @@ bool GrClipMaskManager::createStencilClipMask(const GrClipData& clipDataIn,
 
             GrPathRenderer* pr = NULL;
             const SkPath* clipPath = NULL;
-            if (NULL != clip->fRect) {
+            if (Element::kRect_Type == element->getType()) {
                 canRenderDirectToStencil = true;
                 fill = kEvenOdd_GrPathFill;
                 fillInverted = false;
                 // there is no point in intersecting a screen filling
                 // rectangle.
                 if (SkRegion::kIntersect_Op == op &&
-                    contains(*clip->fRect, devRTRect, oldClipData->fOrigin)) {
+                    contains(element->getRect(), devRTRect, oldClipData->fOrigin)) {
                     continue;
                 }
             } else {
-                GrAssert(NULL != clip->fPath);
-                fill = get_path_fill(*clip->fPath);
+                GrAssert(Element::kPath_Type == element->getType());
+                clipPath = &element->getPath();
+                fill = get_path_fill(*clipPath);
                 fillInverted = GrIsFillInverted(fill);
                 fill = GrNonInvertedFill(fill);
-                clipPath = clip->fPath;
                 pr = this->getContext()->getPathRenderer(*clipPath, fill, fGpu, false, true);
                 if (NULL == pr) {
                     fGpu->setClip(oldClipData);
@@ -1180,10 +1175,11 @@ bool GrClipMaskManager::createStencilClipMask(const GrClipData& clipDataIn,
                     0x0000,
                     0xffff);
                 SET_RANDOM_COLOR
-                if (NULL != clip->fRect) {
+                if (Element::kRect_Type == element->getType()) {
                     *drawState->stencil() = gDrawToStencil;
-                    fGpu->drawSimpleRect(*clip->fRect, NULL);
+                    fGpu->drawSimpleRect(element->getRect(), NULL);
                 } else {
+                    GrAssert(Element::kPath_Type == element->getType());
                     if (canRenderDirectToStencil) {
                         *drawState->stencil() = gDrawToStencil;
                         pr->drawPath(*clipPath, fill, fGpu, false);
@@ -1199,10 +1195,11 @@ bool GrClipMaskManager::createStencilClipMask(const GrClipData& clipDataIn,
             for (int p = 0; p < passes; ++p) {
                 *drawState->stencil() = stencilSettings[p];
                 if (canDrawDirectToClip) {
-                    if (NULL != clip->fRect) {
+                    if (Element::kRect_Type == element->getType()) {
                         SET_RANDOM_COLOR
-                        fGpu->drawSimpleRect(*clip->fRect, NULL);
+                        fGpu->drawSimpleRect(element->getRect(), NULL);
                     } else {
+                        GrAssert(Element::kPath_Type == element->getType());
                         SET_RANDOM_COLOR
                         pr->drawPath(*clipPath, fill, fGpu, false);
                     }
@@ -1464,18 +1461,18 @@ bool GrClipMaskManager::createSoftwareClipMask(const GrClipData& clipDataIn,
 
     SkClipStack::Iter iter(*clipDataIn.fClipStack,
                            SkClipStack::Iter::kBottom_IterStart);
-    const SkClipStack::Iter::Clip* clip = process_initial_clip_elements(&iter,
-                                              *devResultBounds,
-                                              &clearToInside,
-                                              &firstOp,
-                                              clipDataIn);
+    const Element* element = process_initial_clip_elements(&iter,
+                                                           *devResultBounds,
+                                                           &clearToInside,
+                                                           &firstOp,
+                                                           clipDataIn);
 
     helper.clear(clearToInside ? 0xFF : 0x00);
 
     bool first = true;
-    for ( ; NULL != clip; clip = iter.next()) {
+    for ( ; NULL != element; element = iter.next()) {
 
-        SkRegion::Op op = clip->fOp;
+        SkRegion::Op op = element->getOp();
         if (first) {
             first = false;
             op = firstOp;
@@ -1499,20 +1496,20 @@ bool GrClipMaskManager::createSoftwareClipMask(const GrClipData& clipDataIn,
                 helper.draw(temp, SkRegion::kXOR_Op, false, 0xFF);
             }
 
-            if (NULL != clip->fRect) {
-
+            if (Element::kRect_Type == element->getType()) {
                 // convert the rect to a path so we can invert the fill
                 SkPath temp;
-                temp.addRect(*clip->fRect);
+                temp.addRect(element->getRect());
 
                 helper.draw(temp, SkRegion::kReplace_Op,
-                            kInverseEvenOdd_GrPathFill, clip->fDoAA,
+                            kInverseEvenOdd_GrPathFill, element->isAA(),
                             0x00);
-            } else if (NULL != clip->fPath) {
-                helper.draw(*clip->fPath,
+            } else {
+                GrAssert(Element::kPath_Type == element->getType());
+                helper.draw(element->getPath(),
                             SkRegion::kReplace_Op,
-                            invert_fill(get_path_fill(*clip->fPath)),
-                            clip->fDoAA,
+                            invert_fill(get_path_fill(element->getPath())),
+                            element->isAA(),
                             0x00);
             }
 
@@ -1521,17 +1518,14 @@ bool GrClipMaskManager::createSoftwareClipMask(const GrClipData& clipDataIn,
 
         // The other ops (union, xor, diff) only affect pixels inside
         // the geometry so they can just be drawn normally
-        if (NULL != clip->fRect) {
-
-            helper.draw(*clip->fRect,
+        if (Element::kRect_Type == element->getType()) {
+            helper.draw(element->getRect(), op, element->isAA(), 0xFF);
+        } else {
+            GrAssert(Element::kPath_Type == element->getType());
+            helper.draw(element->getPath(),
                         op,
-                        clip->fDoAA, 0xFF);
-
-        } else if (NULL != clip->fPath) {
-            helper.draw(*clip->fPath,
-                        op,
-                        get_path_fill(*clip->fPath),
-                        clip->fDoAA, 0xFF);
+                        get_path_fill(element->getPath()),
+                        element->isAA(), 0xFF);
         }
     }
 

@@ -62,7 +62,7 @@ public:
             }
         }
     }
-    
+
     void addToHead(const T& t) {
         this->validate();
         Node* node = this->createNode();
@@ -349,8 +349,26 @@ void *operator new(size_t, SkTLList<T>* list,
     }
 }
 
+// Skia doesn't use C++ exceptions but it may be compiled with them enabled. Having an op delete
+// to match the op new silences warnings about missing op delete when a constructor throws an
+// exception.
+template <typename T>
+void operator delete(void*,
+                     SkTLList<T>*,
+                     typename SkTLList<T>::Placement,
+                     const typename SkTLList<T>::Iter&) {
+    SK_CRASH();
+}
+
 #define SkNEW_INSERT_IN_LLIST_BEFORE(list, location, type_name, args) \
-    (new (list, SkTLList< type_name >::kBefore_Placement, location) type_name args)
+    (new ((list), SkTLList< type_name >::kBefore_Placement, (location)) type_name args)
 
 #define SkNEW_INSERT_IN_LLIST_AFTER(list, location, type_name, args) \
-    (new (list, SkTLList< type_name >::kAfter_Placement, location) type_name args)
+    (new ((list), SkTLList< type_name >::kAfter_Placement, (location)) type_name args)
+
+#define SkNEW_INSERT_AT_LLIST_HEAD(list, type_name, args) \
+    SkNEW_INSERT_IN_LLIST_BEFORE((list), (list)->headIter(), type_name, args)
+
+#define SkNEW_INSERT_AT_LLIST_TAIL(list, type_name, args) \
+    SkNEW_INSERT_IN_LLIST_AFTER((list), (list)->tailIter(), type_name, args)
+

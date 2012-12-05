@@ -19,6 +19,7 @@
 #include "SkDeque.h"
 #include "SkPath.h"
 #include "SkRefCnt.h"
+#include "SkTLList.h"
 
 #include "GrClipMaskCache.h"
 
@@ -125,7 +126,7 @@ private:
     bool useSWOnlyPath(const SkClipStack& clipIn);
 
     bool drawClipShape(GrTexture* target,
-                       const SkClipStack::Iter::Clip* clip,
+                       const SkClipStack::Element* element,
                        const GrIRect& resultBounds);
 
     void mergeMask(GrTexture* dstMask,
@@ -157,27 +158,25 @@ private:
     typedef GrNoncopyable INHERITED;
 };
 
-
 namespace GrReducedClip {
+
+typedef SkTLList<SkClipStack::Element> ElementList;
 
 enum InitialState {
     kAllIn_InitialState,
     kAllOut_InitialState,
 };
 
-/** This function takes a clip stack and produces a reduced set of SkClipStack::Iter::Clip elements
- *  in param clips that are equivalent to the full stack. If a finite bound for the area inside the
- *  clip can be determined resultsAreBounds will be true and resultBounds will be those bounds. When
- *  the results are bounded it is assumed that the caller will restrict the effect of each operation
- *  to the bounds or intersect with the bounds as a final step. The initial state of the bounds (or
- *  the unbounded plane when resultsArBounded is false) before the first element of clips is applied
- *  is returned via initialState. This function is declared here so that it can be unit-tested. It
- *  may become a member function of SkClipStack when its interface is determined to be stable.
+/**
+ * This function takes a clip stack and a query rectangle and it produces a reduced set of
+ * SkClipStack::Elements that are equivalent to applying the full stack to the rectangle. The
+ * initial state of the query rectangle before the first clip element is applied is returned via
+ * initialState. This function is declared here so that it can be unit-tested. It may become a
+ * member function of SkClipStack when its interface is determined to be stable.
  */
 void GrReduceClipStack(const SkClipStack& stack,
-                       SkTDArray<SkClipStack::Iter::Clip>* resultClips,
-                       SkRect* resultBounds,
-                       bool* resultsAreBounded,
+                       const SkRect& queryBounds,
+                       ElementList* result,
                        InitialState* initialState);
 
 } // namespace GrReducedClip
