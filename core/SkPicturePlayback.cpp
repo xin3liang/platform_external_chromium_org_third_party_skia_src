@@ -505,7 +505,9 @@ bool SkPicturePlayback::parseBufferTag(SkOrderedReadBuffer& buffer,
         case PICT_BITMAP_BUFFER_TAG: {
             fBitmaps = SkTRefArray<SkBitmap>::Create(size);
             for (size_t i = 0; i < size; ++i) {
-                buffer.readBitmap(&fBitmaps->writableAt(i));
+                SkBitmap* bm = &fBitmaps->writableAt(i);
+                buffer.readBitmap(bm);
+                bm->setImmutable();
             }
         } break;
         case PICT_MATRIX_BUFFER_TAG:
@@ -575,7 +577,8 @@ struct SkipClipRec {
 #endif
 
 #ifdef SK_PICTURE_PROFILING_STUBS
-void SkPicturePlayback::preDraw(size_t offset, int type) {
+size_t SkPicturePlayback::preDraw(size_t offset, int type) {
+    return 0;
 }
 
 void SkPicturePlayback::postDraw(size_t offset) {
@@ -594,6 +597,10 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
 #ifdef SK_BUILD_FOR_ANDROID
     SkAutoMutexAcquire autoMutex(fDrawMutex);
 #endif
+
+    // kDrawComplete will be the signal that we have reached the end of
+    // the command stream
+    static const int kDrawComplete = SK_MaxU32;
 
     SkReader32 reader(fOpData->bytes(), fOpData->size());
     TextContainer text;
@@ -619,11 +626,11 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
         fStateTree->getIterator(results, &canvas);
 
     if (it.isValid()) {
-        uint32_t off = it.draw();
-        if (off == SK_MaxU32) {
+        uint32_t skipTo = it.draw();
+        if (kDrawComplete == skipTo) {
             return;
         }
-        reader.setOffset(off);
+        reader.setOffset(skipTo);
     }
 
     // Record this, so we can concat w/ it if we encounter a setMatrix()
@@ -635,7 +642,14 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
 #endif
         int type = reader.readInt();
 #ifdef SK_PICTURE_PROFILING_STUBS
-        this->preDraw(curOffset, type);
+        size_t skipTo = this->preDraw(curOffset, type);
+        if (0 != skipTo) {
+            if (kDrawComplete == skipTo) {
+                break;
+            }
+            reader.setOffset(skipTo);
+            continue;
+        }
 #endif
         switch (type) {
             case CLIP_PATH: {
@@ -885,11 +899,11 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
 #endif
 
         if (it.isValid()) {
-            uint32_t off = it.draw();
-            if (off == SK_MaxU32) {
+            uint32_t skipTo = it.draw();
+            if (kDrawComplete == skipTo) {
                 break;
             }
-            reader.setOffset(off);
+            reader.setOffset(skipTo);
         }
     }
 
