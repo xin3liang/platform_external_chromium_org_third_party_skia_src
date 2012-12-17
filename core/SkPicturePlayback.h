@@ -19,6 +19,7 @@
 #include "SkPath.h"
 #include "SkPathHeap.h"
 #include "SkRegion.h"
+#include "SkRRect.h"
 #include "SkPictureFlat.h"
 #include "SkSerializationHelpers.h"
 

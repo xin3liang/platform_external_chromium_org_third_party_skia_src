@@ -22,6 +22,8 @@
 
 SkBlitter::~SkBlitter() {}
 
+bool SkBlitter::isNullBlitter() const { return false; }
+
 const SkBitmap* SkBlitter::justAnOpaqueColor(uint32_t* value) {
     return NULL;
 }
@@ -235,6 +237,8 @@ void SkNullBlitter::blitMask(const SkMask& mask, const SkIRect& clip) {}
 const SkBitmap* SkNullBlitter::justAnOpaqueColor(uint32_t* value) {
     return NULL;
 }
+
+bool SkNullBlitter::isNullBlitter() const { return true; }
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -572,16 +576,30 @@ public:
     void setMask(const SkMask* mask) { fMask = mask; }
 
     virtual bool setContext(const SkBitmap& device, const SkPaint& paint,
-                            const SkMatrix& matrix) {
+                            const SkMatrix& matrix) SK_OVERRIDE {
+        if (!this->INHERITED::setContext(device, paint, matrix)) {
+            return false;
+        }
         if (fProxy) {
-            return fProxy->setContext(device, paint, matrix);
+            if (!fProxy->setContext(device, paint, matrix)) {
+                // must keep our set/end context calls balanced
+                this->INHERITED::endContext();
+                return false;
+            }
         } else {
             fPMColor = SkPreMultiplyColor(paint.getColor());
-            return this->INHERITED::setContext(device, paint, matrix);
         }
+        return true;
     }
 
-    virtual void shadeSpan(int x, int y, SkPMColor span[], int count) {
+    virtual void endContext() SK_OVERRIDE {
+        if (fProxy) {
+            fProxy->endContext();
+        }
+        this->INHERITED::endContext();
+    }
+
+    virtual void shadeSpan(int x, int y, SkPMColor span[], int count) SK_OVERRIDE {
         if (fProxy) {
             fProxy->shadeSpan(x, y, span, count);
         }
@@ -643,20 +661,6 @@ public:
                 }
             }
         }
-    }
-
-    virtual void beginSession() {
-        this->INHERITED::beginSession();
-        if (fProxy) {
-            fProxy->beginSession();
-        }
-    }
-
-    virtual void endSession() {
-        if (fProxy) {
-            fProxy->endSession();
-        }
-        this->INHERITED::endSession();
     }
 
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(Sk3DShader)
@@ -907,8 +911,17 @@ SkBlitter* SkBlitter::Choose(const SkBitmap& device,
         // if there is one, the shader will take care of it.
     }
 
+    /*
+     *  We need to have balanced calls to the shader:
+     *      setContext
+     *      endContext
+     *  We make the first call here, in case it fails we can abort the draw.
+     *  The endContext() call is made by the blitter (assuming setContext did
+     *  not fail) in its destructor.
+     */
     if (shader && !shader->setContext(device, *paint, matrix)) {
-        return SkNEW(SkNullBlitter);
+        SK_PLACEMENT_NEW(blitter, SkNullBlitter, storage, storageSize);
+        return blitter;
     }
 
     switch (device.getConfig()) {
@@ -978,14 +991,15 @@ SkShaderBlitter::SkShaderBlitter(const SkBitmap& device, const SkPaint& paint)
         : INHERITED(device) {
     fShader = paint.getShader();
     SkASSERT(fShader);
+    SkASSERT(fShader->setContextHasBeenCalled());
 
     fShader->ref();
-    fShader->beginSession();
     fShaderFlags = fShader->getFlags();
 }
 
 SkShaderBlitter::~SkShaderBlitter() {
-    fShader->endSession();
+    SkASSERT(fShader->setContextHasBeenCalled());
+    fShader->endContext();
     fShader->unref();
 }
 

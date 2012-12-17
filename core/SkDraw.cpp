@@ -1098,6 +1098,11 @@ void SkDraw::drawBitmapAsMask(const SkBitmap& bitmap,
         int ix = SkScalarRound(fMatrix->getTranslateX());
         int iy = SkScalarRound(fMatrix->getTranslateY());
 
+        SkAutoLockPixels alp(bitmap);
+        if (!bitmap.readyToDraw()) {
+            return;
+        }
+
         SkMask  mask;
         mask.fBounds.set(ix, iy, ix + bitmap.width(), iy + bitmap.height());
         mask.fFormat = SkMask::kA8_Format;
@@ -1228,15 +1233,16 @@ void SkDraw::drawBitmap(const SkBitmap& bitmap, const SkMatrix& prematrix,
         }
     }
 
-    // only lock the pixels if we passed the clip and bounder tests
-    SkAutoLockPixels alp(bitmap);
-    // after the lock, check if we are valid
-    if (!bitmap.readyToDraw()) {
-        return;
-    }
-
     if (bitmap.getConfig() != SkBitmap::kA8_Config &&
             just_translate(matrix, bitmap)) {
+        //
+        // It is safe to call lock pixels now, since we know the matrix is
+        // (more or less) identity.
+        //
+        SkAutoLockPixels alp(bitmap);
+        if (!bitmap.readyToDraw()) {
+            return;
+        }
         int ix = SkScalarRound(matrix.getTranslateX());
         int iy = SkScalarRound(matrix.getTranslateY());
         if (clipHandlesSprite(*fRC, ix, iy, bitmap)) {
@@ -2279,7 +2285,7 @@ public:
 
     bool setup(const SkPoint pts[], const SkColor colors[], int, int, int);
 
-    virtual void shadeSpan(int x, int y, SkPMColor dstC[], int count);
+    virtual void shadeSpan(int x, int y, SkPMColor dstC[], int count) SK_OVERRIDE;
 
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkTriColorShader)
 
@@ -2406,7 +2412,7 @@ void SkDraw::drawVertices(SkCanvas::VertexMode vmode, int count,
     if (NULL != colors) {
         if (NULL == textures) {
             // just colors (no texture)
-            p.setShader(&triShader);
+            shader = p.setShader(&triShader);
         } else {
             // colors * texture
             SkASSERT(shader);
@@ -2421,10 +2427,18 @@ void SkDraw::drawVertices(SkCanvas::VertexMode vmode, int count,
             if (releaseMode) {
                 xmode->unref();
             }
+            shader = compose;
         }
     }
 
     SkAutoBlitterChoose blitter(*fBitmap, *fMatrix, p);
+    // important that we abort early, as below we may manipulate the shader
+    // and that is only valid if the shader returned true from setContext.
+    // If it returned false, then our blitter will be the NullBlitter.
+    if (blitter->isNullBlitter()) {
+        return;
+    }
+
     // setup our state and function pointer for iterating triangles
     VertState       state(count, indices, indexCount);
     VertState::Proc vertProc = state.chooseProc(vmode);
@@ -2436,18 +2450,13 @@ void SkDraw::drawVertices(SkCanvas::VertexMode vmode, int count,
             savedLocalM = shader->getLocalMatrix();
         }
 
-        if (NULL != colors) {
-            if (!triShader.setContext(*fBitmap, p, *fMatrix)) {
-                colors = NULL;
-            }
-        }
-
         while (vertProc(&state)) {
             if (NULL != textures) {
                 if (texture_to_matrix(state, vertices, textures, &tempM)) {
                     tempM.postConcat(savedLocalM);
                     shader->setLocalMatrix(tempM);
                     // need to recal setContext since we changed the local matrix
+                    shader->endContext();
                     if (!shader->setContext(*fBitmap, p, *fMatrix)) {
                         continue;
                     }
