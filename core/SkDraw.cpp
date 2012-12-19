@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2006 The Android Open Source Project
  *
@@ -701,7 +700,7 @@ void SkDraw::drawPoints(SkCanvas::PointMode mode, size_t count,
                             }
 
                             if (fDevice) {
-                                fDevice->drawPoints(*this, 
+                                fDevice->drawPoints(*this,
                                                     SkCanvas::kPoints_PointMode,
                                                     pointData.fNumPoints,
                                                     pointData.fPoints,
@@ -716,7 +715,7 @@ void SkDraw::drawPoints(SkCanvas::PointMode mode, size_t count,
                             break;
                         } else {
                             // The rest of the dashed line must be drawn as rects
-                            SkASSERT(!(SkPathEffect::PointData::kCircles_PointFlag & 
+                            SkASSERT(!(SkPathEffect::PointData::kCircles_PointFlag &
                                       pointData.fFlags));
 
                             SkRect r;
@@ -2651,7 +2650,7 @@ void SkBounder::commit() {
 #include "SkBlitter.h"
 
 static bool compute_bounds(const SkPath& devPath, const SkIRect* clipBounds,
-                           SkMaskFilter* filter, const SkMatrix* filterMatrix,
+                       const SkMaskFilter* filter, const SkMatrix* filterMatrix,
                            SkIRect* bounds) {
     if (devPath.isEmpty()) {
         return false;
@@ -2725,7 +2724,7 @@ static void draw_into_mask(const SkMask& mask, const SkPath& devPath,
 }
 
 bool SkDraw::DrawToMask(const SkPath& devPath, const SkIRect* clipBounds,
-                        SkMaskFilter* filter, const SkMatrix* filterMatrix,
+                        const SkMaskFilter* filter, const SkMatrix* filterMatrix,
                         SkMask* mask, SkMask::CreateMode mode,
                         SkPaint::Style style) {
     if (SkMask::kJustRenderImage_CreateMode != mode) {

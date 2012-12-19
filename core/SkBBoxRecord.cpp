@@ -53,7 +53,7 @@ void SkBBoxRecord::drawPoints(PointMode mode, size_t count, const SkPoint pts[],
     // Note: The device coordinate outset in SkBBoxHierarchyRecord::handleBBox is currently
     // done in the recording coordinate space, which is wrong.
     // http://code.google.com/p/skia/issues/detail?id=1021
-    static const SkScalar kMinWidth = SkFloatToScalar(0.01f); 
+    static const SkScalar kMinWidth = SkFloatToScalar(0.01f);
     SkScalar halfStrokeWidth = SkMaxScalar(paint.getStrokeWidth(), kMinWidth) / 2;
     bbox.outset(halfStrokeWidth, halfStrokeWidth);
     if (this->transformBounds(bbox, &paint)) {
@@ -211,9 +211,10 @@ void SkBBoxRecord::drawPosTextH(const void* text, size_t byteLength, const SkSca
 
 void SkBBoxRecord::drawSprite(const SkBitmap& bitmap, int left, int top,
                               const SkPaint* paint) {
-    SkRect bbox = {SkIntToScalar(left), SkIntToScalar(top), SkIntToScalar(left + bitmap.width()), SkIntToScalar(top + bitmap.height())};
+    SkRect bbox;
+    bbox.set(SkIRect::MakeXYWH(left, top, bitmap.width(), bitmap.height()));
     this->handleBBox(bbox); // directly call handleBBox, matrix is ignored
-    INHERITED::drawBitmap(bitmap, left, top, paint);
+    INHERITED::drawSprite(bitmap, left, top, paint);
 }
 
 void SkBBoxRecord::drawTextOnPath(const void* text, size_t byteLength,
@@ -257,12 +258,13 @@ void SkBBoxRecord::drawPicture(SkPicture& picture) {
 
 bool SkBBoxRecord::transformBounds(const SkRect& bounds, const SkPaint* paint) {
     SkRect outBounds = bounds;
+    outBounds.sort();
 
     if (paint) {
         // account for stroking, path effects, shadows, etc
         if (paint->canComputeFastBounds()) {
             SkRect temp;
-            outBounds = paint->computeFastBounds(bounds, &temp);
+            outBounds = paint->computeFastBounds(outBounds, &temp);
         } else {
             // set bounds to current clip
             if (!this->getClipBounds(&outBounds)) {
