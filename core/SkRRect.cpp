@@ -228,6 +228,24 @@ void SkRRect::computeType() const {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+#if 0
+void SkRRect::inset(SkScalar dx, SkScalar dy, SkRRect* dst) const {
+
+    SkRect r = fRect;
+    r.inset(dx, dy);
+    if (r.isEmpty()) {
+        dst->setEmpty();
+        return;
+    }
+
+    SkVector radii[4];
+    for (int i = 0; i < 4; ++i) {
+        radii[i].set(fRadii[i].fX - dx, fRadii[i].fY - dy);
+    }
+    dst->setRectRadii(r, radii);
+}
+#endif
+///////////////////////////////////////////////////////////////////////////////
 
 uint32_t SkRRect::writeToMemory(void* buffer) const {
     SkASSERT(kSizeInMemory == sizeof(SkRect) + sizeof(fRadii));
