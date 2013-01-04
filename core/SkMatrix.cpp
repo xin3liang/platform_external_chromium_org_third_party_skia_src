@@ -1802,3 +1802,56 @@ void SkMatrix::toDumpString(SkString* str) const {
     SkFractToFloat(fMat[6]), SkFractToFloat(fMat[7]), SkFractToFloat(fMat[8]));
 #endif
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+#include "SkMatrixUtils.h"
+
+bool SkTreatAsSprite(const SkMatrix& mat, int width, int height,
+                     unsigned subpixelBits) {
+    // quick reject on affine or perspective
+    if (mat.getType() & ~(SkMatrix::kScale_Mask | SkMatrix::kTranslate_Mask)) {
+        return false;
+    }
+
+    // quick success check
+    if (!subpixelBits && !(mat.getType() & ~SkMatrix::kTranslate_Mask)) {
+        return true;
+    }
+
+    // mapRect supports negative scales, so we eliminate those first
+    if (mat.getScaleX() < 0 || mat.getScaleY() < 0) {
+        return false;
+    }
+
+    SkRect dst;
+    SkIRect isrc = { 0, 0, width, height };
+    
+    {
+        SkRect src;
+        src.set(isrc);
+        mat.mapRect(&dst, src);
+    }
+
+    // just apply the translate to isrc
+    isrc.offset(SkScalarRoundToInt(mat.getTranslateX()),
+                SkScalarRoundToInt(mat.getTranslateY()));
+
+    if (subpixelBits) {
+        isrc.fLeft <<= subpixelBits;
+        isrc.fTop <<= subpixelBits;
+        isrc.fRight <<= subpixelBits;
+        isrc.fBottom <<= subpixelBits;
+
+        const float scale = 1 << subpixelBits;
+        dst.fLeft *= scale;
+        dst.fTop *= scale;
+        dst.fRight *= scale;
+        dst.fBottom *= scale;
+    }
+
+    SkIRect idst;
+    dst.round(&idst);
+    return isrc == idst;
+}
+
