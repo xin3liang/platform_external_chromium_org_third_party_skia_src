@@ -1,11 +1,9 @@
-
 /*
  * Copyright 2006 The Android Open Source Project
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
 
 #include "SkMatrix.h"
 #include "Sk64.h"
@@ -850,7 +848,44 @@ bool SkMatrix::asAffine(SkScalar affine[6]) const {
 
 bool SkMatrix::invertNonIdentity(SkMatrix* inv) const {
     SkASSERT(!this->isIdentity());
-    int         isPersp = this->hasPerspective();
+
+    TypeMask mask = this->getType();
+
+#ifndef SK_IGNORE_FAST_SCALEMATRIX_INVERT
+    if (0 == (mask & ~(kScale_Mask | kTranslate_Mask))) {
+        if (inv) {
+            if (mask & kScale_Mask) {
+                SkScalar invX = fMat[kMScaleX];
+                SkScalar invY = fMat[kMScaleY];
+                if (0 == invX || 0 == invY) {
+                    return false;
+                }
+                invX = SkScalarInvert(invX);
+                invY = SkScalarInvert(invY);
+
+                // Must be careful when writing to inv, since it may be the
+                // same memory as this.
+
+                inv->fMat[kMSkewX] = inv->fMat[kMSkewY] =
+                inv->fMat[kMPersp0] = inv->fMat[kMPersp1] = 0;
+
+                inv->fMat[kMScaleX] = invX;
+                inv->fMat[kMScaleY] = invY;
+                inv->fMat[kMPersp2] = kMatrix22Elem;
+                inv->fMat[kMTransX] = -SkScalarMul(fMat[kMTransX], invX);
+                inv->fMat[kMTransY] = -SkScalarMul(fMat[kMTransY], invY);
+
+                inv->setTypeMask(mask | kRectStaysRect_Mask);
+            } else {
+                // translate only
+                inv->setTranslate(-fMat[kMTransX], -fMat[kMTransY]);
+            }
+        }
+        return true;
+    }
+#endif
+
+    int         isPersp = mask & kPerspective_Mask;
     int         shift;
     SkDetScalar scale = sk_inv_determinant(fMat, isPersp, &shift);
 
@@ -1826,7 +1861,7 @@ bool SkTreatAsSprite(const SkMatrix& mat, int width, int height,
 
     SkRect dst;
     SkIRect isrc = { 0, 0, width, height };
-    
+
     {
         SkRect src;
         src.set(isrc);
