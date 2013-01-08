@@ -23,8 +23,6 @@ static const int INDEX_POOL_IB_COUNT = 4;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-extern void gr_run_unittests();
-
 #define DEBUG_INVAL_BUFFER    0xdeadcafe
 #define DEBUG_INVAL_START_IDX -1
 
@@ -40,10 +38,6 @@ GrGpu::GrGpu()
     , fContextIsDirty(true) {
 
     fClipMaskManager.setGpu(this);
-
-#if GR_DEBUG
-    //gr_run_unittests();
-#endif
 
     fGeomPoolStateStack.push_back();
 #if GR_DEBUG
@@ -366,6 +360,8 @@ void GrGpu::geometrySourceWillPush() {
     newState.fPoolStartVertex = DEBUG_INVAL_START_IDX;
     newState.fPoolIndexBuffer = (GrIndexBuffer*)DEBUG_INVAL_BUFFER;
     newState.fPoolStartIndex = DEBUG_INVAL_START_IDX;
+#else
+    (void) newState; // silence compiler warning
 #endif
 }
 
