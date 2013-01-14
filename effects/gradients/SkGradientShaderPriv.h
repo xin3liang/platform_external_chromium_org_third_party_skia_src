@@ -233,8 +233,6 @@ public:
 
     virtual ~GrGradientEffect();
 
-    virtual const GrTextureAccess& textureAccess(int index) const SK_OVERRIDE;
-
     bool useAtlas() const { return SkToBool(-1 != fRow); }
     SkScalar getYCoord() const { return fYCoord; };
     const SkMatrix& getMatrix() const { return fMatrix;}
@@ -243,6 +241,15 @@ public:
         const GrGradientEffect& s = static_cast<const GrGradientEffect&>(effect);
         return INHERITED::isEqual(effect) && this->useAtlas() == s.useAtlas() &&
                fYCoord == s.getYCoord() && fMatrix.cheapEqualTo(s.getMatrix());
+    }
+
+    virtual void getConstantColorComponents(GrColor* color,
+                                            uint32_t* validFlags) const SK_OVERRIDE {
+        if (fIsOpaque && (kA_ValidComponentFlag & *validFlags) && 0xff == GrColorUnpackA(*color)) {
+            *validFlags = kA_ValidComponentFlag;
+        } else {
+            *validFlags = 0;
+        }
     }
 
 protected:
@@ -266,6 +273,7 @@ private:
     GrTextureStripAtlas* fAtlas;
     int fRow;
     SkMatrix fMatrix;
+    bool fIsOpaque;
 
     typedef GrEffect INHERITED;
 

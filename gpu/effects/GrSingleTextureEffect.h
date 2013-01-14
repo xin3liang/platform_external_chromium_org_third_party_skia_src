@@ -33,9 +33,11 @@ public:
 
     virtual ~GrSingleTextureEffect();
 
-    virtual const GrTextureAccess& textureAccess(int index) const SK_OVERRIDE;
-
     static const char* Name() { return "Single Texture"; }
+
+    /** Note that if this class is sub-classed, the subclass may have to override this function.
+     */
+    virtual void getConstantColorComponents(GrColor* color, uint32_t* validFlags) const SK_OVERRIDE;
 
     const SkMatrix& getMatrix() const { return fMatrix; }
 
