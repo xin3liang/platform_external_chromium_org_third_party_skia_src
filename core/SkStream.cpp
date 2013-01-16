@@ -306,6 +306,7 @@ SkMemoryStream::SkMemoryStream(SkData* data) {
         fData = data;
         fData->ref();
     }
+    fOffset = 0;
 }
 
 SkMemoryStream::~SkMemoryStream() {
@@ -772,14 +773,14 @@ void SkDynamicMemoryWStream::invalidateCopy() {
 
 void SkDebugWStream::newline()
 {
-#ifdef SK_DEBUG
+#if defined(SK_DEBUG) || defined(SK_DEVELOPER)
     SkDebugf("\n");
 #endif
 }
 
 bool SkDebugWStream::write(const void* buffer, size_t size)
 {
-#ifdef SK_DEBUG
+#if defined(SK_DEBUG) || defined(SK_DEVELOPER)
     char* s = new char[size+1];
     memcpy(s, buffer, size);
     s[size] = 0;

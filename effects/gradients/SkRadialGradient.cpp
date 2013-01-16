@@ -545,12 +545,8 @@ GrEffect* GrRadialGradient::TestCreate(SkRandom* random,
     SkAutoTUnref<SkShader> shader(SkGradientShader::CreateRadial(center, radius,
                                                                  colors, stops, colorCount,
                                                                  tm));
-    GrEffectStage stage;
-    shader->asNewEffect(context, &stage);
-    GrAssert(NULL != stage.getEffect());
-    // const_cast and ref is a hack! Will remove when asNewEffect returns GrEffect*
-    stage.getEffect()->ref();
-    return const_cast<GrEffect*>(stage.getEffect());
+    SkPaint paint;
+    return shader->asNewEffect(context, paint);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -573,23 +569,22 @@ void GrGLRadialGradient::emitCode(GrGLShaderBuilder* builder,
 
 /////////////////////////////////////////////////////////////////////
 
-bool SkRadialGradient::asNewEffect(GrContext* context, GrEffectStage* stage) const {
-    SkASSERT(NULL != context && NULL != stage);
+GrEffect* SkRadialGradient::asNewEffect(GrContext* context, const SkPaint&) const {
+    SkASSERT(NULL != context);
 
     SkMatrix matrix;
     if (!this->getLocalMatrix().invert(&matrix)) {
-        return false;
+        return NULL;
     }
     matrix.postConcat(fPtsToUnit);
-    stage->setEffect(SkNEW_ARGS(GrRadialGradient, (context, *this, matrix, fTileMode)))->unref();
-    return true;
+    return SkNEW_ARGS(GrRadialGradient, (context, *this, matrix, fTileMode));
 }
 
 #else
 
-bool SkRadialGradient::asNewEffect(GrContext*, GrEffectStage*) const {
+GrEffect* SkRadialGradient::asNewEffect(GrContext* context, const SkPaint&) const {
     SkDEBUGFAIL("Should not call in GPU-less build");
-    return false;
+    return NULL;
 }
 
 #endif
