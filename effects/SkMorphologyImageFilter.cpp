@@ -243,7 +243,11 @@ public:
         kDilate_MorphologyType,
     };
 
-    GrMorphologyEffect(GrTexture*, Direction, int radius, MorphologyType);
+    static GrEffectRef* Create(GrTexture* tex, Direction dir, int radius, MorphologyType type) {
+        SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(GrMorphologyEffect, (tex, dir, radius, type)));
+        return CreateEffectRef(effect);
+    }
+
     virtual ~GrMorphologyEffect();
 
     MorphologyType type() const { return fType; }
@@ -253,13 +257,17 @@ public:
     typedef GrGLMorphologyEffect GLEffect;
 
     virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
-    virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
+    virtual void getConstantColorComponents(GrColor* color, uint32_t* validFlags) const SK_OVERRIDE;
 
 protected:
 
     MorphologyType fType;
 
 private:
+    virtual bool onIsEqual(const GrEffect&) const SK_OVERRIDE;
+
+    GrMorphologyEffect(GrTexture*, Direction, int radius, MorphologyType);
+
     GR_DECLARE_EFFECT_TEST;
 
     typedef Gr1DKernelEffect INHERITED;
@@ -393,22 +401,28 @@ const GrBackendEffectFactory& GrMorphologyEffect::getFactory() const {
     return GrTBackendEffectFactory<GrMorphologyEffect>::getInstance();
 }
 
-bool GrMorphologyEffect::isEqual(const GrEffect& sBase) const {
+bool GrMorphologyEffect::onIsEqual(const GrEffect& sBase) const {
     const GrMorphologyEffect& s =
         static_cast<const GrMorphologyEffect&>(sBase);
-    return (INHERITED::isEqual(sBase) &&
+    return (this->texture(0) == s.texture(0) &&
             this->radius() == s.radius() &&
             this->direction() == s.direction() &&
             this->type() == s.type());
+}
+
+void GrMorphologyEffect::getConstantColorComponents(GrColor* color, uint32_t* validFlags) const {
+    // This is valid because the color components of the result of the kernel all come
+    // exactly from existing values in the source texture.
+    this->updateConstantColorComponentsForModulation(color, validFlags);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
 GR_DEFINE_EFFECT_TEST(GrMorphologyEffect);
 
-GrEffect* GrMorphologyEffect::TestCreate(SkRandom* random,
-                                         GrContext* context,
-                                         GrTexture* textures[]) {
+GrEffectRef* GrMorphologyEffect::TestCreate(SkRandom* random,
+                                            GrContext* context,
+                                            GrTexture* textures[]) {
     int texIdx = random->nextBool() ? GrEffectUnitTest::kSkiaPMTextureIdx :
                                       GrEffectUnitTest::kAlphaTextureIdx;
     Direction dir = random->nextBool() ? kX_Direction : kY_Direction;
@@ -417,7 +431,7 @@ GrEffect* GrMorphologyEffect::TestCreate(SkRandom* random,
     MorphologyType type = random->nextBool() ? GrMorphologyEffect::kErode_MorphologyType :
                                                GrMorphologyEffect::kDilate_MorphologyType;
 
-    return SkNEW_ARGS(GrMorphologyEffect, (textures[texIdx], dir, radius, type));
+    return GrMorphologyEffect::Create(textures[texIdx], dir, radius, type);
 }
 
 namespace {
@@ -429,10 +443,10 @@ void apply_morphology_pass(GrContext* context,
                            GrMorphologyEffect::MorphologyType morphType,
                            Gr1DKernelEffect::Direction direction) {
     GrPaint paint;
-    paint.colorStage(0)->setEffect(SkNEW_ARGS(GrMorphologyEffect, (texture,
-                                                                   direction,
-                                                                   radius,
-                                                                   morphType)))->unref();
+    paint.colorStage(0)->setEffect(GrMorphologyEffect::Create(texture,
+                                                              direction,
+                                                              radius,
+                                                              morphType))->unref();
     context->drawRect(paint, rect);
 }
 

@@ -41,7 +41,7 @@ public:
     virtual bool asComponentTable(SkBitmap* table) const SK_OVERRIDE;
 
 #if SK_SUPPORT_GPU
-    virtual GrEffect* asNewEffect(GrContext* context) const SK_OVERRIDE;
+    virtual GrEffectRef* asNewEffect(GrContext* context) const SK_OVERRIDE;
 #endif
 
     virtual void filterSpan(const SkPMColor src[], int count,
@@ -226,19 +226,25 @@ class GLColorTableEffect;
 
 class ColorTableEffect : public GrEffect {
 public:
+    static GrEffectRef* Create(GrTexture* texture, unsigned flags) {
+        SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(ColorTableEffect, (texture, flags)));
+        return CreateEffectRef(effect);
+    }
 
-    explicit ColorTableEffect(GrTexture* texture, unsigned flags);
     virtual ~ColorTableEffect();
 
     static const char* Name() { return "ColorTable"; }
     virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
-    virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
 
     virtual void getConstantColorComponents(GrColor* color, uint32_t* validFlags) const SK_OVERRIDE;
 
     typedef GLColorTableEffect GLEffect;
 
 private:
+    virtual bool onIsEqual(const GrEffect&) const SK_OVERRIDE;
+
+    explicit ColorTableEffect(GrTexture* texture, unsigned flags);
+
     GR_DECLARE_EFFECT_TEST;
 
     GrTextureAccess fTextureAccess;
@@ -339,8 +345,8 @@ const GrBackendEffectFactory&  ColorTableEffect::getFactory() const {
     return GrTBackendEffectFactory<ColorTableEffect>::getInstance();
 }
 
-bool ColorTableEffect::isEqual(const GrEffect& sBase) const {
-    return INHERITED::isEqual(sBase);
+bool ColorTableEffect::onIsEqual(const GrEffect& sBase) const {
+    return this->texture(0) == sBase.texture(0);
 }
 
 void ColorTableEffect::getConstantColorComponents(GrColor* color, uint32_t* validFlags) const {
@@ -365,20 +371,20 @@ void ColorTableEffect::getConstantColorComponents(GrColor* color, uint32_t* vali
 
 GR_DEFINE_EFFECT_TEST(ColorTableEffect);
 
-GrEffect* ColorTableEffect::TestCreate(SkRandom* random,
-                                       GrContext* context,
-                                       GrTexture* textures[]) {
+GrEffectRef* ColorTableEffect::TestCreate(SkRandom* random,
+                                          GrContext* context,
+                                          GrTexture* textures[]) {
     static unsigned kAllFlags = SkTable_ColorFilter::kR_Flag | SkTable_ColorFilter::kG_Flag |
                                 SkTable_ColorFilter::kB_Flag | SkTable_ColorFilter::kA_Flag;
-    return SkNEW_ARGS(ColorTableEffect, (textures[GrEffectUnitTest::kAlphaTextureIdx], kAllFlags));
+    return ColorTableEffect::Create(textures[GrEffectUnitTest::kAlphaTextureIdx], kAllFlags);
 }
 
-GrEffect* SkTable_ColorFilter::asNewEffect(GrContext* context) const {
+GrEffectRef* SkTable_ColorFilter::asNewEffect(GrContext* context) const {
     SkBitmap bitmap;
     this->asComponentTable(&bitmap);
     // passing NULL because this effect does no tiling or filtering.
     GrTexture* texture = GrLockCachedBitmapTexture(context, bitmap, NULL);
-    GrEffect* effect = SkNEW_ARGS(ColorTableEffect, (texture, fFlags));
+    GrEffectRef* effect = ColorTableEffect::Create(texture, fFlags);
 
     // Unlock immediately, this is not great, but we don't have a way of
     // knowing when else to unlock it currently. TODO: Remove this when

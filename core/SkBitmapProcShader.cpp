@@ -332,10 +332,10 @@ void SkBitmapProcShader::toString(SkString* str) const {
 #if SK_SUPPORT_GPU
 
 #include "GrTextureAccess.h"
-#include "effects/GrSingleTextureEffect.h"
+#include "effects/GrSimpleTextureEffect.h"
 #include "SkGr.h"
 
-GrEffect* SkBitmapProcShader::asNewEffect(GrContext* context, const SkPaint& paint) const {
+GrEffectRef* SkBitmapProcShader::asNewEffect(GrContext* context, const SkPaint& paint) const {
     SkMatrix matrix;
     matrix.setIDiv(fRawBitmap.width(), fRawBitmap.height());
 
@@ -360,7 +360,7 @@ GrEffect* SkBitmapProcShader::asNewEffect(GrContext* context, const SkPaint& pai
         return NULL;
     }
 
-    GrEffect* effect = SkNEW_ARGS(GrSingleTextureEffect, (texture, matrix, params));
+    GrEffectRef* effect = GrSimpleTextureEffect::Create(texture, matrix, params);
     GrUnlockCachedBitmapTexture(texture);
     return effect;
 }

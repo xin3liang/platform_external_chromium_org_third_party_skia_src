@@ -167,10 +167,9 @@ const GrBackendEffectFactory& GrConvolutionEffect::getFactory() const {
     return GrTBackendEffectFactory<GrConvolutionEffect>::getInstance();
 }
 
-bool GrConvolutionEffect::isEqual(const GrEffect& sBase) const {
-     const GrConvolutionEffect& s =
-        static_cast<const GrConvolutionEffect&>(sBase);
-    return (INHERITED::isEqual(sBase) &&
+bool GrConvolutionEffect::onIsEqual(const GrEffect& sBase) const {
+     const GrConvolutionEffect& s = static_cast<const GrConvolutionEffect&>(sBase);
+    return (this->texture(0) == s.texture(0) &&
             this->radius() == s.radius() &&
             this->direction() == s.direction() &&
             0 == memcmp(fKernel, s.fKernel, this->width() * sizeof(float)));
@@ -180,9 +179,9 @@ bool GrConvolutionEffect::isEqual(const GrEffect& sBase) const {
 
 GR_DEFINE_EFFECT_TEST(GrConvolutionEffect);
 
-GrEffect* GrConvolutionEffect::TestCreate(SkRandom* random,
-                                          GrContext* context,
-                                          GrTexture* textures[]) {
+GrEffectRef* GrConvolutionEffect::TestCreate(SkRandom* random,
+                                             GrContext* context,
+                                             GrTexture* textures[]) {
     int texIdx = random->nextBool() ? GrEffectUnitTest::kSkiaPMTextureIdx :
                                       GrEffectUnitTest::kAlphaTextureIdx;
     Direction dir = random->nextBool() ? kX_Direction : kY_Direction;
@@ -192,6 +191,6 @@ GrEffect* GrConvolutionEffect::TestCreate(SkRandom* random,
         kernel[i] = random->nextSScalar1();
     }
 
-    return SkNEW_ARGS(GrConvolutionEffect, (textures[texIdx], dir, radius, kernel));
+    return GrConvolutionEffect::Create(textures[texIdx], dir, radius,kernel);
 }
 

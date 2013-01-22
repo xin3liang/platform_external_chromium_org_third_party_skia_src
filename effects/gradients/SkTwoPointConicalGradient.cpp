@@ -369,27 +369,19 @@ private:
 class GrConical2Gradient : public GrGradientEffect {
 public:
 
-    GrConical2Gradient(GrContext* ctx,
-                       const SkTwoPointConicalGradient& shader,
-                       const SkMatrix& matrix,
-                       SkShader::TileMode tm)
-        : INHERITED(ctx, shader, matrix, tm)
-        , fCenterX1(shader.getCenterX1())
-        , fRadius0(shader.getStartRadius())
-        , fDiffRadius(shader.getDiffRadius()) { }
+    static GrEffectRef* Create(GrContext* ctx,
+                               const SkTwoPointConicalGradient& shader,
+                               const SkMatrix& matrix,
+                               SkShader::TileMode tm) {
+        SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(GrConical2Gradient, (ctx, shader, matrix, tm)));
+        return CreateEffectRef(effect);
+    }
 
     virtual ~GrConical2Gradient() { }
 
     static const char* Name() { return "Two-Point Conical Gradient"; }
     virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
         return GrTBackendEffectFactory<GrConical2Gradient>::getInstance();
-    }
-    virtual bool isEqual(const GrEffect& sBase) const SK_OVERRIDE {
-        const GrConical2Gradient& s = static_cast<const GrConical2Gradient&>(sBase);
-        return (INHERITED::isEqual(sBase) &&
-                this->fCenterX1 == s.fCenterX1 &&
-                this->fRadius0 == s.fRadius0 &&
-                this->fDiffRadius == s.fDiffRadius);
     }
 
     // The radial gradient parameters can collapse to a linear (instead of quadratic) equation.
@@ -401,6 +393,23 @@ public:
     typedef GrGLConical2Gradient GLEffect;
 
 private:
+    virtual bool onIsEqual(const GrEffect& sBase) const SK_OVERRIDE {
+        const GrConical2Gradient& s = static_cast<const GrConical2Gradient&>(sBase);
+        return (INHERITED::onIsEqual(sBase) &&
+                this->fCenterX1 == s.fCenterX1 &&
+                this->fRadius0 == s.fRadius0 &&
+                this->fDiffRadius == s.fDiffRadius);
+    }
+
+    GrConical2Gradient(GrContext* ctx,
+                       const SkTwoPointConicalGradient& shader,
+                       const SkMatrix& matrix,
+                       SkShader::TileMode tm)
+        : INHERITED(ctx, shader, matrix, tm)
+        , fCenterX1(shader.getCenterX1())
+        , fRadius0(shader.getStartRadius())
+        , fDiffRadius(shader.getDiffRadius()) { }
+
     GR_DECLARE_EFFECT_TEST;
 
     // @{
@@ -418,9 +427,9 @@ private:
 
 GR_DEFINE_EFFECT_TEST(GrConical2Gradient);
 
-GrEffect* GrConical2Gradient::TestCreate(SkRandom* random,
-                                         GrContext* context,
-                                         GrTexture**) {
+GrEffectRef* GrConical2Gradient::TestCreate(SkRandom* random,
+                                            GrContext* context,
+                                            GrTexture**) {
     SkPoint center1 = {random->nextUScalar1(), random->nextUScalar1()};
     SkScalar radius1 = random->nextUScalar1();
     SkPoint center2;
@@ -684,7 +693,7 @@ GrGLEffect::EffectKey GrGLConical2Gradient::GenKey(const GrEffectStage& s, const
 
 /////////////////////////////////////////////////////////////////////
 
-GrEffect* SkTwoPointConicalGradient::asNewEffect(GrContext* context, const SkPaint&) const {
+GrEffectRef* SkTwoPointConicalGradient::asNewEffect(GrContext* context, const SkPaint&) const {
     SkASSERT(NULL != context);
     SkASSERT(fPtsToUnit.isIdentity());
     // invert the localM, translate to center1, rotate so center2 is on x axis.
@@ -704,12 +713,12 @@ GrEffect* SkTwoPointConicalGradient::asNewEffect(GrContext* context, const SkPai
         matrix.postConcat(rot);
     }
 
-    return SkNEW_ARGS(GrConical2Gradient, (context, *this, matrix, fTileMode));
+    return GrConical2Gradient::Create(context, *this, matrix, fTileMode);
 }
 
 #else
 
-GrEffect* SkTwoPointConicalGradient::asNewEffect(GrContext* context, const SkPaint&) const {
+GrEffectRef* SkTwoPointConicalGradient::asNewEffect(GrContext*, const SkPaint&) const {
     SkDEBUGFAIL("Should not call in GPU-less build");
     return NULL;
 }

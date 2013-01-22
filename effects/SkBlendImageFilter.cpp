@@ -143,10 +143,15 @@ private:
 
 class GrBlendEffect : public GrEffect {
 public:
-    GrBlendEffect(SkBlendImageFilter::Mode mode, GrTexture* foreground, GrTexture* background);
+    static GrEffectRef* Create(SkBlendImageFilter::Mode mode,
+                               GrTexture* foreground,
+                               GrTexture* background) {
+        SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(GrBlendEffect, (mode, foreground, background)));
+        return CreateEffectRef(effect);
+    }
+
     virtual ~GrBlendEffect();
 
-    virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
     const GrBackendEffectFactory& getFactory() const;
     SkBlendImageFilter::Mode mode() const { return fMode; }
 
@@ -156,6 +161,9 @@ public:
     void getConstantColorComponents(GrColor* color, uint32_t* validFlags) const SK_OVERRIDE;
 
 private:
+    virtual bool onIsEqual(const GrEffect&) const SK_OVERRIDE;
+
+    GrBlendEffect(SkBlendImageFilter::Mode mode, GrTexture* foreground, GrTexture* background);
     GrTextureAccess             fForegroundAccess;
     GrTextureAccess             fBackgroundAccess;
     SkBlendImageFilter::Mode    fMode;
@@ -218,7 +226,7 @@ GrTexture* SkBlendImageFilter::filterImageGPU(Proxy* proxy, GrTexture* src, cons
 
     GrPaint paint;
     paint.colorStage(0)->setEffect(
-        SkNEW_ARGS(GrBlendEffect, (fMode, foreground.get(), background.get())))->unref();
+        GrBlendEffect::Create(fMode, foreground.get(), background.get()))->unref();
     context->drawRect(paint, rect);
     return dst;
 }
@@ -238,9 +246,11 @@ GrBlendEffect::GrBlendEffect(SkBlendImageFilter::Mode mode,
 GrBlendEffect::~GrBlendEffect() {
 }
 
-bool GrBlendEffect::isEqual(const GrEffect& sBase) const {
+bool GrBlendEffect::onIsEqual(const GrEffect& sBase) const {
     const GrBlendEffect& s = static_cast<const GrBlendEffect&>(sBase);
-    return INHERITED::isEqual(sBase) && fMode == s.fMode;
+    return fForegroundAccess.getTexture() == s.fForegroundAccess.getTexture() &&
+           fBackgroundAccess.getTexture() == s.fBackgroundAccess.getTexture() &&
+           fMode == s.fMode;
 }
 
 const GrBackendEffectFactory& GrBlendEffect::getFactory() const {

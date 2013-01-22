@@ -10,6 +10,7 @@
 
 #include "GrSingleTextureEffect.h"
 
+class GrEffectStage;
 class GrGLConfigConversionEffect;
 
 /**
@@ -44,7 +45,8 @@ public:
     typedef GrGLConfigConversionEffect GLEffect;
 
     virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
-    virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
+
+    virtual void getConstantColorComponents(GrColor* color, uint32_t* validFlags) const SK_OVERRIDE;
 
     bool swapsRedAndBlue() const { return fSwapRedAndBlue; }
     PMConversion  pmConversion() const { return fPMConversion; }
@@ -63,6 +65,8 @@ private:
                             bool swapRedAndBlue,
                             PMConversion pmConversion,
                             const SkMatrix& matrix);
+
+    virtual bool onIsEqual(const GrEffect&) const SK_OVERRIDE;
 
     bool            fSwapRedAndBlue;
     PMConversion    fPMConversion;

@@ -58,30 +58,39 @@ private:
 
 int32_t GrBackendEffectFactory::fCurrEffectClassID = GrBackendEffectFactory::kIllegalEffectClassID;
 
+///////////////////////////////////////////////////////////////////////////////
+
+SK_DEFINE_INST_COUNT(GrEffectRef)
+
+GrEffectRef::~GrEffectRef() {
+    GrAssert(1 == this->getRefCnt());
+    fEffect->EffectRefDestroyed();
+    fEffect->unref();
+}
+
+void* GrEffectRef::operator new(size_t size) {
+    return GrEffect_Globals::GetTLS()->allocate(size);
+}
+
+void GrEffectRef::operator delete(void* target) {
+    GrEffect_Globals::GetTLS()->release(target);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 GrEffect::~GrEffect() {
+    GrAssert(NULL == fEffectRef);
 }
 
 const char* GrEffect::name() const {
     return this->getFactory().name();
 }
 
-bool GrEffect::isEqual(const GrEffect& s) const {
-    if (this->numTextures() != s.numTextures()) {
-        return false;
-    }
-    for (int i = 0; i < this->numTextures(); ++i) {
-        if (this->textureAccess(i) != s.textureAccess(i)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 void GrEffect::addTextureAccess(const GrTextureAccess* access) {
     fTextureAccesses.push_back(access);
 }
 
-void * GrEffect::operator new(size_t size) {
+void* GrEffect::operator new(size_t size) {
     return GrEffect_Globals::GetTLS()->allocate(size);
 }
 

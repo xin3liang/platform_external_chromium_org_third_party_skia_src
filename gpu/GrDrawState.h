@@ -16,7 +16,7 @@
 #include "GrStencil.h"
 #include "GrTexture.h"
 #include "GrRenderTarget.h"
-#include "effects/GrSingleTextureEffect.h"
+#include "effects/GrSimpleTextureEffect.h"
 
 #include "SkXfermode.h"
 
@@ -193,15 +193,11 @@ public:
     ////
 
     /**
-     * Creates a GrSingleTextureEffect.
+     * Creates a GrSimpleTextureEffect.
      */
-    void createTextureEffect(int stageIdx, GrTexture* texture) {
-        GrAssert(!this->getStage(stageIdx).getEffect());
-        this->stage(stageIdx)->setEffect(SkNEW_ARGS(GrSingleTextureEffect, (texture)))->unref();
-    }
     void createTextureEffect(int stageIdx, GrTexture* texture, const SkMatrix& matrix) {
         GrAssert(!this->getStage(stageIdx).getEffect());
-        GrEffect* effect = SkNEW_ARGS(GrSingleTextureEffect, (texture, matrix));
+        GrEffectRef* effect = GrSimpleTextureEffect::Create(texture, matrix);
         this->stage(stageIdx)->setEffect(effect)->unref();
     }
     void createTextureEffect(int stageIdx,
@@ -209,10 +205,9 @@ public:
                              const SkMatrix& matrix,
                              const GrTextureParams& params) {
         GrAssert(!this->getStage(stageIdx).getEffect());
-        GrEffect* effect = SkNEW_ARGS(GrSingleTextureEffect, (texture, matrix, params));
+        GrEffectRef* effect = GrSimpleTextureEffect::Create(texture, matrix, params);
         this->stage(stageIdx)->setEffect(effect)->unref();
     }
-
 
     bool stagesDisabled() {
         for (int i = 0; i < kNumStages; ++i) {
