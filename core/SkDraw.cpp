@@ -1658,7 +1658,7 @@ void SkDraw::drawText(const char text[], size_t byteLength,
 
     const SkMatrix* matrix = fMatrix;
 
-    SkAutoGlyphCache    autoCache(paint, matrix);
+    SkAutoGlyphCache    autoCache(paint, &fDevice->fLeakyProperties, matrix);
     SkGlyphCache*       cache = autoCache.getCache();
 
     // transform our starting point
@@ -1852,7 +1852,7 @@ void SkDraw::drawPosText(const char text[], size_t byteLength,
     const SkMatrix* matrix = fMatrix;
 
     SkDrawCacheProc     glyphCacheProc = paint.getDrawCacheProc();
-    SkAutoGlyphCache    autoCache(paint, matrix);
+    SkAutoGlyphCache    autoCache(paint, &fDevice->fLeakyProperties, matrix);
     SkGlyphCache*       cache = autoCache.getCache();
 
     SkAAClipBlitterWrapper wrapper;
@@ -2141,7 +2141,7 @@ void SkDraw::drawPosTextOnPath(const char text[], size_t byteLength,
     // End copied from SkTextToPathIter constructor
 
     // detach cache
-    SkGlyphCache* cache = tempPaint.detachCache(NULL);
+    SkGlyphCache* cache = tempPaint.detachCache(NULL, NULL);
 
     // Must set scale, even if 1
     SkScalar scale = SK_Scalar1;

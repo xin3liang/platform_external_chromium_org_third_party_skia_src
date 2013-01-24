@@ -23,22 +23,22 @@ public:
 
     /// Convolve with an arbitrary user-specified kernel
     static GrEffectRef* Create(GrTexture* tex, Direction dir, int halfWidth, const float* kernel) {
-        SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(GrConvolutionEffect, (tex,
-                                                                       dir,
-                                                                       halfWidth,
-                                                                       kernel)));
+        AutoEffectUnref effect(SkNEW_ARGS(GrConvolutionEffect, (tex,
+                                                                dir,
+                                                                halfWidth,
+                                                                kernel)));
         return CreateEffectRef(effect);
     }
 
     /// Convolve with a Gaussian kernel
-    static GrEffectRef* Create(GrTexture* tex,
-                               Direction dir,
-                               int halfWidth,
-                               float gaussianSigma) {
-        SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(GrConvolutionEffect, (tex,
-                                                                       dir,
-                                                                       halfWidth,
-                                                                       gaussianSigma)));
+    static GrEffectRef* CreateGuassian(GrTexture* tex,
+                                       Direction dir,
+                                       int halfWidth,
+                                       float gaussianSigma) {
+        AutoEffectUnref effect(SkNEW_ARGS(GrConvolutionEffect, (tex,
+                                                                dir,
+                                                                halfWidth,
+                                                                gaussianSigma)));
         return CreateEffectRef(effect);
     }
 

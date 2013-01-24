@@ -227,7 +227,7 @@ class GLColorTableEffect;
 class ColorTableEffect : public GrEffect {
 public:
     static GrEffectRef* Create(GrTexture* texture, unsigned flags) {
-        SkAutoTUnref<GrEffect> effect(SkNEW_ARGS(ColorTableEffect, (texture, flags)));
+        AutoEffectUnref effect(SkNEW_ARGS(ColorTableEffect, (texture, flags)));
         return CreateEffectRef(effect);
     }
 
@@ -256,8 +256,7 @@ private:
 
 class GLColorTableEffect : public GrGLEffect {
 public:
-    GLColorTableEffect(const GrBackendEffectFactory& factory,
-                         const GrEffect& effect);
+    GLColorTableEffect(const GrBackendEffectFactory&, const GrEffectRef&);
 
     virtual void emitCode(GrGLShaderBuilder*,
                           const GrEffectStage&,
@@ -276,8 +275,7 @@ private:
     typedef GrGLEffect INHERITED;
 };
 
-GLColorTableEffect::GLColorTableEffect(
-    const GrBackendEffectFactory& factory, const GrEffect& effect)
+GLColorTableEffect::GLColorTableEffect(const GrBackendEffectFactory& factory, const GrEffectRef&)
     : INHERITED(factory) {
  }
 

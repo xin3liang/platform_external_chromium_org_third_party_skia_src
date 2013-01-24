@@ -6,6 +6,7 @@
  * found in the LICENSE file.
  */
 #include "SkDevice.h"
+#include "SkDeviceProperties.h"
 #include "SkDraw.h"
 #include "SkImageFilter.h"
 #include "SkMetaData.h"
@@ -23,7 +24,17 @@ SK_DEFINE_INST_COUNT(SkDevice)
 ///////////////////////////////////////////////////////////////////////////////
 
 SkDevice::SkDevice(const SkBitmap& bitmap)
-    : fBitmap(bitmap)
+    : fBitmap(bitmap), fLeakyProperties(SkDeviceProperties::MakeDefault())
+#ifdef SK_DEBUG
+    , fAttachedToCanvas(false)
+#endif
+{
+    fOrigin.setZero();
+    fMetaData = NULL;
+}
+
+SkDevice::SkDevice(const SkBitmap& bitmap, const SkDeviceProperties& deviceProperties)
+    : fBitmap(bitmap), fLeakyProperties(deviceProperties)
 #ifdef SK_DEBUG
     , fAttachedToCanvas(false)
 #endif
@@ -33,8 +44,27 @@ SkDevice::SkDevice(const SkBitmap& bitmap)
 }
 
 SkDevice::SkDevice(SkBitmap::Config config, int width, int height, bool isOpaque)
+    : fLeakyProperties(SkDeviceProperties::MakeDefault())
 #ifdef SK_DEBUG
-    : fAttachedToCanvas(false)
+    , fAttachedToCanvas(false)
+#endif
+{
+    fOrigin.setZero();
+    fMetaData = NULL;
+
+    fBitmap.setConfig(config, width, height);
+    fBitmap.allocPixels();
+    fBitmap.setIsOpaque(isOpaque);
+    if (!isOpaque) {
+        fBitmap.eraseColor(SK_ColorTRANSPARENT);
+    }
+}
+
+SkDevice::SkDevice(SkBitmap::Config config, int width, int height, bool isOpaque,
+                   const SkDeviceProperties& deviceProperties)
+    : fLeakyProperties(deviceProperties)
+#ifdef SK_DEBUG
+    , fAttachedToCanvas(false)
 #endif
 {
     fOrigin.setZero();
@@ -77,7 +107,7 @@ SkDevice* SkDevice::onCreateCompatibleDevice(SkBitmap::Config config,
                                              int width, int height,
                                              bool isOpaque,
                                              Usage usage) {
-    return SkNEW_ARGS(SkDevice,(config, width, height, isOpaque));
+    return SkNEW_ARGS(SkDevice,(config, width, height, isOpaque, fLeakyProperties));
 }
 
 SkMetaData& SkDevice::getMetaData() {
@@ -317,14 +347,22 @@ void SkDevice::drawPaint(const SkDraw& draw, const SkPaint& paint) {
 }
 
 void SkDevice::drawPoints(const SkDraw& draw, SkCanvas::PointMode mode, size_t count,
-                              const SkPoint pts[], const SkPaint& paint) {
+                          const SkPoint pts[], const SkPaint& paint) {
     draw.drawPoints(mode, count, pts, paint);
 }
 
-void SkDevice::drawRect(const SkDraw& draw, const SkRect& r,
-                            const SkPaint& paint) {
+void SkDevice::drawRect(const SkDraw& draw, const SkRect& r, const SkPaint& paint) {
     CHECK_FOR_NODRAW_ANNOTATION(paint);
     draw.drawRect(r, paint);
+}
+
+void SkDevice::drawOval(const SkDraw& draw, const SkRect& oval, const SkPaint& paint) {
+    CHECK_FOR_NODRAW_ANNOTATION(paint);
+
+    SkPath path;
+    path.addOval(oval);
+    // call the non-virtual version
+    this->SkDevice::drawPath(draw, path, paint, NULL, true);
 }
 
 void SkDevice::drawPath(const SkDraw& draw, const SkPath& path,
