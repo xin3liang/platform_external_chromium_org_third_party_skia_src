@@ -30,8 +30,6 @@ void GrTextContext::flushGlyphs() {
     GrDrawState* drawState = fDrawTarget->drawState();
     if (fCurrVertex > 0) {
         // setup our sampler state for our text texture/atlas
-        drawState->stage(kGlyphMaskStage)->reset();
-
         GrAssert(GrIsALIGN4(fCurrVertex));
         GrAssert(fCurrTexture);
         GrTextureParams params(SkShader::kRepeat_TileMode, false);
@@ -97,8 +95,8 @@ GrTextContext::GrTextContext(GrContext* context, const GrPaint& paint) : fPaint(
     fMaxVertices = 0;
 
     fVertexLayout =
-        GrDrawTarget::kTextFormat_VertexLayoutBit |
-        GrDrawTarget::StageTexCoordVertexLayoutBit(kGlyphMaskStage, 0);
+        GrDrawState::kTextFormat_VertexLayoutBit |
+        GrDrawState::StageTexCoordVertexLayoutBit(kGlyphMaskStage, 0);
 }
 
 GrTextContext::~GrTextContext() {
