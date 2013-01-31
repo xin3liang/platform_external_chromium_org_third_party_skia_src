@@ -10,12 +10,11 @@
 #include "SkColorPriv.h"
 #include "SkFlattenableBuffers.h"
 #if SK_SUPPORT_GPU
-#include "SkGr.h"
-#include "SkGrPixelRef.h"
+#include "GrContext.h"
 #include "gl/GrGLEffect.h"
 #include "gl/GrGLEffectMatrix.h"
-#include "effects/GrSingleTextureEffect.h"
 #include "GrTBackendEffectFactory.h"
+#include "SkImageFilterUtils.h"
 #endif
 
 namespace {
@@ -25,8 +24,8 @@ SkXfermode::Mode modeToXfermode(SkBlendImageFilter::Mode mode)
     switch (mode) {
       case SkBlendImageFilter::kNormal_Mode:
         return SkXfermode::kSrcOver_Mode;
-      case SkBlendImageFilter::kMultiply_Mode:
-        return SkXfermode::kMultiply_Mode;
+      case SkBlendImageFilter::kModulate_Mode:
+        return SkXfermode::kModulate_Mode;
       case SkBlendImageFilter::kScreen_Mode:
         return SkXfermode::kScreen_Mode;
       case SkBlendImageFilter::kDarken_Mode:
@@ -101,7 +100,7 @@ bool SkBlendImageFilter::onFilterImage(Proxy* proxy,
     // FEBlend's multiply mode is (1 - Sa) * Da + (1 - Da) * Sc + Sc * Dc
     // Skia's is just Sc * Dc.  So we use a custom proc to implement FEBlend's
     // version.
-    if (fMode == SkBlendImageFilter::kMultiply_Mode) {
+    if (fMode == SkBlendImageFilter::kModulate_Mode) {
         paint.setXfermode(new SkProcXfermode(multiply_proc))->unref();
     } else {
         paint.setXfermodeMode(modeToXfermode(fMode));
@@ -171,64 +170,37 @@ private:
     typedef GrEffect INHERITED;
 };
 
-// FIXME:  This should be refactored with SkSingleInputImageFilter's version.
-static GrTexture* getInputResultAsTexture(SkImageFilter::Proxy* proxy,
-                                          SkImageFilter* input,
-                                          GrTexture* src,
-                                          const SkRect& rect) {
-    GrTexture* resultTex;
-    if (!input) {
-        resultTex = src;
-    } else if (input->canFilterImageGPU()) {
-        // filterImageGPU() already refs the result, so just return it here.
-        return input->filterImageGPU(proxy, src, rect);
-    } else {
-        SkBitmap srcBitmap, result;
-        srcBitmap.setConfig(SkBitmap::kARGB_8888_Config, src->width(), src->height());
-        srcBitmap.setPixelRef(new SkGrPixelRef(src))->unref();
-        SkIPoint offset;
-        if (input->filterImage(proxy, srcBitmap, SkMatrix(), &result, &offset)) {
-            if (result.getTexture()) {
-                resultTex = (GrTexture*) result.getTexture();
-            } else {
-                resultTex = GrLockAndRefCachedBitmapTexture(src->getContext(), result, NULL);
-                SkSafeRef(resultTex); // for the caller
-                GrUnlockAndUnrefCachedBitmapTexture(resultTex);
-                return resultTex;
-            }
-        } else {
-            resultTex = src;
-        }
+bool SkBlendImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result) {
+    SkBitmap backgroundBM;
+    if (!SkImageFilterUtils::GetInputResultGPU(getBackgroundInput(), proxy, src, &backgroundBM)) {
+        return false;
     }
-    SkSafeRef(resultTex);
-    return resultTex;
-}
-
-GrTexture* SkBlendImageFilter::filterImageGPU(Proxy* proxy, GrTexture* src, const SkRect& rect) {
-    SkAutoTUnref<GrTexture> background(getInputResultAsTexture(proxy, getBackgroundInput(), src, rect));
-    SkAutoTUnref<GrTexture> foreground(getInputResultAsTexture(proxy, getForegroundInput(), src, rect));
-    GrContext* context = src->getContext();
+    GrTexture* background = (GrTexture*) backgroundBM.getTexture();
+    SkBitmap foregroundBM;
+    if (!SkImageFilterUtils::GetInputResultGPU(getForegroundInput(), proxy, src, &foregroundBM)) {
+        return false;
+    }
+    GrTexture* foreground = (GrTexture*) foregroundBM.getTexture();
+    GrContext* context = foreground->getContext();
 
     GrTextureDesc desc;
     desc.fFlags = kRenderTarget_GrTextureFlagBit | kNoStencil_GrTextureFlagBit;
-    desc.fWidth = SkScalarCeilToInt(rect.width());
-    desc.fHeight = SkScalarCeilToInt(rect.height());
-    desc.fConfig = kRGBA_8888_GrPixelConfig;
+    desc.fWidth = src.width();
+    desc.fHeight = src.height();
+    desc.fConfig = kSkia8888_GrPixelConfig;
 
     GrAutoScratchTexture ast(context, desc);
-    GrTexture* dst = ast.detach();
-
-    GrContext::AutoMatrix am;
-    am.setIdentity(context);
+    SkAutoTUnref<GrTexture> dst(ast.detach());
 
     GrContext::AutoRenderTarget art(context, dst->asRenderTarget());
-    GrContext::AutoClip ac(context, rect);
 
     GrPaint paint;
     paint.colorStage(0)->setEffect(
-        GrBlendEffect::Create(fMode, foreground.get(), background.get()))->unref();
-    context->drawRect(paint, rect);
-    return dst;
+        GrBlendEffect::Create(fMode, foreground, background))->unref();
+    SkRect srcRect;
+    src.getBounds(&srcRect);
+    context->drawRect(paint, srcRect);
+    return SkImageFilterUtils::WrapTexture(dst, src.width(), src.height(), result);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -311,7 +283,7 @@ void GrGLBlendEffect::emitCode(GrGLShaderBuilder* builder,
       case SkBlendImageFilter::kNormal_Mode:
         code->appendf("\t\t%s.rgb = (1.0 - %s.a) * %s.rgb + %s.rgb;\n", outputColor, fgColor, bgColor, fgColor);
         break;
-      case SkBlendImageFilter::kMultiply_Mode:
+      case SkBlendImageFilter::kModulate_Mode:
         code->appendf("\t\t%s.rgb = (1.0 - %s.a) * %s.rgb + (1.0 - %s.a) * %s.rgb + %s.rgb * %s.rgb;\n", outputColor, fgColor, bgColor, bgColor, fgColor, fgColor, bgColor);
         break;
       case SkBlendImageFilter::kScreen_Mode:
