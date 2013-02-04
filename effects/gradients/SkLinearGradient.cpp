@@ -111,7 +111,7 @@ bool SkLinearGradient::setContext(const SkBitmap& device, const SkPaint& paint,
     SkASSERT(fi <= 0xFF);           \
     fx += dx;                       \
     *dstC++ = cache[toggle + fi];   \
-    toggle ^= SkGradientShaderBase::kDitherStride32; \
+    toggle = next_dither_toggle(toggle); \
     } while (0)
 
 namespace {
@@ -131,16 +131,18 @@ void shadeSpan_linear_vertical_lerp(TileProc proc, SkFixed dx, SkFixed fx,
     // If colors change sharply across the gradient, dithering is
     // insufficient (it subsamples the color space) and we need to lerp.
     unsigned fullIndex = proc(fx);
-    unsigned fi = fullIndex >> (16 - SkGradientShaderBase::kCache32Bits);
-    unsigned remainder = fullIndex & SkGradientShaderBase::kLerpRemainderMask32;
-    SkPMColor lerp =
-        SkFastFourByteInterp(
-            cache[toggle + fi + 1],
-            cache[toggle + fi], remainder);
-    SkPMColor dlerp =
-        SkFastFourByteInterp(
-            cache[(toggle ^ SkGradientShaderBase::kDitherStride32) + fi + 1],
-            cache[(toggle ^ SkGradientShaderBase::kDitherStride32) + fi], remainder);
+    unsigned fi = fullIndex >> SkGradientShaderBase::kCache32Shift;
+    unsigned remainder = fullIndex & ((1 << SkGradientShaderBase::kCache32Shift) - 1);
+    
+    int index0 = fi + toggle;
+    int index1 = index0;
+    if (fi < SkGradientShaderBase::kCache32Count - 1) {
+        index1 += 1;
+    }
+    SkPMColor lerp = SkFastFourByteInterp(cache[index1], cache[index0], remainder);
+    index0 ^= SkGradientShaderBase::kDitherStride32;
+    index1 ^= SkGradientShaderBase::kDitherStride32;
+    SkPMColor dlerp = SkFastFourByteInterp(cache[index1], cache[index0], remainder);
     sk_memset32_dither(dstC, lerp, dlerp, count);
 }
 
@@ -149,12 +151,12 @@ void shadeSpan_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
                             const SkPMColor* SK_RESTRICT cache,
                             int toggle, int count) {
     SkClampRange range;
-    range.init(fx, dx, count, 0, SkGradientShaderBase::kGradient32Length);
+    range.init(fx, dx, count, 0, SkGradientShaderBase::kCache32Count - 1);
 
     if ((count = range.fCount0) > 0) {
         sk_memset32_dither(dstC,
             cache[toggle + range.fV0],
-            cache[(toggle ^ SkGradientShaderBase::kDitherStride32) + range.fV0],
+            cache[next_dither_toggle(toggle) + range.fV0],
             count);
         dstC += count;
     }
@@ -176,7 +178,7 @@ void shadeSpan_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
     if ((count = range.fCount2) > 0) {
         sk_memset32_dither(dstC,
             cache[toggle + range.fV1],
-            cache[(toggle ^ SkGradientShaderBase::kDitherStride32) + range.fV1],
+            cache[next_dither_toggle(toggle) + range.fV1],
             count);
     }
 }
@@ -190,7 +192,7 @@ void shadeSpan_linear_mirror(TileProc proc, SkFixed dx, SkFixed fx,
         SkASSERT(fi <= 0xFF);
         fx += dx;
         *dstC++ = cache[toggle + fi];
-        toggle ^= SkGradientShaderBase::kDitherStride32;
+        toggle = next_dither_toggle(toggle);
     } while (--count != 0);
 }
 
@@ -203,7 +205,7 @@ void shadeSpan_linear_repeat(TileProc proc, SkFixed dx, SkFixed fx,
         SkASSERT(fi <= 0xFF);
         fx += dx;
         *dstC++ = cache[toggle + fi];
-        toggle ^= SkGradientShaderBase::kDitherStride32;
+        toggle = next_dither_toggle(toggle);
     } while (--count != 0);
 }
 
@@ -218,7 +220,7 @@ void SkLinearGradient::shadeSpan(int x, int y, SkPMColor* SK_RESTRICT dstC,
     TileProc            proc = fTileProc;
     const SkPMColor* SK_RESTRICT cache = this->getCache32();
 #ifdef USE_DITHER_32BIT_GRADIENT
-    int                 toggle = ((x ^ y) & 1) * kDitherStride32;
+    int                 toggle = init_dither_toggle(x, y);
 #else
     int toggle = 0;
 #endif
@@ -256,7 +258,7 @@ void SkLinearGradient::shadeSpan(int x, int y, SkPMColor* SK_RESTRICT dstC,
             unsigned fi = proc(SkScalarToFixed(srcPt.fX));
             SkASSERT(fi <= 0xFFFF);
             *dstC++ = cache[toggle + (fi >> kCache32Shift)];
-            toggle ^= SkGradientShaderBase::kDitherStride32;
+            toggle = next_dither_toggle(toggle);
             dstX += SK_Scalar1;
         } while (--count != 0);
     }
@@ -308,7 +310,7 @@ static void dither_memset16(uint16_t dst[], uint16_t value, uint16_t other,
     SkASSERT(fi < SkGradientShaderBase::kCache16Count);       \
     fx += dx;                           \
     *dstC++ = cache[toggle + fi];       \
-    toggle ^= SkGradientShaderBase::kDitherStride16;            \
+    toggle = next_dither_toggle16(toggle);            \
     } while (0)
 
 namespace {
@@ -325,7 +327,7 @@ void shadeSpan16_linear_vertical(TileProc proc, SkFixed dx, SkFixed fx,
     unsigned fi = proc(fx) >> SkGradientShaderBase::kCache16Shift;
     SkASSERT(fi < SkGradientShaderBase::kCache16Count);
     dither_memset16(dstC, cache[toggle + fi],
-        cache[(toggle ^ SkGradientShaderBase::kDitherStride16) + fi], count);
+        cache[next_dither_toggle16(toggle) + fi], count);
 
 }
 
@@ -334,12 +336,12 @@ void shadeSpan16_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
                               const uint16_t* SK_RESTRICT cache,
                               int toggle, int count) {
     SkClampRange range;
-    range.init(fx, dx, count, 0, SkGradientShaderBase::kGradient16Length);
+    range.init(fx, dx, count, 0, SkGradientShaderBase::kCache32Count - 1);
 
     if ((count = range.fCount0) > 0) {
         dither_memset16(dstC,
             cache[toggle + range.fV0],
-            cache[(toggle ^ SkGradientShaderBase::kDitherStride16) + range.fV0],
+            cache[next_dither_toggle16(toggle) + range.fV0],
             count);
         dstC += count;
     }
@@ -361,7 +363,7 @@ void shadeSpan16_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
     if ((count = range.fCount2) > 0) {
         dither_memset16(dstC,
             cache[toggle + range.fV1],
-            cache[(toggle ^ SkGradientShaderBase::kDitherStride16) + range.fV1],
+            cache[next_dither_toggle16(toggle) + range.fV1],
             count);
     }
 }
@@ -376,7 +378,7 @@ void shadeSpan16_linear_mirror(TileProc proc, SkFixed dx, SkFixed fx,
         SkASSERT(fi < SkGradientShaderBase::kCache16Count);
         fx += dx;
         *dstC++ = cache[toggle + fi];
-        toggle ^= SkGradientShaderBase::kDitherStride16;
+        toggle = next_dither_toggle16(toggle);
     } while (--count != 0);
 }
 
@@ -390,7 +392,7 @@ void shadeSpan16_linear_repeat(TileProc proc, SkFixed dx, SkFixed fx,
         SkASSERT(fi < SkGradientShaderBase::kCache16Count);
         fx += dx;
         *dstC++ = cache[toggle + fi];
-        toggle ^= SkGradientShaderBase::kDitherStride16;
+        toggle = next_dither_toggle16(toggle);
     } while (--count != 0);
 }
 }
@@ -403,7 +405,7 @@ void SkLinearGradient::shadeSpan16(int x, int y,
     SkMatrix::MapXYProc dstProc = fDstToIndexProc;
     TileProc            proc = fTileProc;
     const uint16_t* SK_RESTRICT cache = this->getCache16();
-    int                 toggle = ((x ^ y) & 1) * kDitherStride16;
+    int                 toggle = init_dither_toggle16(x, y);
 
     if (fDstToIndexClass != kPerspective_MatrixClass) {
         dstProc(fDstToIndex, SkIntToScalar(x) + SK_ScalarHalf,
@@ -440,7 +442,7 @@ void SkLinearGradient::shadeSpan16(int x, int y,
 
             int index = fi >> kCache16Shift;
             *dstC++ = cache[toggle + index];
-            toggle ^= SkGradientShaderBase::kDitherStride16;
+            toggle = next_dither_toggle16(toggle);
 
             dstX += SK_Scalar1;
         } while (--count != 0);
