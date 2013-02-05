@@ -94,7 +94,11 @@ bool SkLinearGradient::setContext(const SkBitmap& device, const SkPaint& paint,
 
     unsigned mask = SkMatrix::kTranslate_Mask | SkMatrix::kScale_Mask;
     if ((fDstToIndex.getType() & ~mask) == 0) {
+#ifdef SK_IGNORE_GRADIENT_DITHER_FIX
         fFlags |= SkShader::kConstInY32_Flag;
+#else
+        // when we dither, we are (usually) not const-in-Y
+#endif
         if ((fFlags & SkShader::kHasSpan16_Flag) && !paint.isDither()) {
             // only claim this if we do have a 16bit mode (i.e. none of our
             // colors have alpha), and if we are not dithering (which obviously
@@ -133,7 +137,7 @@ void shadeSpan_linear_vertical_lerp(TileProc proc, SkFixed dx, SkFixed fx,
     unsigned fullIndex = proc(fx);
     unsigned fi = fullIndex >> SkGradientShaderBase::kCache32Shift;
     unsigned remainder = fullIndex & ((1 << SkGradientShaderBase::kCache32Shift) - 1);
-    
+
     int index0 = fi + toggle;
     int index1 = index0;
     if (fi < SkGradientShaderBase::kCache32Count - 1) {
@@ -219,11 +223,7 @@ void SkLinearGradient::shadeSpan(int x, int y, SkPMColor* SK_RESTRICT dstC,
     SkMatrix::MapXYProc dstProc = fDstToIndexProc;
     TileProc            proc = fTileProc;
     const SkPMColor* SK_RESTRICT cache = this->getCache32();
-#ifdef USE_DITHER_32BIT_GRADIENT
     int                 toggle = init_dither_toggle(x, y);
-#else
-    int toggle = 0;
-#endif
 
     if (fDstToIndexClass != kPerspective_MatrixClass) {
         dstProc(fDstToIndex, SkIntToScalar(x) + SK_ScalarHalf,
@@ -328,7 +328,6 @@ void shadeSpan16_linear_vertical(TileProc proc, SkFixed dx, SkFixed fx,
     SkASSERT(fi < SkGradientShaderBase::kCache16Count);
     dither_memset16(dstC, cache[toggle + fi],
         cache[next_dither_toggle16(toggle) + fi], count);
-
 }
 
 void shadeSpan16_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
