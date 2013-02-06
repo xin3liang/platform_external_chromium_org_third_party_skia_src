@@ -234,8 +234,7 @@ public:
      */
     bool readPixels(GrRenderTarget* renderTarget,
                     int left, int top, int width, int height,
-                    GrPixelConfig config, void* buffer, size_t rowBytes,
-                    bool invertY);
+                    GrPixelConfig config, void* buffer, size_t rowBytes);
 
     /**
      * Updates the pixels in a rectangle of a texture.
@@ -423,7 +422,7 @@ protected:
 
 private:
     // GrDrawTarget overrides
-    virtual bool onReserveVertexSpace(size_t vSize, int vertexCount, void** vertices) SK_OVERRIDE;
+    virtual bool onReserveVertexSpace(size_t vertexSize, int vertexCount, void** vertices) SK_OVERRIDE;
     virtual bool onReserveIndexSpace(int indexCount, void** indices) SK_OVERRIDE;
     virtual void releaseReservedVertexSpace() SK_OVERRIDE;
     virtual void releaseReservedIndexSpace() SK_OVERRIDE;
@@ -473,8 +472,7 @@ private:
                               int left, int top, int width, int height,
                               GrPixelConfig,
                               void* buffer,
-                              size_t rowBytes,
-                              bool invertY) = 0;
+                              size_t rowBytes) = 0;
 
     // overridden by backend-specific derived class to perform the texture update
     virtual void onWriteTexturePixels(GrTexture* texture,

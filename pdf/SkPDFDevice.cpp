@@ -495,6 +495,18 @@ struct ContentEntry {
     GraphicStateEntry fState;
     SkDynamicMemoryWStream fContent;
     SkTScopedPtr<ContentEntry> fNext;
+
+    // If the stack is too deep we could get Stack Overflow.
+    // So we manually destruct the object.
+    ~ContentEntry() {
+        ContentEntry* val = fNext.release();
+        while (val != NULL) {
+            ContentEntry* valNext = val->fNext.release();
+            // When the destructor is called, fNext is NULL and exits.
+            delete val;
+            val = valNext;
+        }
+    }
 };
 
 // A helper class to automatically finish a ContentEntry at the end of a
