@@ -146,13 +146,6 @@ public:
     const GrIndexBuffer* getQuadIndexBuffer() const;
 
     /**
-     * Returns a vertex buffer with four position-only vertices [(0,0), (1,0),
-     * (1,1), (0,1)].
-     * @ return unit square vertex buffer
-     */
-    const GrVertexBuffer* getUnitSquareVertexBuffer() const;
-
-    /**
      * Resolves MSAA.
      */
     void resolveRenderTarget(GrRenderTarget* target);
@@ -165,23 +158,17 @@ public:
     void forceRenderTargetFlush();
 
     /**
-     * readPixels with some configs may be slow. Given a desired config this
-     * function returns a fast-path config. The returned config must have the
-     * same components and component sizes. The caller is free to ignore the
-     * result and call readPixels with the original config.
+     * Gets a preferred 8888 config to use for writing / reading pixel data. The returned config
+     * must have at least as many bits per channel as the config param.
      */
-    virtual GrPixelConfig preferredReadPixelsConfig(GrPixelConfig config)
-                                                                        const {
-        return config;
-    }
+    virtual GrPixelConfig preferredReadPixelsConfig(GrPixelConfig config) const { return config; }
+    virtual GrPixelConfig preferredWritePixelsConfig(GrPixelConfig config) const { return config; }
 
     /**
-     * Same as above but applies to writeTexturePixels
+     * Called before uploading writing pixels to a GrTexture when the src pixel config doesn't
+     * match the texture's config.
      */
-    virtual GrPixelConfig preferredWritePixelsConfig(GrPixelConfig config)
-                                                                        const {
-        return config;
-    }
+    virtual bool canWriteTexturePixels(const GrTexture*, GrPixelConfig srcConfig) const = 0;
 
     /**
      * OpenGL's readPixels returns the result bottom-to-top while the skia
@@ -248,7 +235,7 @@ public:
      * @param rowBytes      number of bytes between consecutive rows. Zero
      *                      means rows are tightly packed.
      */
-    void writeTexturePixels(GrTexture* texture,
+    bool writeTexturePixels(GrTexture* texture,
                             int left, int top, int width, int height,
                             GrPixelConfig config, const void* buffer,
                             size_t rowBytes);
@@ -475,7 +462,7 @@ private:
                               size_t rowBytes) = 0;
 
     // overridden by backend-specific derived class to perform the texture update
-    virtual void onWriteTexturePixels(GrTexture* texture,
+    virtual bool onWriteTexturePixels(GrTexture* texture,
                                       int left, int top, int width, int height,
                                       GrPixelConfig config, const void* buffer,
                                       size_t rowBytes) = 0;
@@ -540,8 +527,7 @@ private:
     // counts number of uses of vertex/index pool in the geometry stack
     int                                                                 fVertexPoolUseCnt;
     int                                                                 fIndexPoolUseCnt;
-    // these are mutable so they can be created on-demand
-    mutable GrVertexBuffer*                                             fUnitSquareVertexBuffer;
+    // this is mutable so it can be created on-demand
     mutable GrIndexBuffer*                                              fQuadIndexBuffer;
     bool                                                                fContextIsDirty;
     ResourceList                                                        fResourceList;
