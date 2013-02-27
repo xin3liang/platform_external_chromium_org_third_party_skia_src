@@ -6,6 +6,17 @@
  * found in the LICENSE file.
  */
 #include "SkStream.h"
+
+#ifdef SK_BUILD_FOR_WIN
+
+// -1 means isValid() will return false
+SkFDStream::SkFDStream(int, bool) : fFD(-1), fCloseWhenDone(false) {}
+SkFDStream::~SkFDStream() {}
+bool SkFDStream::rewind() { return false; }
+size_t SkFDStream::read(void*, size_t) { return 0; }
+
+#else
+
 #include <unistd.h>
 
 //#define TRACE_FDSTREAM
@@ -89,3 +100,5 @@ size_t SkFDStream::read(void* buffer, size_t size) {
     }
     return 0;
 }
+
+#endif
