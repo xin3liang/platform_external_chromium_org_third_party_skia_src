@@ -147,17 +147,17 @@ static bool fbo_test(const GrGLInterface* gl, int w, int h) {
     return status == GR_GL_FRAMEBUFFER_COMPLETE;
 }
 
-GrGpuGL::GrGpuGL(const GrGLContextInfo& ctxInfo, GrContext* context)
+GrGpuGL::GrGpuGL(const GrGLContext& ctx, GrContext* context)
     : GrGpu(context)
-    , fGLContextInfo(ctxInfo) {
+    , fGLContext(ctx) {
 
-    GrAssert(ctxInfo.isInitialized());
+    GrAssert(ctx.isInitialized());
 
     fillInConfigRenderableTable();
 
     fPrintedCaps = false;
 
-    GrGLClearErr(fGLContextInfo.interface());
+    GrGLClearErr(fGLContext.interface());
 
     if (gPrintStartupSpew) {
         const GrGLubyte* ext;
@@ -178,13 +178,9 @@ GrGpuGL::GrGpuGL(const GrGLContextInfo& ctxInfo, GrContext* context)
 
     this->initCaps();
 
-    fProgramCache = SkNEW_ARGS(ProgramCache, (this->glContextInfo()));
+    fProgramCache = SkNEW_ARGS(ProgramCache, (this->glContext()));
 
     fHWGeometryState.setMaxAttribArrays(this->glCaps().maxVertexAttributes());
-
-    GrAssert(this->glCaps().maxVertexAttributes() >= GrDrawState::kVertexAttribCnt);
-    GrAssert(this->glCaps().maxVertexAttributes() > GrDrawState::kColorOverrideAttribIndexValue);
-    GrAssert(this->glCaps().maxVertexAttributes() > GrDrawState::kCoverageOverrideAttribIndexValue);
 
     fLastSuccessfulStencilFmtIdx = 0;
     if (false) { // avoid bit rot, suppress warning
@@ -414,15 +410,17 @@ void GrGpuGL::onResetContext() {
 
     if (kDesktop_GrGLBinding == this->glBinding()) {
         // Desktop-only state that we never change
-        GL_CALL(Disable(GR_GL_POINT_SMOOTH));
-        GL_CALL(Disable(GR_GL_LINE_SMOOTH));
-        GL_CALL(Disable(GR_GL_POLYGON_SMOOTH));
-        GL_CALL(Disable(GR_GL_POLYGON_STIPPLE));
-        GL_CALL(Disable(GR_GL_COLOR_LOGIC_OP));
+        if (!this->glCaps().isCoreProfile()) {
+            GL_CALL(Disable(GR_GL_POINT_SMOOTH));
+            GL_CALL(Disable(GR_GL_LINE_SMOOTH));
+            GL_CALL(Disable(GR_GL_POLYGON_SMOOTH));
+            GL_CALL(Disable(GR_GL_POLYGON_STIPPLE));
+            GL_CALL(Disable(GR_GL_COLOR_LOGIC_OP));
+            GL_CALL(Disable(GR_GL_INDEX_LOGIC_OP));
+        }
         if (this->glCaps().imagingSupport()) {
             GL_CALL(Disable(GR_GL_COLOR_TABLE));
         }
-        GL_CALL(Disable(GR_GL_INDEX_LOGIC_OP));
         GL_CALL(Disable(GR_GL_POLYGON_OFFSET_FILL));
         // Since ES doesn't support glPointSize at all we always use the VS to
         // set the point size
@@ -827,34 +825,34 @@ bool GrGpuGL::uploadTexData(const GrGLTexture::Desc& desc,
 }
 
 namespace {
-bool renderbuffer_storage_msaa(GrGLContextInfo& ctxInfo,
+bool renderbuffer_storage_msaa(GrGLContext& ctx,
                                int sampleCount,
                                GrGLenum format,
                                int width, int height) {
-    CLEAR_ERROR_BEFORE_ALLOC(ctxInfo.interface());
-    GrAssert(GrGLCaps::kNone_MSFBOType != ctxInfo.caps().msFBOType());
+    CLEAR_ERROR_BEFORE_ALLOC(ctx.interface());
+    GrAssert(GrGLCaps::kNone_MSFBOType != ctx.info().caps().msFBOType());
     bool created = false;
     if (GrGLCaps::kNVDesktop_CoverageAAType ==
-        ctxInfo.caps().coverageAAType()) {
+        ctx.info().caps().coverageAAType()) {
         const GrGLCaps::MSAACoverageMode& mode =
-            ctxInfo.caps().getMSAACoverageMode(sampleCount);
-        GL_ALLOC_CALL(ctxInfo.interface(),
+            ctx.info().caps().getMSAACoverageMode(sampleCount);
+        GL_ALLOC_CALL(ctx.interface(),
                       RenderbufferStorageMultisampleCoverage(GR_GL_RENDERBUFFER,
                                                         mode.fCoverageSampleCnt,
                                                         mode.fColorSampleCnt,
                                                         format,
                                                         width, height));
-        created = (GR_GL_NO_ERROR == CHECK_ALLOC_ERROR(ctxInfo.interface()));
+        created = (GR_GL_NO_ERROR == CHECK_ALLOC_ERROR(ctx.interface()));
     }
     if (!created) {
         // glRBMS will fail if requested samples is > max samples.
-        sampleCount = GrMin(sampleCount, ctxInfo.caps().maxSampleCount());
-        GL_ALLOC_CALL(ctxInfo.interface(),
+        sampleCount = GrMin(sampleCount, ctx.info().caps().maxSampleCount());
+        GL_ALLOC_CALL(ctx.interface(),
                       RenderbufferStorageMultisample(GR_GL_RENDERBUFFER,
                                                      sampleCount,
                                                      format,
                                                      width, height));
-        created = (GR_GL_NO_ERROR == CHECK_ALLOC_ERROR(ctxInfo.interface()));
+        created = (GR_GL_NO_ERROR == CHECK_ALLOC_ERROR(ctx.interface()));
     }
     return created;
 }
@@ -904,7 +902,7 @@ bool GrGpuGL::createRenderTargetObjects(int width, int height,
         GrAssert(desc->fSampleCnt > 0);
         GL_CALL(BindRenderbuffer(GR_GL_RENDERBUFFER,
                                desc->fMSColorRenderbufferID));
-        if (!renderbuffer_storage_msaa(fGLContextInfo,
+        if (!renderbuffer_storage_msaa(fGLContext,
                                        desc->fSampleCnt,
                                        msColorFormat,
                                        width, height)) {
@@ -920,7 +918,7 @@ bool GrGpuGL::createRenderTargetObjects(int width, int height,
             if (status != GR_GL_FRAMEBUFFER_COMPLETE) {
                 goto FAILED;
             }
-            fGLContextInfo.caps().markConfigAsValidColorAttachment(
+            fGLContext.info().caps().markConfigAsValidColorAttachment(
                                                                 desc->fConfig);
         }
     }
@@ -935,7 +933,7 @@ bool GrGpuGL::createRenderTargetObjects(int width, int height,
         if (status != GR_GL_FRAMEBUFFER_COMPLETE) {
             goto FAILED;
         }
-        fGLContextInfo.caps().markConfigAsValidColorAttachment(desc->fConfig);
+        fGLContext.info().caps().markConfigAsValidColorAttachment(desc->fConfig);
     }
 
     return true;
@@ -1131,7 +1129,7 @@ bool GrGpuGL::createStencilBufferForRenderTarget(GrRenderTarget* rt,
         // version on a GL that doesn't have an MSAA extension.
         bool created;
         if (samples > 0) {
-            created = renderbuffer_storage_msaa(fGLContextInfo,
+            created = renderbuffer_storage_msaa(fGLContext,
                                                 samples,
                                                 sFmt.fInternalFormat,
                                                 width, height);
@@ -1220,7 +1218,7 @@ bool GrGpuGL::attachStencilBufferToRenderTarget(GrStencilBuffer* sb,
                 }
                 return false;
             } else {
-                fGLContextInfo.caps().markColorConfigAndStencilFormatAsVerified(
+                fGLContext.info().caps().markColorConfigAndStencilFormatAsVerified(
                     rt->config(),
                     glsb->format());
             }

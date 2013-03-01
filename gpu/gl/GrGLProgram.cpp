@@ -20,8 +20,8 @@
 
 SK_DEFINE_INST_COUNT(GrGLProgram)
 
-#define GL_CALL(X) GR_GL_CALL(fContextInfo.interface(), X)
-#define GL_CALL_RET(R, X) GR_GL_CALL_RET(fContextInfo.interface(), R, X)
+#define GL_CALL(X) GR_GL_CALL(fContext.interface(), X)
+#define GL_CALL_RET(R, X) GR_GL_CALL_RET(fContext.interface(), R, X)
 
 SK_CONF_DECLARE(bool, c_PrintShaders, "gpu.printShaders", false, "Print the source code for all shaders generated.");
 
@@ -34,14 +34,6 @@ namespace {
 inline const char* declared_color_output_name() { return "fsColorOut"; }
 inline const char* dual_source_output_name() { return "dualSourceOut"; }
 }
-
-const GrGLProgram::AttribLayout GrGLProgram::kAttribLayouts[kGrVertexAttribTypeCount] = {
-    {1, GR_GL_FLOAT, false},         // kFloat_GrVertexAttribType
-    {2, GR_GL_FLOAT, false},         // kVec2f_GrVertexAttribType
-    {3, GR_GL_FLOAT, false},         // kVec3f_GrVertexAttribType
-    {4, GR_GL_FLOAT, false},         // kVec4f_GrVertexAttribType
-    {4, GR_GL_UNSIGNED_BYTE, true},  // kVec4ub_GrVertexAttribType
-};
 
 void GrGLProgram::BuildDesc(const GrDrawState& drawState,
                             bool isPoints,
@@ -60,24 +52,24 @@ void GrGLProgram::BuildDesc(const GrDrawState& drawState,
                                            GrDrawState::kEmitCoverage_BlendOptFlag));
 
     // The descriptor is used as a cache key. Thus when a field of the
-    // descriptor will not affect program generation (because of the attribute
-    // bindings in use or other descriptor field settings) it should be set
+    // descriptor will not affect program generation (because of the vertex
+    // layout in use or other descriptor field settings) it should be set
     // to a canonical value to avoid duplicate programs with different keys.
 
     // Must initialize all fields or cache will have false negatives!
-    desc->fAttribBindings = drawState.getAttribBindings();
+    desc->fVertexLayout = drawState.getVertexLayout();
 
     desc->fEmitsPointSize = isPoints;
 
     bool requiresAttributeColors = !skipColor &&
-                                   SkToBool(desc->fAttribBindings & GrDrawState::kColor_AttribBindingsBit);
+                                   SkToBool(desc->fVertexLayout & GrDrawState::kColor_VertexLayoutBit);
     bool requiresAttributeCoverage = !skipCoverage &&
-                                     SkToBool(desc->fAttribBindings & GrDrawState::kCoverage_AttribBindingsBit);
+                                     SkToBool(desc->fVertexLayout & GrDrawState::kCoverage_VertexLayoutBit);
 
     // fColorInput/fCoverageInput records how colors are specified for the program So we strip the
-    // bits from the bindings to avoid false negatives when searching for an existing program in the
+    // bits from the layout to avoid false negatives when searching for an existing program in the
     // cache.
-    desc->fAttribBindings &= ~(GrDrawState::kColor_AttribBindingsBit | GrDrawState::kCoverage_AttribBindingsBit);
+    desc->fVertexLayout &= ~(GrDrawState::kColor_VertexLayoutBit | GrDrawState::kCoverage_VertexLayoutBit);
 
     desc->fColorFilterXfermode = skipColor ?
                                 SkXfermode::kDst_Mode :
@@ -85,8 +77,8 @@ void GrGLProgram::BuildDesc(const GrDrawState& drawState,
 
     // no reason to do edge aa or look at per-vertex coverage if coverage is ignored
     if (skipCoverage) {
-        desc->fAttribBindings &= ~(GrDrawState::kEdge_AttribBindingsBit |
-                                   GrDrawState::kCoverage_AttribBindingsBit);
+        desc->fVertexLayout &= ~(GrDrawState::kEdge_VertexLayoutBit |
+                                 GrDrawState::kCoverage_VertexLayoutBit);
     }
 
     bool colorIsTransBlack = SkToBool(blendOpts & GrDrawState::kEmitTransBlack_BlendOptFlag);
@@ -116,7 +108,7 @@ void GrGLProgram::BuildDesc(const GrDrawState& drawState,
 
     int lastEnabledStage = -1;
 
-    if (!skipCoverage && (desc->fAttribBindings & GrDrawState::kEdge_AttribBindingsBit)) {
+    if (!skipCoverage && (desc->fVertexLayout & GrDrawState::kEdge_VertexLayoutBit)) {
         desc->fVertexEdgeType = drawState.getVertexEdgeType();
         desc->fDiscardIfOutsideEdge = drawState.getStencil().doesWrite();
     } else {
@@ -163,7 +155,7 @@ void GrGLProgram::BuildDesc(const GrDrawState& drawState,
     // other coverage inputs
     if (!hasCoverage) {
         hasCoverage = requiresAttributeCoverage ||
-                      (desc->fAttribBindings & GrDrawState::kEdge_AttribBindingsBit);
+                      (desc->fVertexLayout & GrDrawState::kEdge_VertexLayoutBit);
     }
 
     if (hasCoverage) {
@@ -190,46 +182,9 @@ void GrGLProgram::BuildDesc(const GrDrawState& drawState,
             }
         }
     }
-
-    desc->fPositionAttributeIndex = drawState.getAttribIndex(GrDrawState::kPosition_AttribIndex);
-    if (requiresAttributeColors) {
-        desc->fColorAttributeIndex = drawState.getAttribIndex(GrDrawState::kColor_AttribIndex);
-    } else {
-        desc->fColorAttributeIndex = GrDrawState::kColorOverrideAttribIndexValue;
-    } 
-    if (requiresAttributeCoverage) {
-        desc->fCoverageAttributeIndex = drawState.getAttribIndex(GrDrawState::kCoverage_AttribIndex);
-    } else {
-        desc->fCoverageAttributeIndex = GrDrawState::kCoverageOverrideAttribIndexValue;
-    }
-    desc->fEdgeAttributeIndex     = drawState.getAttribIndex(GrDrawState::kEdge_AttribIndex);
-    desc->fTexCoordAttributeIndex = drawState.getAttribIndex(GrDrawState::kTexCoord_AttribIndex);
-
-#if GR_DEBUG
-    // verify valid vertex attribute state
-    const GrVertexAttrib* vertexAttribs = drawState.getVertexAttribs();
-    GrAssert(desc->fPositionAttributeIndex < GrDrawState::kVertexAttribCnt);
-    GrAssert(kAttribLayouts[vertexAttribs[desc->fPositionAttributeIndex].fType].fCount == 2);
-    if (requiresAttributeColors) {
-        GrAssert(desc->fColorAttributeIndex < GrDrawState::kVertexAttribCnt);
-        GrAssert(kAttribLayouts[vertexAttribs[desc->fColorAttributeIndex].fType].fCount == 4);
-    }
-    if (requiresAttributeCoverage) {
-        GrAssert(desc->fCoverageAttributeIndex < GrDrawState::kVertexAttribCnt);
-        GrAssert(kAttribLayouts[vertexAttribs[desc->fCoverageAttributeIndex].fType].fCount == 4);
-    }
-    if (desc->fAttribBindings & GrDrawState::kEdge_AttribBindingsBit) {
-        GrAssert(desc->fEdgeAttributeIndex < GrDrawState::kVertexAttribCnt);
-        GrAssert(kAttribLayouts[vertexAttribs[desc->fEdgeAttributeIndex].fType].fCount == 4);
-     }
-    if (GrDrawState::AttributesBindExplicitTexCoords(desc->fAttribBindings)) {
-        GrAssert(desc->fTexCoordAttributeIndex < GrDrawState::kVertexAttribCnt);
-        GrAssert(kAttribLayouts[vertexAttribs[desc->fTexCoordAttributeIndex].fType].fCount == 2);
-    }
-#endif
 }
 
-GrGLProgram* GrGLProgram::Create(const GrGLContextInfo& gl,
+GrGLProgram* GrGLProgram::Create(const GrGLContext& gl,
                                  const Desc& desc,
                                  const GrEffectStage* stages[]) {
     GrGLProgram* program = SkNEW_ARGS(GrGLProgram, (gl, desc, stages));
@@ -240,10 +195,10 @@ GrGLProgram* GrGLProgram::Create(const GrGLContextInfo& gl,
     return program;
 }
 
-GrGLProgram::GrGLProgram(const GrGLContextInfo& gl,
+GrGLProgram::GrGLProgram(const GrGLContext& gl,
                          const Desc& desc,
                          const GrEffectStage* stages[])
-: fContextInfo(gl)
+: fContext(gl)
 , fUniformManager(gl) {
     fDesc = desc;
     fVShaderID = 0;
@@ -411,7 +366,7 @@ void add_color_filter(SkString* fsCode, const char * outputVar,
 
 bool GrGLProgram::genEdgeCoverage(SkString* coverageVar,
                                   GrGLShaderBuilder* builder) const {
-    if (fDesc.fAttribBindings & GrDrawState::kEdge_AttribBindingsBit) {
+    if (fDesc.fVertexLayout & GrDrawState::kEdge_VertexLayoutBit) {
         const char *vsName, *fsName;
         builder->addVarying(kVec4f_GrSLType, "Edge", &vsName, &fsName);
         builder->fVSAttrs.push_back().set(kVec4f_GrSLType,
@@ -438,7 +393,7 @@ bool GrGLProgram::genEdgeCoverage(SkString* coverageVar,
             builder->fFSCode.appendf("\t\tedgeAlpha = (%s.x*%s.x - %s.y);\n", fsName, fsName, fsName);
             builder->fFSCode.append("\t\tedgeAlpha = clamp(0.5 - edgeAlpha / length(gF), 0.0, 1.0);\n"
                                     "\t}\n");
-            if (kES2_GrGLBinding == fContextInfo.binding()) {
+            if (kES2_GrGLBinding == fContext.info().binding()) {
                 builder->fHeader.printf("#extension GL_OES_standard_derivatives: enable\n");
             }
             break;
@@ -451,7 +406,7 @@ bool GrGLProgram::genEdgeCoverage(SkString* coverageVar,
             builder->fFSCode.appendf("\tfloat edgeAlpha = (%s.x*%s.x - %s.y);\n", fsName, fsName, fsName);
             builder->fFSCode.append("\tedgeAlpha = sqrt(edgeAlpha*edgeAlpha / dot(gF, gF));\n");
             builder->fFSCode.append("\tedgeAlpha = max(1.0 - edgeAlpha, 0.0);\n");
-            if (kES2_GrGLBinding == fContextInfo.binding()) {
+            if (kES2_GrGLBinding == fContext.info().binding()) {
                 builder->fHeader.printf("#extension GL_OES_standard_derivatives: enable\n");
             }
             break;
@@ -548,7 +503,7 @@ void gen_attribute_coverage(GrGLShaderBuilder* segments,
 void GrGLProgram::genGeometryShader(GrGLShaderBuilder* segments) const {
 #if GR_GL_EXPERIMENTAL_GS
     if (fDesc.fExperimentalGS) {
-        GrAssert(fContextInfo.glslGeneration() >= k150_GrGLSLGeneration);
+        GrAssert(fContext.info().glslGeneration() >= k150_GrGLSLGeneration);
         segments->fGSHeader.append("layout(triangles) in;\n"
                                    "layout(triangle_strip, max_vertices = 6) out;\n");
         segments->fGSCode.append("\tfor (int i = 0; i < 3; ++i) {\n"
@@ -597,7 +552,7 @@ void print_shader(GrGLint stringCnt,
 }
 
 // Compiles a GL shader, returns shader ID or 0 if failed params have same meaning as glShaderSource
-GrGLuint compile_shader(const GrGLContextInfo& gl,
+GrGLuint compile_shader(const GrGLContext& gl,
                         GrGLenum type,
                         int stringCnt,
                         const char** strings,
@@ -638,7 +593,7 @@ GrGLuint compile_shader(const GrGLContextInfo& gl,
 }
 
 // helper version of above for when shader is already flattened into a single SkString
-GrGLuint compile_shader(const GrGLContextInfo& gl, GrGLenum type, const SkString& shader) {
+GrGLuint compile_shader(const GrGLContext& gl, GrGLenum type, const SkString& shader) {
     const GrGLchar* str = shader.c_str();
     int length = shader.size();
     return compile_shader(gl, type, 1, &str, &length);
@@ -657,7 +612,7 @@ bool GrGLProgram::compileShaders(const GrGLShaderBuilder& builder) {
         GrPrintf("\n");
     }
 
-    if (!(fVShaderID = compile_shader(fContextInfo, GR_GL_VERTEX_SHADER, shader))) {
+    if (!(fVShaderID = compile_shader(fContext, GR_GL_VERTEX_SHADER, shader))) {
         return false;
     }
 
@@ -667,7 +622,7 @@ bool GrGLProgram::compileShaders(const GrGLShaderBuilder& builder) {
             GrPrintf(shader.c_str());
             GrPrintf("\n");
         }
-        if (!(fGShaderID = compile_shader(fContextInfo, GR_GL_GEOMETRY_SHADER, shader))) {
+        if (!(fGShaderID = compile_shader(fContext, GR_GL_GEOMETRY_SHADER, shader))) {
             return false;
         }
     } else {
@@ -679,7 +634,7 @@ bool GrGLProgram::compileShaders(const GrGLShaderBuilder& builder) {
         GrPrintf(shader.c_str());
         GrPrintf("\n");
     }
-    if (!(fFShaderID = compile_shader(fContextInfo, GR_GL_FRAGMENT_SHADER, shader))) {
+    if (!(fFShaderID = compile_shader(fContext, GR_GL_FRAGMENT_SHADER, shader))) {
         return false;
     }
 
@@ -689,8 +644,8 @@ bool GrGLProgram::compileShaders(const GrGLShaderBuilder& builder) {
 bool GrGLProgram::genProgram(const GrEffectStage* stages[]) {
     GrAssert(0 == fProgramID);
 
-    GrGLShaderBuilder builder(fContextInfo, fUniformManager);
-    const GrAttribBindings& attribBindings = fDesc.fAttribBindings;
+    GrGLShaderBuilder builder(fContext.info(), fUniformManager);
+    const uint32_t& layout = fDesc.fVertexLayout;
 
 #if GR_GL_EXPERIMENTAL_GS
     builder.fUsesGS = fDesc.fExperimentalGS;
@@ -738,11 +693,11 @@ bool GrGLProgram::genProgram(const GrEffectStage* stages[]) {
     // the dual source output has no canonical var name, have to
     // declare an output, which is incompatible with gl_FragColor/gl_FragData.
     bool dualSourceOutputWritten = false;
-    builder.fHeader.append(GrGetGLSLVersionDecl(fContextInfo.binding(),
-                                                fContextInfo.glslGeneration()));
+    builder.fHeader.append(GrGetGLSLVersionDecl(fContext.info().binding(),
+                                                fContext.info().glslGeneration()));
 
     GrGLShaderVar colorOutput;
-    bool isColorDeclared = GrGLSLSetupFSColorOuput(fContextInfo.glslGeneration(),
+    bool isColorDeclared = GrGLSLSetupFSColorOuput(fContext.info().glslGeneration(),
                                                    declared_color_output_name(),
                                                    &colorOutput);
     if (isColorDeclared) {
@@ -771,7 +726,7 @@ bool GrGLProgram::genProgram(const GrEffectStage* stages[]) {
     }
 
     // add texture coordinates that are used to the list of vertex attr decls
-    if (GrDrawState::AttributesBindExplicitTexCoords(attribBindings)) {
+    if (GrDrawState::VertexUsesTexCoords(layout)) {
         builder.fVSAttrs.push_back().set(kVec2f_GrSLType,
             GrGLShaderVar::kAttribute_TypeModifier,
             TEX_ATTR_NAME);
@@ -793,7 +748,7 @@ bool GrGLProgram::genProgram(const GrEffectStage* stages[]) {
 
                 const char* inCoords;
                 // figure out what our input coords are
-                if (!GrDrawState::StageBindsExplicitTexCoords(attribBindings, s)) {
+                if (!GrDrawState::StageUsesTexCoords(layout, s)) {
                     inCoords = builder.positionAttribute().c_str();
                 } else {
                     // must have input tex coordinates if stage is enabled.
@@ -887,7 +842,7 @@ bool GrGLProgram::genProgram(const GrEffectStage* stages[]) {
 
                     const char* inCoords;
                     // figure out what our input coords are
-                    if (!GrDrawState::StageBindsExplicitTexCoords(attribBindings, s)) {
+                    if (!GrDrawState::StageUsesTexCoords(layout, s)) {
                         inCoords = builder.positionAttribute().c_str();
                     } else {
                         // must have input tex coordinates if stage is
@@ -1011,18 +966,13 @@ bool GrGLProgram::bindOutputsAttribsAndLinkProgram(const GrGLShaderBuilder& buil
 
     // Bind the attrib locations to same values for all shaders
     GL_CALL(BindAttribLocation(fProgramID,
-                               fDesc.fPositionAttributeIndex,
+                               kPositionAttributeIndex,
                                builder.positionAttribute().c_str()));
-    GL_CALL(BindAttribLocation(fProgramID, fDesc.fColorAttributeIndex, COL_ATTR_NAME));
-    GL_CALL(BindAttribLocation(fProgramID, fDesc.fCoverageAttributeIndex, COV_ATTR_NAME));
- 
-    if (fDesc.fAttribBindings & GrDrawState::kEdge_AttribBindingsBit) {
-        GL_CALL(BindAttribLocation(fProgramID, fDesc.fEdgeAttributeIndex, EDGE_ATTR_NAME));
-    }
-    if (GrDrawState::AttributesBindExplicitTexCoords(fDesc.fAttribBindings)) {
-        GL_CALL(BindAttribLocation(fProgramID, fDesc.fTexCoordAttributeIndex, TEX_ATTR_NAME));
-    }
-    
+    GL_CALL(BindAttribLocation(fProgramID, kTexCoordAttributeIndex, TEX_ATTR_NAME));
+    GL_CALL(BindAttribLocation(fProgramID, kColorAttributeIndex, COL_ATTR_NAME));
+    GL_CALL(BindAttribLocation(fProgramID, kCoverageAttributeIndex, COV_ATTR_NAME));
+    GL_CALL(BindAttribLocation(fProgramID, kEdgeAttributeIndex, EDGE_ATTR_NAME));
+
     GL_CALL(LinkProgram(fProgramID));
 
     GrGLint linked = GR_GL_INIT_ZERO;
@@ -1110,14 +1060,14 @@ void GrGLProgram::setData(GrGpuGL* gpu,
 void GrGLProgram::setColor(const GrDrawState& drawState,
                            GrColor color,
                            SharedGLState* sharedState) {
-    if (!(drawState.getAttribBindings() & GrDrawState::kColor_AttribBindingsBit)) {
+    if (!(drawState.getVertexLayout() & GrDrawState::kColor_VertexLayoutBit)) {
         switch (fDesc.fColorInput) {
             case GrGLProgram::Desc::kAttribute_ColorInput:
                 if (sharedState->fConstAttribColor != color) {
                     // OpenGL ES only supports the float varieties of glVertexAttrib
                     GrGLfloat c[4];
                     GrColorToRGBAFloat(color, c);
-                    GL_CALL(VertexAttrib4fv(fDesc.fColorAttributeIndex, c));
+                    GL_CALL(VertexAttrib4fv(kColorAttributeIndex, c));
                     sharedState->fConstAttribColor = color;
                 }
                 break;
@@ -1144,14 +1094,14 @@ void GrGLProgram::setColor(const GrDrawState& drawState,
 void GrGLProgram::setCoverage(const GrDrawState& drawState,
                               GrColor coverage,
                               SharedGLState* sharedState) {
-    if (!(drawState.getAttribBindings() & GrDrawState::kCoverage_AttribBindingsBit)) {
+    if (!(drawState.getVertexLayout() & GrDrawState::kCoverage_VertexLayoutBit)) {
         switch (fDesc.fCoverageInput) {
             case Desc::kAttribute_ColorInput:
                 if (sharedState->fConstAttribCoverage != coverage) {
                     // OpenGL ES only supports the float varieties of  glVertexAttrib
                     GrGLfloat c[4];
                     GrColorToRGBAFloat(coverage, c);
-                    GL_CALL(VertexAttrib4fv(fDesc.fCoverageAttributeIndex, c));
+                    GL_CALL(VertexAttrib4fv(kCoverageAttributeIndex, c));
                     sharedState->fConstAttribCoverage = coverage;
                 }
                 break;

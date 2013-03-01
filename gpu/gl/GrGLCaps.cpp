@@ -7,7 +7,7 @@
 
 
 #include "GrGLCaps.h"
-#include "GrGLContextInfo.h"
+#include "GrGLContext.h"
 #include "SkTSearch.h"
 
 GrGLCaps::GrGLCaps() {
@@ -38,6 +38,7 @@ void GrGLCaps::reset() {
     fTwoFormatLimit = false;
     fFragCoordsConventionSupport = false;
     fUseNonVBOVertexAndIndexDynamicData = false;
+    fIsCoreProfile = false;
 }
 
 GrGLCaps::GrGLCaps(const GrGLCaps& caps) {
@@ -69,18 +70,18 @@ GrGLCaps& GrGLCaps::operator = (const GrGLCaps& caps) {
     fTwoFormatLimit = caps.fTwoFormatLimit;
     fFragCoordsConventionSupport = caps.fFragCoordsConventionSupport;
     fUseNonVBOVertexAndIndexDynamicData = caps.fUseNonVBOVertexAndIndexDynamicData;
+    fIsCoreProfile = caps.fIsCoreProfile;
 
     return *this;
 }
 
-void GrGLCaps::init(const GrGLContextInfo& ctxInfo) {
+void GrGLCaps::init(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
 
     this->reset();
     if (!ctxInfo.isInitialized()) {
         return;
     }
 
-    const GrGLInterface* gli = ctxInfo.interface();
     GrGLBinding binding = ctxInfo.binding();
     GrGLVersion version = ctxInfo.version();
 
@@ -177,8 +178,14 @@ void GrGLCaps::init(const GrGLContextInfo& ctxInfo) {
         (kARM_GrGLVendor == ctxInfo.vendor() || kImagination_GrGLVendor == ctxInfo.vendor())) {
         fUseNonVBOVertexAndIndexDynamicData = true;
     }
+    
+    if (kDesktop_GrGLBinding == binding && version >= GR_GL_VER(3, 2)) {
+        GrGLint profileMask;
+        GR_GL_GetIntegerv(gli, GR_GL_CONTEXT_PROFILE_MASK, &profileMask);
+        fIsCoreProfile = SkToBool(profileMask & GR_GL_CONTEXT_CORE_PROFILE_BIT);
+    }
 
-    this->initFSAASupport(ctxInfo);
+    this->initFSAASupport(ctxInfo, gli);
     this->initStencilFormats(ctxInfo);
 }
 
@@ -227,7 +234,7 @@ int coverage_mode_compare(const GrGLCaps::MSAACoverageMode* left,
 }
 }
 
-void GrGLCaps::initFSAASupport(const GrGLContextInfo& ctxInfo) {
+void GrGLCaps::initFSAASupport(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
 
     fMSFBOType = kNone_MSFBOType;
     if (kDesktop_GrGLBinding != ctxInfo.binding()) {
@@ -253,11 +260,11 @@ void GrGLCaps::initFSAASupport(const GrGLContextInfo& ctxInfo) {
         if (ctxInfo.hasExtension("GL_NV_framebuffer_multisample_coverage")) {
             fCoverageAAType = kNVDesktop_CoverageAAType;
             GrGLint count;
-            GR_GL_GetIntegerv(ctxInfo.interface(),
+            GR_GL_GetIntegerv(gli,
                               GR_GL_MAX_MULTISAMPLE_COVERAGE_MODES,
                               &count);
             fMSAACoverageModes.setCount(count);
-            GR_GL_GetIntegerv(ctxInfo.interface(),
+            GR_GL_GetIntegerv(gli,
                               GR_GL_MULTISAMPLE_COVERAGE_MODES,
                               (int*)&fMSAACoverageModes[0]);
             // The NV driver seems to return the modes already sorted but the
@@ -269,9 +276,7 @@ void GrGLCaps::initFSAASupport(const GrGLContextInfo& ctxInfo) {
         }
     }
     if (kNone_MSFBOType != fMSFBOType) {
-        GR_GL_GetIntegerv(ctxInfo.interface(),
-                          GR_GL_MAX_SAMPLES,
-                          &fMaxSampleCount);
+        GR_GL_GetIntegerv(gli, GR_GL_MAX_SAMPLES, &fMaxSampleCount);
     }
 }
 

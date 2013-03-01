@@ -95,7 +95,7 @@ public:
      * Initializes the GrGLCaps to the set of features supported in the current
      * OpenGL context accessible via ctxInfo.
      */
-    void init(const GrGLContextInfo& ctxInfo);
+    void init(const GrGLContextInfo& ctxInfo, const GrGLInterface* interface);
 
     /**
      * Call to note that a color config has been verified as a valid color
@@ -228,6 +228,8 @@ public:
     bool readPixelsSupported(const GrGLInterface* intf,
                              GrGLenum format,
                              GrGLenum type) const;
+    
+    bool isCoreProfile() const { return fIsCoreProfile; }
 
 private:
     /**
@@ -267,7 +269,7 @@ private:
         }
     };
 
-    void initFSAASupport(const GrGLContextInfo& ctxInfo);
+    void initFSAASupport(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli);
     void initStencilFormats(const GrGLContextInfo& ctxInfo);
 
     // tracks configs that have been verified to pass the FBO completeness when
@@ -303,6 +305,7 @@ private:
     bool fTwoFormatLimit : 1;
     bool fFragCoordsConventionSupport : 1;
     bool fUseNonVBOVertexAndIndexDynamicData : 1;
+    bool fIsCoreProfile : 1;
 };
 
 #endif

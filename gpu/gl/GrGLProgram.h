@@ -11,7 +11,7 @@
 
 #include "GrDrawState.h"
 #include "GrGLEffect.h"
-#include "GrGLContextInfo.h"
+#include "GrGLContext.h"
 #include "GrGLSL.h"
 #include "GrGLTexture.h"
 #include "GrGLUniformManager.h"
@@ -55,7 +55,7 @@ public:
                           const GrGpuGL* gpu,
                           Desc* outDesc);
 
-    static GrGLProgram* Create(const GrGLContextInfo& gl,
+    static GrGLProgram* Create(const GrGLContext& gl,
                                const Desc& desc,
                                const GrEffectStage* stages[]);
 
@@ -77,6 +77,17 @@ public:
      * Gets the GL program ID for this program.
      */
     GrGLuint programID() const { return fProgramID; }
+
+    /**
+     * Attribute indices. These should not overlap.
+     */
+    enum {
+        kPositionAttributeIndex = 0,
+        kColorAttributeIndex = 1,
+        kCoverageAttributeIndex = 2,
+        kEdgeAttributeIndex = 3,
+        kTexCoordAttributeIndex = 4,
+    };
 
     /**
      * Some GL state that is relevant to programs is not stored per-program. In particular vertex
@@ -171,7 +182,7 @@ public:
         bool                        fDiscardIfOutsideEdge;
 
         // stripped of bits that don't affect program generation
-        GrAttribBindings            fAttribBindings;
+        GrVertexLayout              fVertexLayout;
 
         /** Non-zero if this stage has an effect */
         GrGLEffect::EffectKey       fEffectKeys[GrDrawState::kNumStages];
@@ -188,25 +199,11 @@ public:
         SkBool8                     fEmitsPointSize;
         uint8_t                     fColorFilterXfermode;   // casts to enum SkXfermode::Mode
 
-        int8_t                      fPositionAttributeIndex;
-        int8_t                      fColorAttributeIndex;
-        int8_t                      fCoverageAttributeIndex;
-        int8_t                      fEdgeAttributeIndex;
-        int8_t                      fTexCoordAttributeIndex;
-
         friend class GrGLProgram;
     };
 
-    // Layout information for OpenGL vertex attributes
-    struct AttribLayout {
-        GrGLint     fCount;
-        GrGLenum    fType;
-        GrGLboolean fNormalized;
-    };
-    static const AttribLayout kAttribLayouts[kGrVertexAttribTypeCount];
-
 private:
-    GrGLProgram(const GrGLContextInfo& gl,
+    GrGLProgram(const GrGLContext& gl,
                 const Desc& desc,
                 const GrEffectStage* stages[]);
 
@@ -290,7 +287,7 @@ private:
     GrGLEffect*                 fEffects[GrDrawState::kNumStages];
 
     Desc                        fDesc;
-    const GrGLContextInfo&      fContextInfo;
+    const GrGLContext&          fContext;
 
     GrGLUniformManager          fUniformManager;
     UniformHandles              fUniformHandles;
