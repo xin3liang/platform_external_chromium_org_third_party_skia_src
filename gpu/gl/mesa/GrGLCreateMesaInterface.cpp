@@ -24,15 +24,13 @@
 const GrGLInterface* GrGLCreateMesaInterface() {
     if (NULL != OSMesaGetCurrentContext()) {
 
-        GrGLGetStringProc getString =
-            (GrGLGetStringProc) OSMesaGetProcAddress("glGetString");
-        GrGLGetStringiProc glGetStringi =
-            (GrGLGetStringiProc) OSMesaGetProcAddress("glGetStringi");
-        GrGLGetIntegervProc glGetIntegerv =
-        (GrGLGetIntegervProc) OSMesaGetProcAddress("glGetIntegerv");
+        GrGLGetStringProc getString = (GrGLGetStringProc) OSMesaGetProcAddress("glGetString");
+        GrGLGetStringiProc getStringi = (GrGLGetStringiProc) OSMesaGetProcAddress("glGetStringi");
+        GrGLGetIntegervProc getIntegerv =
+            (GrGLGetIntegervProc) OSMesaGetProcAddress("glGetIntegerv");
 
         GrGLExtensions extensions;
-        if (!extensions.init(kDesktop_GrGLBinding, glGetString, glGetStringi, glGetIntegerv)) {
+        if (!extensions.init(kDesktop_GrGLBinding, getString, getStringi, getIntegerv)) {
             return NULL;
         }
 
@@ -160,6 +158,13 @@ const GrGLInterface* GrGLCreateMesaInterface() {
         GR_GL_GET_PROC(VertexAttrib4fv);
         GR_GL_GET_PROC(VertexAttribPointer);
         GR_GL_GET_PROC(Viewport);
+
+        if (glVer >= GR_GL_VER(3,0) || extensions.has("GL_ARB_vertex_array_object")) {
+            // no ARB suffix for GL_ARB_vertex_array_object
+            GR_GL_GET_PROC(BindVertexArray);
+            GR_GL_GET_PROC(DeleteVertexArrays);
+            GR_GL_GET_PROC(GenVertexArrays);
+        }
 
         // First look for GL3.0 FBO or GL_ARB_framebuffer_object (same since
         // GL_ARB_framebuffer_object doesn't use ARB suffix.)
