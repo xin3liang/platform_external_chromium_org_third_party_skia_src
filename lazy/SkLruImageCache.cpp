@@ -87,10 +87,12 @@ SkImageCache::CacheStatus SkLruImageCache::getCacheStatus(intptr_t ID) const {
 }
 #endif
 
-void SkLruImageCache::setBudget(size_t newBudget) {
+size_t SkLruImageCache::setImageCacheLimit(size_t newLimit) {
+    size_t oldLimit = fRamBudget;
     SkAutoMutexAcquire ac(&fMutex);
-    fRamBudget = newBudget;
+    fRamBudget = newLimit;
     this->purgeIfNeeded();
+    return oldLimit;
 }
 
 void* SkLruImageCache::allocAndPinCache(size_t bytes, intptr_t* ID) {
@@ -131,7 +133,6 @@ void SkLruImageCache::releaseCache(intptr_t ID) {
 }
 
 void SkLruImageCache::throwAwayCache(intptr_t ID) {
-    SkASSERT(ID != SkImageCache::UNINITIALIZED_ID);
     SkAutoMutexAcquire ac(&fMutex);
     CachedPixels* pixels = this->findByID(ID);
     if (pixels != NULL) {
@@ -154,6 +155,9 @@ void SkLruImageCache::removePixels(CachedPixels* pixels) {
 
 CachedPixels* SkLruImageCache::findByID(intptr_t ID) const {
     // Mutex is already locked.
+    if (SkImageCache::UNINITIALIZED_ID == ID) {
+        return NULL;
+    }
     Iter iter;
     // Start from the head, most recently used.
     CachedPixels* pixels = iter.init(fLRU, Iter::kHead_IterStart);
@@ -168,7 +172,9 @@ CachedPixels* SkLruImageCache::findByID(intptr_t ID) const {
 
 void SkLruImageCache::purgeIfNeeded() {
     // Mutex is already locked.
-    this->purgeTilAtOrBelow(fRamBudget);
+    if (fRamBudget > 0) {
+        this->purgeTilAtOrBelow(fRamBudget);
+    }
 }
 
 void SkLruImageCache::purgeTilAtOrBelow(size_t limit) {
