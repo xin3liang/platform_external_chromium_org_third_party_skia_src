@@ -62,6 +62,10 @@ public:
          * GL_APPLE_framebuffer_multisample ES extension
          */
         kAppleES_MSFBOType,
+        /**
+         * GL_IMG_multisampled_render_to_texture
+         */
+        kImaginationES_MSFBOType,
     };
 
     enum CoverageAAType {
@@ -136,11 +140,6 @@ public:
      * Reports the type of MSAA FBO support.
      */
     MSFBOType msFBOType() const { return fMSFBOType; }
-
-    /**
-     * Reports the maximum number of samples supported.
-     */
-    int maxSampleCount() const { return fMaxSampleCount; }
 
     /**
      * Reports the type of coverage sample AA support.
@@ -289,7 +288,6 @@ private:
     int fMaxVertexAttributes;
 
     MSFBOType fMSFBOType;
-    int fMaxSampleCount;
     CoverageAAType fCoverageAAType;
     SkTDArray<MSAACoverageMode> fMSAACoverageModes;
 

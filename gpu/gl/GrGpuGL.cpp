@@ -278,17 +278,20 @@ void GrGpuGL::initCaps() {
 
     // Enable supported shader-related caps
     if (kDesktop_GrGLBinding == this->glBinding()) {
-        caps->fDualSourceBlendingSupport =
-                            this->glVersion() >= GR_GL_VER(3,3) ||
-                            this->hasExtension("GL_ARB_blend_func_extended");
+        caps->fDualSourceBlendingSupport = this->glVersion() >= GR_GL_VER(3,3) ||
+                                           this->hasExtension("GL_ARB_blend_func_extended");
         caps->fShaderDerivativeSupport = true;
         // we don't support GL_ARB_geometry_shader4, just GL 3.2+ GS
-        caps->fGeometryShaderSupport =
-                                this->glVersion() >= GR_GL_VER(3,2) &&
-                                this->glslGeneration() >= k150_GrGLSLGeneration;
+        caps->fGeometryShaderSupport = this->glVersion() >= GR_GL_VER(3,2) &&
+                                       this->glslGeneration() >= k150_GrGLSLGeneration;
     } else {
-        caps->fShaderDerivativeSupport =
-                            this->hasExtension("GL_OES_standard_derivatives");
+        caps->fShaderDerivativeSupport = this->hasExtension("GL_OES_standard_derivatives");
+    }
+
+    if (GrGLCaps::kImaginationES_MSFBOType == this->glCaps().msFBOType()) {
+        GR_GL_GetIntegerv(this->glInterface(), GR_GL_MAX_SAMPLES_IMG, &caps->fMaxSampleCount);
+    } else if (GrGLCaps::kNone_MSFBOType != this->glCaps().msFBOType()) {
+        GR_GL_GetIntegerv(this->glInterface(), GR_GL_MAX_SAMPLES, &caps->fMaxSampleCount);
     }
 }
 
@@ -316,8 +319,7 @@ void GrGpuGL::fillInConfigRenderableTable() {
     //  color renderable: RGBA4, RGB5_A1, RGB565
     //  GL_EXT_texture_rg adds support for R8 as a color render target
     //  GL_OES_rgb8_rgba8 and/or GL_ARM_rgba8 adds support for RGBA8
-    //  GL_EXT_texture_format_BGRA8888 and/or GL_APPLE_texture_format_BGRA8888
-    //          added BGRA support
+    //  GL_EXT_texture_format_BGRA8888 and/or GL_APPLE_texture_format_BGRA8888 added BGRA support
 
     if (kDesktop_GrGLBinding == this->glBinding()) {
         // Post 3.0 we will get R8
@@ -849,8 +851,6 @@ bool renderbuffer_storage_msaa(GrGLContext& ctx,
         created = (GR_GL_NO_ERROR == CHECK_ALLOC_ERROR(ctx.interface()));
     }
     if (!created) {
-        // glRBMS will fail if requested samples is > max samples.
-        sampleCount = GrMin(sampleCount, ctx.info().caps().maxSampleCount());
         GL_ALLOC_CALL(ctx.interface(),
                       RenderbufferStorageMultisample(GR_GL_RENDERBUFFER,
                                                      sampleCount,
@@ -880,9 +880,11 @@ bool GrGpuGL::createRenderTargetObjects(int width, int height,
     }
 
 
-    // If we are using multisampling we will create two FBOS. We render
-    // to one and then resolve to the texture bound to the other.
-    if (desc->fSampleCnt > 0) {
+    // If we are using multisampling we will create two FBOS. We render to one and then resolve to
+    // the texture bound to the other. The exception is the IMG multisample extension. With this
+    // extension the texture is multisampled when rendered to and then auto-resolves it when it is
+    // rendered from.
+    if (desc->fSampleCnt > 0 && GrGLCaps::kImaginationES_MSFBOType != this->glCaps().msFBOType()) {
         if (GrGLCaps::kNone_MSFBOType == this->glCaps().msFBOType()) {
             goto FAILED;
         }
@@ -922,16 +924,22 @@ bool GrGpuGL::createRenderTargetObjects(int width, int height,
             if (status != GR_GL_FRAMEBUFFER_COMPLETE) {
                 goto FAILED;
             }
-            fGLContext.info().caps().markConfigAsValidColorAttachment(
-                                                                desc->fConfig);
+            fGLContext.info().caps().markConfigAsValidColorAttachment(desc->fConfig);
         }
     }
     GL_CALL(BindFramebuffer(GR_GL_FRAMEBUFFER, desc->fTexFBOID));
 
-    GL_CALL(FramebufferTexture2D(GR_GL_FRAMEBUFFER,
-                                 GR_GL_COLOR_ATTACHMENT0,
-                                 GR_GL_TEXTURE_2D,
-                                 texID, 0));
+    if (GrGLCaps::kImaginationES_MSFBOType == this->glCaps().msFBOType() && desc->fSampleCnt > 0) {
+        GL_CALL(FramebufferTexture2DMultisample(GR_GL_FRAMEBUFFER,
+                                                GR_GL_COLOR_ATTACHMENT0,
+                                                GR_GL_TEXTURE_2D,
+                                                texID, 0, desc->fSampleCnt));
+    } else {
+        GL_CALL(FramebufferTexture2D(GR_GL_FRAMEBUFFER,
+                                     GR_GL_COLOR_ATTACHMENT0,
+                                     GR_GL_TEXTURE_2D,
+                                     texID, 0));
+    }
     if (!this->glCaps().isConfigVerifiedColorAttachment(desc->fConfig)) {
         GL_CALL_RET(status, CheckFramebufferStatus(GR_GL_FRAMEBUFFER));
         if (status != GR_GL_FRAMEBUFFER_COMPLETE) {
@@ -976,12 +984,18 @@ GrTexture* GrGpuGL::onCreateTexture(const GrTextureDesc& desc,
 
     // Attempt to catch un- or wrongly initialized sample counts;
     GrAssert(desc.fSampleCnt >= 0 && desc.fSampleCnt <= 64);
+    // We fail if the MSAA was requested and is not available.
+    if (GrGLCaps::kNone_MSFBOType == this->glCaps().msFBOType() && desc.fSampleCnt) {
+        //GrPrintf("MSAA RT requested but not supported on this platform.");
+        return return_null_texture();
+    }
+    // If the sample count exceeds the max then we clamp it.
+    glTexDesc.fSampleCnt = GrMin(desc.fSampleCnt, this->getCaps().maxSampleCount());
 
     glTexDesc.fFlags  = desc.fFlags;
     glTexDesc.fWidth  = desc.fWidth;
     glTexDesc.fHeight = desc.fHeight;
     glTexDesc.fConfig = desc.fConfig;
-    glTexDesc.fSampleCnt = desc.fSampleCnt;
     glTexDesc.fIsWrapped = false;
 
     glRTDesc.fMSColorRenderbufferID = 0;
@@ -997,7 +1011,7 @@ GrTexture* GrGpuGL::onCreateTexture(const GrTextureDesc& desc,
     glTexDesc.fOrigin = resolve_origin(desc.fOrigin, renderTarget);
     glRTDesc.fOrigin = glTexDesc.fOrigin;
 
-    glRTDesc.fSampleCnt = desc.fSampleCnt;
+    glRTDesc.fSampleCnt = glTexDesc.fSampleCnt;
     if (GrGLCaps::kNone_MSFBOType == this->glCaps().msFBOType() &&
         desc.fSampleCnt) {
         //GrPrintf("MSAA RT requested but not supported on this platform.");
@@ -1167,8 +1181,7 @@ bool GrGpuGL::createStencilBufferForRenderTarget(GrRenderTarget* rt,
     return false;
 }
 
-bool GrGpuGL::attachStencilBufferToRenderTarget(GrStencilBuffer* sb,
-                                                GrRenderTarget* rt) {
+bool GrGpuGL::attachStencilBufferToRenderTarget(GrStencilBuffer* sb, GrRenderTarget* rt) {
     GrGLRenderTarget* glrt = (GrGLRenderTarget*) rt;
 
     GrGLuint fbo = glrt->renderFBOID();
@@ -1176,11 +1189,11 @@ bool GrGpuGL::attachStencilBufferToRenderTarget(GrStencilBuffer* sb,
     if (NULL == sb) {
         if (NULL != rt->getStencilBuffer()) {
             GL_CALL(FramebufferRenderbuffer(GR_GL_FRAMEBUFFER,
-                                          GR_GL_STENCIL_ATTACHMENT,
-                                          GR_GL_RENDERBUFFER, 0));
+                                            GR_GL_STENCIL_ATTACHMENT,
+                                            GR_GL_RENDERBUFFER, 0));
             GL_CALL(FramebufferRenderbuffer(GR_GL_FRAMEBUFFER,
-                                          GR_GL_DEPTH_ATTACHMENT,
-                                          GR_GL_RENDERBUFFER, 0));
+                                            GR_GL_DEPTH_ATTACHMENT,
+                                            GR_GL_RENDERBUFFER, 0));
 #if GR_DEBUG
             GrGLenum status;
             GL_CALL_RET(status, CheckFramebufferStatus(GR_GL_FRAMEBUFFER));
@@ -1189,27 +1202,26 @@ bool GrGpuGL::attachStencilBufferToRenderTarget(GrStencilBuffer* sb,
         }
         return true;
     } else {
-        GrGLStencilBuffer* glsb = (GrGLStencilBuffer*) sb;
+        GrGLStencilBuffer* glsb = static_cast<GrGLStencilBuffer*>(sb);
         GrGLuint rb = glsb->renderbufferID();
 
         fHWBoundRenderTarget = NULL;
         GL_CALL(BindFramebuffer(GR_GL_FRAMEBUFFER, fbo));
         GL_CALL(FramebufferRenderbuffer(GR_GL_FRAMEBUFFER,
-                                      GR_GL_STENCIL_ATTACHMENT,
-                                      GR_GL_RENDERBUFFER, rb));
+                                        GR_GL_STENCIL_ATTACHMENT,
+                                        GR_GL_RENDERBUFFER, rb));
         if (glsb->format().fPacked) {
             GL_CALL(FramebufferRenderbuffer(GR_GL_FRAMEBUFFER,
-                                          GR_GL_DEPTH_ATTACHMENT,
-                                          GR_GL_RENDERBUFFER, rb));
+                                            GR_GL_DEPTH_ATTACHMENT,
+                                            GR_GL_RENDERBUFFER, rb));
         } else {
             GL_CALL(FramebufferRenderbuffer(GR_GL_FRAMEBUFFER,
-                                          GR_GL_DEPTH_ATTACHMENT,
-                                          GR_GL_RENDERBUFFER, 0));
+                                            GR_GL_DEPTH_ATTACHMENT,
+                                            GR_GL_RENDERBUFFER, 0));
         }
 
         GrGLenum status;
-        if (!this->glCaps().isColorConfigAndStencilFormatVerified(rt->config(),
-                                                           glsb->format())) {
+        if (!this->glCaps().isColorConfigAndStencilFormatVerified(rt->config(), glsb->format())) {
             GL_CALL_RET(status, CheckFramebufferStatus(GR_GL_FRAMEBUFFER));
             if (status != GR_GL_FRAMEBUFFER_COMPLETE) {
                 GL_CALL(FramebufferRenderbuffer(GR_GL_FRAMEBUFFER,
@@ -1762,47 +1774,45 @@ void GrGpuGL::onGpuStencilPath(const GrPath* path, SkPath::FillType fill) {
 }
 
 void GrGpuGL::onResolveRenderTarget(GrRenderTarget* target) {
-
     GrGLRenderTarget* rt = static_cast<GrGLRenderTarget*>(target);
-
     if (rt->needsResolve()) {
-        GrAssert(GrGLCaps::kNone_MSFBOType != this->glCaps().msFBOType());
-        GrAssert(rt->textureFBOID() != rt->renderFBOID());
-        GL_CALL(BindFramebuffer(GR_GL_READ_FRAMEBUFFER,
-                                rt->renderFBOID()));
-        GL_CALL(BindFramebuffer(GR_GL_DRAW_FRAMEBUFFER,
-                                rt->textureFBOID()));
-        // make sure we go through flushRenderTarget() since we've modified
-        // the bound DRAW FBO ID.
-        fHWBoundRenderTarget = NULL;
-        const GrGLIRect& vp = rt->getViewport();
-        const GrIRect dirtyRect = rt->getResolveRect();
-        GrGLIRect r;
-        r.setRelativeTo(vp, dirtyRect.fLeft, dirtyRect.fTop,
-                        dirtyRect.width(), dirtyRect.height(), target->origin());
+        // The IMG extension automatically resolves the texture when it is read.
+        if (GrGLCaps::kImaginationES_MSFBOType != this->glCaps().msFBOType()) {
+            GrAssert(GrGLCaps::kNone_MSFBOType != this->glCaps().msFBOType());
+            GrAssert(rt->textureFBOID() != rt->renderFBOID());
+            GL_CALL(BindFramebuffer(GR_GL_READ_FRAMEBUFFER, rt->renderFBOID()));
+            GL_CALL(BindFramebuffer(GR_GL_DRAW_FRAMEBUFFER, rt->textureFBOID()));
+            // make sure we go through flushRenderTarget() since we've modified
+            // the bound DRAW FBO ID.
+            fHWBoundRenderTarget = NULL;
+            const GrGLIRect& vp = rt->getViewport();
+            const GrIRect dirtyRect = rt->getResolveRect();
+            GrGLIRect r;
+            r.setRelativeTo(vp, dirtyRect.fLeft, dirtyRect.fTop,
+                            dirtyRect.width(), dirtyRect.height(), target->origin());
 
-        GrAutoTRestore<ScissorState> asr;
-        if (GrGLCaps::kAppleES_MSFBOType == this->glCaps().msFBOType()) {
-            // Apple's extension uses the scissor as the blit bounds.
-            asr.reset(&fScissorState);
-            fScissorState.fEnabled = true;
-            fScissorState.fRect = dirtyRect;
-            this->flushScissor();
-            GL_CALL(ResolveMultisampleFramebuffer());
-        } else {
-            if (GrGLCaps::kDesktopARB_MSFBOType != this->glCaps().msFBOType()) {
-                // this respects the scissor during the blit, so disable it.
-                GrAssert(GrGLCaps::kDesktopEXT_MSFBOType ==
-                         this->glCaps().msFBOType());
+            GrAutoTRestore<ScissorState> asr;
+            if (GrGLCaps::kAppleES_MSFBOType == this->glCaps().msFBOType()) {
+                // Apple's extension uses the scissor as the blit bounds.
                 asr.reset(&fScissorState);
-                fScissorState.fEnabled = false;
+                fScissorState.fEnabled = true;
+                fScissorState.fRect = dirtyRect;
                 this->flushScissor();
+                GL_CALL(ResolveMultisampleFramebuffer());
+            } else {
+                if (GrGLCaps::kDesktopARB_MSFBOType != this->glCaps().msFBOType()) {
+                    // this respects the scissor during the blit, so disable it.
+                    GrAssert(GrGLCaps::kDesktopEXT_MSFBOType == this->glCaps().msFBOType());
+                    asr.reset(&fScissorState);
+                    fScissorState.fEnabled = false;
+                    this->flushScissor();
+                }
+                int right = r.fLeft + r.fWidth;
+                int top = r.fBottom + r.fHeight;
+                GL_CALL(BlitFramebuffer(r.fLeft, r.fBottom, right, top,
+                                        r.fLeft, r.fBottom, right, top,
+                                        GR_GL_COLOR_BUFFER_BIT, GR_GL_NEAREST));
             }
-            int right = r.fLeft + r.fWidth;
-            int top = r.fBottom + r.fHeight;
-            GL_CALL(BlitFramebuffer(r.fLeft, r.fBottom, right, top,
-                                    r.fLeft, r.fBottom, right, top,
-                                    GR_GL_COLOR_BUFFER_BIT, GR_GL_NEAREST));
         }
         rt->flagAsResolved();
     }
@@ -1929,6 +1939,15 @@ void GrGpuGL::flushStencil(DrawType type) {
 }
 
 void GrGpuGL::flushAAState(DrawType type) {
+// At least some ATI linux drivers will render GL_LINES incorrectly when MSAA state is enabled but
+// the target is not multisampled. Single pixel wide lines are rendered thicker than 1 pixel wide.
+#if 0
+    // Replace RT_HAS_MSAA with this definition once this driver bug is no longer a relevant concern
+    #define RT_HAS_MSAA rt->isMultisampled()
+#else
+    #define RT_HAS_MSAA (rt->isMultisampled() || kDrawLines_DrawType == type)
+#endif
+
     const GrRenderTarget* rt = this->getDrawState().getRenderTarget();
     if (kDesktop_GrGLBinding == this->glBinding()) {
         // ES doesn't support toggling GL_MULTISAMPLE and doesn't have
@@ -1943,7 +1962,7 @@ void GrGpuGL::flushAAState(DrawType type) {
                     GL_CALL(Enable(GR_GL_LINE_SMOOTH));
                     fHWAAState.fSmoothLineEnabled = kYes_TriState;
                     // must disable msaa to use line smoothing
-                    if (rt->isMultisampled() &&
+                    if (RT_HAS_MSAA &&
                         kNo_TriState != fHWAAState.fMSAAEnabled) {
                         GL_CALL(Disable(GR_GL_MULTISAMPLE));
                         fHWAAState.fMSAAEnabled = kNo_TriState;
@@ -1956,7 +1975,7 @@ void GrGpuGL::flushAAState(DrawType type) {
                 }
             }
         }
-        if (!smoothLines && rt->isMultisampled()) {
+        if (!smoothLines && RT_HAS_MSAA) {
             // FIXME: GL_NV_pr doesn't seem to like MSAA disabled. The paths
             // convex hulls of each segment appear to get filled.
             bool enableMSAA = kStencilPath_DrawType == type ||

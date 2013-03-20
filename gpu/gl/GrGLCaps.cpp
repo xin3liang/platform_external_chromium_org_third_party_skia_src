@@ -19,7 +19,6 @@ void GrGLCaps::reset() {
     fStencilFormats.reset();
     fStencilVerifiedColorConfigs.reset();
     fMSFBOType = kNone_MSFBOType;
-    fMaxSampleCount = 0;
     fCoverageAAType = kNone_CoverageAAType;
     fMaxFragmentUniformVectors = 0;
     fMaxVertexAttributes = 0;
@@ -53,7 +52,6 @@ GrGLCaps& GrGLCaps::operator = (const GrGLCaps& caps) {
     fMaxFragmentUniformVectors = caps.fMaxFragmentUniformVectors;
     fMaxVertexAttributes = caps.fMaxVertexAttributes;
     fMSFBOType = caps.fMSFBOType;
-    fMaxSampleCount = caps.fMaxSampleCount;
     fCoverageAAType = caps.fCoverageAAType;
     fMSAACoverageModes = caps.fMSAACoverageModes;
     fRGBA8RenderbufferSupport = caps.fRGBA8RenderbufferSupport;
@@ -253,6 +251,8 @@ void GrGLCaps::initFSAASupport(const GrGLContextInfo& ctxInfo, const GrGLInterfa
            fMSFBOType = kDesktopEXT_MSFBOType;
        } else if (ctxInfo.hasExtension("GL_APPLE_framebuffer_multisample")) {
            fMSFBOType = kAppleES_MSFBOType;
+       } else if (ctxInfo.hasExtension("GL_IMG_multisampled_render_to_texture")) {
+           fMSFBOType = kImaginationES_MSFBOType;
        }
     } else {
         if ((ctxInfo.version() >= GR_GL_VER(3,0)) ||
@@ -284,13 +284,9 @@ void GrGLCaps::initFSAASupport(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                     SkCastForQSort(coverage_mode_compare));
         }
     }
-    if (kNone_MSFBOType != fMSFBOType) {
-        GR_GL_GetIntegerv(gli, GR_GL_MAX_SAMPLES, &fMaxSampleCount);
-    }
 }
 
-const GrGLCaps::MSAACoverageMode& GrGLCaps::getMSAACoverageMode(
-                                            int desiredSampleCount) const {
+const GrGLCaps::MSAACoverageMode& GrGLCaps::getMSAACoverageMode(int desiredSampleCount) const {
     static const MSAACoverageMode kNoneMode = {0, 0};
     if (0 == fMSAACoverageModes.count()) {
         return kNoneMode;
@@ -426,11 +422,13 @@ void GrGLCaps::print() const {
     GR_STATIC_ASSERT(1 == kDesktopARB_MSFBOType);
     GR_STATIC_ASSERT(2 == kDesktopEXT_MSFBOType);
     GR_STATIC_ASSERT(3 == kAppleES_MSFBOType);
+    GR_STATIC_ASSERT(4 == kImaginationES_MSFBOType);
     static const char* gMSFBOExtStr[] = {
         "None",
         "ARB",
         "EXT",
         "Apple",
+        "IMG",
     };
     GrPrintf("MSAA Type: %s\n", gMSFBOExtStr[fMSFBOType]);
     GrPrintf("Max FS Uniform Vectors: %d\n", fMaxFragmentUniformVectors);
