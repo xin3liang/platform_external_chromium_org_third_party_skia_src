@@ -8,6 +8,7 @@
 
 
 #include "SkFontHost.h"
+#include "SkFontHost_FreeType_common.h"
 #include "SkFontDescriptor.h"
 #include "SkDescriptor.h"
 #include "SkOSFile.h"
@@ -228,10 +229,10 @@ static void remove_from_names(FamilyRec* emptyFamily) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-class FamilyTypeface : public SkTypeface {
+class FamilyTypeface : public SkTypeface_FreeType {
 public:
     FamilyTypeface(Style style, bool sysFont, FamilyRec* family, bool isFixedWidth)
-    : SkTypeface(style, sk_atomic_inc(&gUniqueFontID) + 1, isFixedWidth) {
+    : INHERITED(style, sk_atomic_inc(&gUniqueFontID) + 1, isFixedWidth) {
         fIsSysFont = sysFont;
 
         SkAutoMutexAcquire  ac(gFamilyMutex);
@@ -265,7 +266,7 @@ private:
     FamilyRec*  fFamilyRec; // we don't own this, just point to it
     bool        fIsSysFont;
 
-    typedef SkTypeface INHERITED;
+    typedef SkTypeface_FreeType INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -537,12 +538,6 @@ SkStream* SkFontHost::OpenStream(uint32_t fontID) {
         stream = NULL;
     }
     return stream;
-}
-
-size_t SkFontHost::GetFileName(SkFontID fontID, char path[], size_t length,
-                               int32_t* index) {
-//    SkDebugf("SkFontHost::GetFileName unimplemented\n");
-    return 0;
 }
 
 SkTypeface* SkFontHost::NextLogicalTypeface(SkFontID currFontID, SkFontID origFontID) {
