@@ -19,7 +19,7 @@ public:
     virtual ~SkSurface_Gpu();
 
     virtual SkCanvas* onNewCanvas() SK_OVERRIDE;
-    virtual SkSurface* onNewSurface(const SkImage::Info&, SkColorSpace*) SK_OVERRIDE;
+    virtual SkSurface* onNewSurface(const SkImage::Info&) SK_OVERRIDE;
     virtual SkImage* onNewImageShapshot() SK_OVERRIDE;
     virtual void onDraw(SkCanvas*, SkScalar x, SkScalar y,
                         const SkPaint*) SK_OVERRIDE;
@@ -65,11 +65,10 @@ SkCanvas* SkSurface_Gpu::onNewCanvas() {
     return SkNEW_ARGS(SkCanvas, (fDevice));
 }
 
-SkSurface* SkSurface_Gpu::onNewSurface(const SkImage::Info& info,
-                                       SkColorSpace* cs) {
+SkSurface* SkSurface_Gpu::onNewSurface(const SkImage::Info& info) {
     GrRenderTarget* rt = (GrRenderTarget*) fDevice->accessRenderTarget();
     int sampleCount = rt->numSamples();
-    return SkSurface::NewRenderTarget(fDevice->context(), info, NULL, sampleCount);
+    return SkSurface::NewRenderTarget(fDevice->context(), info, sampleCount);
 }
 
 SkImage* SkSurface_Gpu::onNewImageShapshot() {
@@ -87,7 +86,7 @@ void SkSurface_Gpu::onDraw(SkCanvas* canvas, SkScalar x, SkScalar y,
 // Copy the contents of the SkGpuDevice into a new texture and give that
 // texture to the SkImage. Note that this flushes the SkGpuDevice but
 // doesn't force an OpenGL flush.
-void SkSurface_Gpu::onCopyOnWrite(SkImage* image, SkCanvas* canvas) {
+void SkSurface_Gpu::onCopyOnWrite(SkImage* image, SkCanvas*) {
     GrRenderTarget* rt = (GrRenderTarget*) fDevice->accessRenderTarget();
 
     // are we sharing our render target with the image?
@@ -123,8 +122,7 @@ SkSurface* SkSurface::NewRenderTargetDirect(GrContext* ctx,
     return SkNEW_ARGS(SkSurface_Gpu, (ctx, target));
 }
 
-SkSurface* SkSurface::NewRenderTarget(GrContext* ctx, const SkImage::Info& info,
-                                      SkColorSpace*, int sampleCount) {
+SkSurface* SkSurface::NewRenderTarget(GrContext* ctx, const SkImage::Info& info, int sampleCount) {
     if (NULL == ctx) {
         return NULL;
     }
@@ -146,4 +144,3 @@ SkSurface* SkSurface::NewRenderTarget(GrContext* ctx, const SkImage::Info& info,
 
     return SkNEW_ARGS(SkSurface_Gpu, (ctx, tex->asRenderTarget()));
 }
-

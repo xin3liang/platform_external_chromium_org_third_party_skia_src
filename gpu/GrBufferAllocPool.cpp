@@ -16,7 +16,7 @@
 #if GR_DEBUG
     #define VALIDATE validate
 #else
-    static void VALIDATE(bool x = false) {}
+    static void VALIDATE(bool = false) {}
 #endif
 
 // page size
@@ -296,9 +296,21 @@ bool GrBufferAllocPool::createBlock(size_t requestSize) {
 
     GrAssert(NULL == fBufferPtr);
 
-    if (fGpu->getCaps().bufferLockSupport() &&
-        size > GR_GEOM_BUFFER_LOCK_THRESHOLD &&
-        (!fFrequentResetHint || requestSize > GR_GEOM_BUFFER_LOCK_THRESHOLD)) {
+    // If the buffer is CPU-backed we lock it because it is free to do so and saves a copy.
+    // Otherwise when buffer locking is supported:
+    //      a) If the frequently reset hint is set we only lock when the requested size meets a
+    //      threshold (since we don't expect it is likely that we will see more vertex data)
+    //      b) If the hint is not set we lock if the buffer size is greater than the threshold.
+    bool attemptLock = block.fBuffer->isCPUBacked();
+    if (!attemptLock && fGpu->getCaps().bufferLockSupport()) {
+        if (fFrequentResetHint) {
+            attemptLock = requestSize > GR_GEOM_BUFFER_LOCK_THRESHOLD;
+        } else {
+            attemptLock = size > GR_GEOM_BUFFER_LOCK_THRESHOLD;
+        }
+    }
+
+    if (attemptLock) {
         fBufferPtr = block.fBuffer->lock();
     }
 
@@ -373,7 +385,7 @@ GrVertexBufferAllocPool::GrVertexBufferAllocPool(GrGpu* gpu,
                     preallocBufferCnt) {
 }
 
-void* GrVertexBufferAllocPool::makeSpace(GrVertexLayout layout,
+void* GrVertexBufferAllocPool::makeSpace(size_t vertexSize,
                                          int vertexCount,
                                          const GrVertexBuffer** buffer,
                                          int* startVertex) {
@@ -382,43 +394,41 @@ void* GrVertexBufferAllocPool::makeSpace(GrVertexLayout layout,
     GrAssert(NULL != buffer);
     GrAssert(NULL != startVertex);
 
-    size_t vSize = GrDrawTarget::VertexSize(layout);
     size_t offset = 0; // assign to suppress warning
     const GrGeometryBuffer* geomBuffer = NULL; // assign to suppress warning
-    void* ptr = INHERITED::makeSpace(vSize * vertexCount,
-                                     vSize,
+    void* ptr = INHERITED::makeSpace(vertexSize * vertexCount,
+                                     vertexSize,
                                      &geomBuffer,
                                      &offset);
 
     *buffer = (const GrVertexBuffer*) geomBuffer;
-    GrAssert(0 == offset % vSize);
-    *startVertex = offset / vSize;
+    GrAssert(0 == offset % vertexSize);
+    *startVertex = offset / vertexSize;
     return ptr;
 }
 
-bool GrVertexBufferAllocPool::appendVertices(GrVertexLayout layout,
+bool GrVertexBufferAllocPool::appendVertices(size_t vertexSize,
                                              int vertexCount,
                                              const void* vertices,
                                              const GrVertexBuffer** buffer,
                                              int* startVertex) {
-    void* space = makeSpace(layout, vertexCount, buffer, startVertex);
+    void* space = makeSpace(vertexSize, vertexCount, buffer, startVertex);
     if (NULL != space) {
         memcpy(space,
                vertices,
-               GrDrawTarget::VertexSize(layout) * vertexCount);
+               vertexSize * vertexCount);
         return true;
     } else {
         return false;
     }
 }
 
-int GrVertexBufferAllocPool::preallocatedBufferVertices(GrVertexLayout layout) const {
-    return INHERITED::preallocatedBufferSize() /
-            GrDrawTarget::VertexSize(layout);
+int GrVertexBufferAllocPool::preallocatedBufferVertices(size_t vertexSize) const {
+    return INHERITED::preallocatedBufferSize() / vertexSize;
 }
 
-int GrVertexBufferAllocPool::currentBufferVertices(GrVertexLayout layout) const {
-    return currentBufferItems(GrDrawTarget::VertexSize(layout));
+int GrVertexBufferAllocPool::currentBufferVertices(size_t vertexSize) const {
+    return currentBufferItems(vertexSize);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

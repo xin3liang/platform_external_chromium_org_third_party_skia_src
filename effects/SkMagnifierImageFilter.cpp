@@ -10,8 +10,6 @@
 #include "SkColorPriv.h"
 #include "SkFlattenableBuffers.h"
 
-#include <algorithm>
-
 ////////////////////////////////////////////////////////////////////////////////
 #if SK_SUPPORT_GPU
 #include "effects/GrSingleTextureEffect.h"
@@ -26,6 +24,40 @@ class GrGLMagnifierEffect;
 class GrMagnifierEffect : public GrSingleTextureEffect {
 
 public:
+    static GrEffectRef* Create(GrTexture* texture,
+                               float xOffset,
+                               float yOffset,
+                               float xZoom,
+                               float yZoom,
+                               float xInset,
+                               float yInset) {
+        AutoEffectUnref effect(SkNEW_ARGS(GrMagnifierEffect, (texture,
+                                                              xOffset,
+                                                              yOffset,
+                                                              xZoom,
+                                                              yZoom,
+                                                              xInset,
+                                                              yInset)));
+        return CreateEffectRef(effect);
+    }
+
+    virtual ~GrMagnifierEffect() {};
+
+    static const char* Name() { return "Magnifier"; }
+
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
+    virtual void getConstantColorComponents(GrColor* color, uint32_t* validFlags) const SK_OVERRIDE;
+
+    float x_offset() const { return fXOffset; }
+    float y_offset() const { return fYOffset; }
+    float x_zoom() const { return fXZoom; }
+    float y_zoom() const { return fYZoom; }
+    float x_inset() const { return fXInset; }
+    float y_inset() const { return fYInset; }
+
+    typedef GrGLMagnifierEffect GLEffect;
+
+private:
     GrMagnifierEffect(GrTexture* texture,
                       float xOffset,
                       float yOffset,
@@ -41,23 +73,8 @@ public:
         , fXInset(xInset)
         , fYInset(yInset) {}
 
-    virtual ~GrMagnifierEffect() {};
+    virtual bool onIsEqual(const GrEffect&) const SK_OVERRIDE;
 
-    static const char* Name() { return "Magnifier"; }
-
-    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
-    virtual bool isEqual(const GrEffect&) const SK_OVERRIDE;
-
-    float x_offset() const { return fXOffset; }
-    float y_offset() const { return fYOffset; }
-    float x_zoom() const { return fXZoom; }
-    float y_zoom() const { return fYZoom; }
-    float x_inset() const { return fXInset; }
-    float y_inset() const { return fYInset; }
-
-    typedef GrGLMagnifierEffect GLEffect;
-
-private:
     GR_DECLARE_EFFECT_TEST;
 
     float fXOffset;
@@ -75,23 +92,20 @@ typedef GrGLUniformManager::UniformHandle UniformHandle;
 
 class GrGLMagnifierEffect : public GrGLEffect {
 public:
-    GrGLMagnifierEffect(const GrBackendEffectFactory& factory,
-                        const GrEffect& effect);
+    GrGLMagnifierEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
 
     virtual void emitCode(GrGLShaderBuilder*,
-                          const GrEffectStage&,
+                          const GrDrawEffect&,
                           EffectKey,
-                          const char* vertexCoords,
                           const char* outputColor,
                           const char* inputColor,
                           const TextureSamplerArray&) SK_OVERRIDE;
 
-    virtual void setData(const GrGLUniformManager& uman, const GrEffectStage& stage) SK_OVERRIDE;
+    virtual void setData(const GrGLUniformManager&, const GrDrawEffect&) SK_OVERRIDE;
 
-    static inline EffectKey GenKey(const GrEffectStage&, const GrGLCaps&);
+    static inline EffectKey GenKey(const GrDrawEffect&, const GrGLCaps&);
 
 private:
-
     UniformHandle       fOffsetVar;
     UniformHandle       fZoomVar;
     UniformHandle       fInsetVar;
@@ -102,22 +116,22 @@ private:
 };
 
 GrGLMagnifierEffect::GrGLMagnifierEffect(const GrBackendEffectFactory& factory,
-                                         const GrEffect& effect)
+                                         const GrDrawEffect& drawEffect)
     : INHERITED(factory)
     , fOffsetVar(GrGLUniformManager::kInvalidUniformHandle)
     , fZoomVar(GrGLUniformManager::kInvalidUniformHandle)
-    , fInsetVar(GrGLUniformManager::kInvalidUniformHandle) {
+    , fInsetVar(GrGLUniformManager::kInvalidUniformHandle)
+    , fEffectMatrix(drawEffect.castEffect<GrMagnifierEffect>().coordsType()) {
 }
 
 void GrGLMagnifierEffect::emitCode(GrGLShaderBuilder* builder,
-                                   const GrEffectStage&,
+                                   const GrDrawEffect&,
                                    EffectKey key,
-                                   const char* vertexCoords,
                                    const char* outputColor,
                                    const char* inputColor,
                                    const TextureSamplerArray& samplers) {
     const char* coords;
-    fEffectMatrix.emitCodeMakeFSCoords2D(builder, key, vertexCoords, &coords);
+    fEffectMatrix.emitCodeMakeFSCoords2D(builder, key, &coords);
     fOffsetVar = builder->addUniform(
         GrGLShaderBuilder::kFragment_ShaderType |
         GrGLShaderBuilder::kVertex_ShaderType,
@@ -131,52 +145,53 @@ void GrGLMagnifierEffect::emitCode(GrGLShaderBuilder* builder,
         GrGLShaderBuilder::kVertex_ShaderType,
         kVec2f_GrSLType, "uInset");
 
-    SkString* code = &builder->fFSCode;
+    builder->fsCodeAppendf("\t\tvec2 coord = %s;\n", coords);
+    builder->fsCodeAppendf("\t\tvec2 zoom_coord = %s + %s / %s;\n",
+                           builder->getUniformCStr(fOffsetVar),
+                            coords,
+                           builder->getUniformCStr(fZoomVar));
 
-    code->appendf("\t\tvec2 coord = %s;\n", coords);
-    code->appendf("\t\tvec2 zoom_coord = %s + %s / %s;\n",
-                  builder->getUniformCStr(fOffsetVar),
-                  coords,
-                  builder->getUniformCStr(fZoomVar));
+    builder->fsCodeAppend("\t\tvec2 delta = min(coord, vec2(1.0, 1.0) - coord);\n");
 
-    code->appendf("\t\tvec2 delta = min(coord, vec2(1.0, 1.0) - coord);\n");
+    builder->fsCodeAppendf("\t\tdelta = delta / %s;\n", builder->getUniformCStr(fInsetVar));
 
-    code->appendf("\t\tdelta = delta / %s;\n", builder->getUniformCStr(fInsetVar));
+    builder->fsCodeAppend("\t\tfloat weight = 0.0;\n");
+    builder->fsCodeAppend("\t\tif (delta.s < 2.0 && delta.t < 2.0) {\n");
+    builder->fsCodeAppend("\t\t\tdelta = vec2(2.0, 2.0) - delta;\n");
+    builder->fsCodeAppend("\t\t\tfloat dist = length(delta);\n");
+    builder->fsCodeAppend("\t\t\tdist = max(2.0 - dist, 0.0);\n");
+    builder->fsCodeAppend("\t\t\tweight = min(dist * dist, 1.0);\n");
+    builder->fsCodeAppend("\t\t} else {\n");
+    builder->fsCodeAppend("\t\t\tvec2 delta_squared = delta * delta;\n");
+    builder->fsCodeAppend("\t\t\tweight = min(min(delta_squared.s, delta_squared.y), 1.0);\n");
+    builder->fsCodeAppend("\t\t}\n");
 
-    code->appendf("\t\tfloat weight = 0.0;\n");
-    code->appendf("\t\tif (delta.s < 2.0 && delta.t < 2.0) {\n");
-    code->appendf("\t\t\tdelta = vec2(2.0, 2.0) - delta;\n");
-    code->appendf("\t\t\tfloat dist = length(delta);\n");
-    code->appendf("\t\t\tdist = max(2.0 - dist, 0.0);\n");
-    code->appendf("\t\t\tweight = min(dist * dist, 1.0);\n");
-    code->appendf("\t\t} else {\n");
-    code->appendf("\t\t\tvec2 delta_squared = delta * delta;\n");
-    code->appendf("\t\t\tweight = min(min(delta_squared.s, delta_squared.y), 1.0);\n");
-    code->appendf("\t\t}\n");
+    builder->fsCodeAppend("\t\tvec2 mix_coord = mix(coord, zoom_coord, weight);\n");
+    builder->fsCodeAppend("\t\tvec4 output_color = ");
+    builder->appendTextureLookup(GrGLShaderBuilder::kFragment_ShaderType, samplers[0], "mix_coord");
+    builder->fsCodeAppend(";\n");
 
-    code->appendf("\t\tvec2 mix_coord = mix(coord, zoom_coord, weight);\n");
-    code->appendf("\t\tvec4 output_color = ");
-    builder->appendTextureLookup(code, samplers[0], "mix_coord");
-    code->append(";\n");
-
-    code->appendf("\t\t%s = output_color;", outputColor);
-    GrGLSLMulVarBy4f(code, 2, outputColor, inputColor);
+    builder->fsCodeAppendf("\t\t%s = output_color;", outputColor);
+    SkString modulate;
+    GrGLSLMulVarBy4f(&modulate, 2, outputColor, inputColor);
+    builder->fsCodeAppend(modulate.c_str());
 }
 
 void GrGLMagnifierEffect::setData(const GrGLUniformManager& uman,
-                                  const GrEffectStage& stage) {
-    const GrMagnifierEffect& zoom = static_cast<const GrMagnifierEffect&>(*stage.getEffect());
-
+                                  const GrDrawEffect& drawEffect) {
+    const GrMagnifierEffect& zoom = drawEffect.castEffect<GrMagnifierEffect>();
     uman.set2f(fOffsetVar, zoom.x_offset(), zoom.y_offset());
     uman.set2f(fZoomVar, zoom.x_zoom(), zoom.y_zoom());
     uman.set2f(fInsetVar, zoom.x_inset(), zoom.y_inset());
-    fEffectMatrix.setData(uman, zoom.getMatrix(), stage.getCoordChangeMatrix(), zoom.texture(0));
+    fEffectMatrix.setData(uman, zoom.getMatrix(), drawEffect, zoom.texture(0));
 }
 
-GrGLEffect::EffectKey GrGLMagnifierEffect::GenKey(const GrEffectStage& stage, const GrGLCaps&) {
-    const GrMagnifierEffect& zoom = static_cast<const GrMagnifierEffect&>(*stage.getEffect());
+GrGLEffect::EffectKey GrGLMagnifierEffect::GenKey(const GrDrawEffect& drawEffect,
+                                                  const GrGLCaps&) {
+    const GrMagnifierEffect& zoom = drawEffect.castEffect<GrMagnifierEffect>();
     return GrGLEffectMatrix::GenKey(zoom.getMatrix(),
-                                    stage.getCoordChangeMatrix(),
+                                    drawEffect,
+                                    zoom.coordsType(),
                                     zoom.texture(0));
 }
 
@@ -184,9 +199,9 @@ GrGLEffect::EffectKey GrGLMagnifierEffect::GenKey(const GrEffectStage& stage, co
 
 GR_DEFINE_EFFECT_TEST(GrMagnifierEffect);
 
-GrEffect* GrMagnifierEffect::TestCreate(SkRandom* random,
-                                        GrContext* context,
-                                        GrTexture** textures) {
+GrEffectRef* GrMagnifierEffect::TestCreate(SkMWCRandom* random,
+                                           GrContext* context,
+                                           GrTexture** textures) {
     const int kMaxWidth = 200;
     const int kMaxHeight = 200;
     const int kMaxInset = 20;
@@ -201,7 +216,7 @@ GrEffect* GrMagnifierEffect::TestCreate(SkRandom* random,
                 SkRect::MakeXYWH(SkIntToScalar(x), SkIntToScalar(y),
                                  SkIntToScalar(width), SkIntToScalar(height)),
                 inset));
-    GrEffect* effect;
+    GrEffectRef* effect;
     filter->asNewEffect(&effect, textures[0]);
     GrAssert(NULL != effect);
     return effect;
@@ -213,15 +228,19 @@ const GrBackendEffectFactory& GrMagnifierEffect::getFactory() const {
     return GrTBackendEffectFactory<GrMagnifierEffect>::getInstance();
 }
 
-bool GrMagnifierEffect::isEqual(const GrEffect& sBase) const {
-     const GrMagnifierEffect& s =
-        static_cast<const GrMagnifierEffect&>(sBase);
-    return (this->fXOffset == s.fXOffset &&
+bool GrMagnifierEffect::onIsEqual(const GrEffect& sBase) const {
+    const GrMagnifierEffect& s = CastEffect<GrMagnifierEffect>(sBase);
+    return (this->texture(0) == s.texture(0) &&
+            this->fXOffset == s.fXOffset &&
             this->fYOffset == s.fYOffset &&
             this->fXZoom == s.fXZoom &&
             this->fYZoom == s.fYZoom &&
             this->fXInset == s.fXInset &&
             this->fYInset == s.fYInset);
+}
+
+void GrMagnifierEffect::getConstantColorComponents(GrColor* color, uint32_t* validFlags) const {
+    this->updateConstantColorComponentsForModulation(color, validFlags);
 }
 
 #endif
@@ -243,17 +262,16 @@ SkMagnifierImageFilter::SkMagnifierImageFilter(SkRect srcRect, SkScalar inset)
     SkASSERT(srcRect.x() >= 0 && srcRect.y() >= 0 && inset >= 0);
 }
 
-bool SkMagnifierImageFilter::asNewEffect(GrEffect** effect,
-                                         GrTexture* texture) const {
+bool SkMagnifierImageFilter::asNewEffect(GrEffectRef** effect, GrTexture* texture) const {
 #if SK_SUPPORT_GPU
     if (effect) {
-      *effect = SkNEW_ARGS(GrMagnifierEffect, (texture,
-                                               fSrcRect.x() / texture->width(),
-                                               fSrcRect.y() / texture->height(),
-                                               texture->width() / fSrcRect.width(),
-                                               texture->height() / fSrcRect.height(),
-                                               fInset / texture->width(),
-                                               fInset / texture->height()));
+      *effect = GrMagnifierEffect::Create(texture,
+                                          fSrcRect.x() / texture->width(),
+                                          fSrcRect.y() / texture->height(),
+                                          texture->width() / fSrcRect.width(),
+                                          texture->height() / fSrcRect.height(),
+                                          fInset / texture->width(),
+                                          fInset / texture->height());
     }
     return true;
 #else

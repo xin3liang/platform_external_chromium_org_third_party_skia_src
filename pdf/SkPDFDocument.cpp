@@ -43,7 +43,7 @@ static void perform_font_subsetting(SkPDFCatalog* catalog,
         usage.merge(pages[i]->getFontGlyphUsage());
     }
     SkPDFGlyphSetMap::F2BIter iterator(usage);
-    SkPDFGlyphSetMap::FontGlyphSetPair* entry = iterator.next();
+    const SkPDFGlyphSetMap::FontGlyphSetPair* entry = iterator.next();
     while (entry) {
         SkPDFFont* subsetFont =
             entry->fFont->getFontSubset(entry->fGlyphSet);
@@ -98,16 +98,18 @@ bool SkPDFDocument::emitPDF(SkWStream* stream) {
         fDocCatalog->insert("Pages", new SkPDFObjRef(pageTreeRoot))->unref();
 
         /* TODO(vandebo): output intent
-        SkRefPtr<SkPDFDict> outputIntent = new SkPDFDict("OutputIntent");
-        outputIntent->unref();  // SkRefPtr and new both took a reference.
+        SkAutoTUnref<SkPDFDict> outputIntent = new SkPDFDict("OutputIntent");
         outputIntent->insert("S", new SkPDFName("GTS_PDFA1"))->unref();
         outputIntent->insert("OutputConditionIdentifier",
                              new SkPDFString("sRGB"))->unref();
-        SkRefPtr<SkPDFArray> intentArray = new SkPDFArray;
-        intentArray->unref();  // SkRefPtr and new both took a reference.
+        SkAutoTUnref<SkPDFArray> intentArray = new SkPDFArray;
         intentArray->append(outputIntent.get());
         fDocCatalog->insert("OutputIntent", intentArray.get());
         */
+
+        SkPDFDict* dests = SkNEW(SkPDFDict);  // fPageResources owns reference
+        fCatalog->addObject(dests, true /* onFirstPage */);
+        fPageResources.push(dests);
 
         bool firstPage = true;
         for (int i = 0; i < fPages.count(); i++) {
@@ -115,11 +117,14 @@ bool SkPDFDocument::emitPDF(SkWStream* stream) {
             fPages[i]->finalizePage(fCatalog.get(), firstPage, &fPageResources);
             addResourcesToCatalog(resourceCount, firstPage, &fPageResources,
                                   fCatalog.get());
+            fPages[i]->appendDestinations(dests);
             if (i == 0) {
                 firstPage = false;
                 fSecondPageFirstResourceIndex = fPageResources.count();
             }
         }
+
+        fDocCatalog->insert("Dests", SkNEW_ARGS(SkPDFObjRef, (dests)))->unref();
 
         // Build font subsetting info before proceeding.
         perform_font_subsetting(fCatalog.get(), fPages, &fSubstitutes);

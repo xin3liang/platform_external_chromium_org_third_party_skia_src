@@ -12,8 +12,8 @@
 #include "GrDrawState.h"
 #include "GrPathUtils.h"
 #include "SkString.h"
+#include "SkStrokeRec.h"
 #include "SkTrace.h"
-
 
 GrAAConvexPathRenderer::GrAAConvexPathRenderer() {
 }
@@ -209,9 +209,7 @@ inline bool get_direction(const SkPath& path, const SkMatrix& m, SkPath::Directi
     SkScalar det2x2 = SkScalarMul(m.get(SkMatrix::kMScaleX), m.get(SkMatrix::kMScaleY)) -
                       SkScalarMul(m.get(SkMatrix::kMSkewX), m.get(SkMatrix::kMSkewY));
     if (det2x2 < 0) {
-        GR_STATIC_ASSERT(0 == SkPath::kCW_Direction || 1 == SkPath::kCW_Direction);
-        GR_STATIC_ASSERT(0 == SkPath::kCCW_Direction || 1 == SkPath::kCCW_Direction);
-        *dir = static_cast<SkPath::Direction>(*dir ^ 0x1);
+        *dir = SkPath::OppositeDirection(*dir);
     }
     return true;
 }
@@ -223,7 +221,7 @@ bool get_segments(const SkPath& path,
                   int* vCount,
                   int* iCount) {
     SkPath::Iter iter(path, true);
-    // This renderer overemphasises very thin path regions. We use the distance
+    // This renderer over-emphasizes very thin path regions. We use the distance
     // to the path from the sample to compute coverage. Every pixel intersected
     // by the path will be hit and the maximum distance is sqrt(2)/2. We don't
     // notice that the sample may be close to a very thin area of the path and
@@ -431,20 +429,15 @@ void create_vertices(const SegmentArray&  segments,
 }
 
 bool GrAAConvexPathRenderer::canDrawPath(const SkPath& path,
-                                         GrPathFill fill,
+                                         const SkStrokeRec& stroke,
                                          const GrDrawTarget* target,
                                          bool antiAlias) const {
-    if (!target->getCaps().shaderDerivativeSupport() || !antiAlias ||
-        kHairLine_GrPathFill == fill || GrIsFillInverted(fill) ||
-        !path.isConvex()) {
-        return false;
-    }  else {
-        return true;
-    }
+    return (target->getCaps().shaderDerivativeSupport() && antiAlias &&
+            stroke.isFillStyle() && !path.isInverseFillType() && path.isConvex());
 }
 
 bool GrAAConvexPathRenderer::onDrawPath(const SkPath& origPath,
-                                        GrPathFill fill,
+                                        const SkStrokeRec&,
                                         GrDrawTarget* target,
                                         bool antiAlias) {
 
@@ -459,9 +452,6 @@ bool GrAAConvexPathRenderer::onDrawPath(const SkPath& origPath,
         return false;
     }
     const SkMatrix* vm = &adcd.getOriginalMatrix();
-
-    GrVertexLayout layout = 0;
-    layout |= GrDrawTarget::kEdge_VertexLayoutBit;
 
     // We use the fact that SkPath::transform path does subdivision based on
     // perspective. Otherwise, we apply the view matrix when copying to the
@@ -488,10 +478,22 @@ bool GrAAConvexPathRenderer::onDrawPath(const SkPath& origPath,
         return false;
     }
 
-    GrDrawTarget::AutoReleaseGeometry arg(target, layout, vCount, iCount);
+    // position + edge
+    static const GrVertexAttrib kAttribs[] = {
+        {kVec2f_GrVertexAttribType, 0},
+        {kVec4f_GrVertexAttribType, sizeof(GrPoint)}
+    };
+    static const GrAttribBindings bindings = GrDrawState::kEdge_AttribBindingsBit;
+
+    drawState->setVertexAttribs(kAttribs, SK_ARRAY_COUNT(kAttribs));
+    drawState->setAttribIndex(GrDrawState::kPosition_AttribIndex, 0);
+    drawState->setAttribIndex(GrDrawState::kEdge_AttribIndex, 1);
+    drawState->setAttribBindings(bindings);
+    GrDrawTarget::AutoReleaseGeometry arg(target, vCount, iCount);
     if (!arg.succeeded()) {
         return false;
     }
+    GrAssert(sizeof(QuadVertex) == drawState->getVertexSize());
     verts = reinterpret_cast<QuadVertex*>(arg.vertices());
     idxs = reinterpret_cast<uint16_t*>(arg.indices());
 
@@ -508,4 +510,3 @@ bool GrAAConvexPathRenderer::onDrawPath(const SkPath& origPath,
 
     return true;
 }
-

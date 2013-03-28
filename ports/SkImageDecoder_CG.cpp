@@ -78,12 +78,17 @@ bool SkImageDecoder_CG::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
     }
 
     bm->lockPixels();
-    bm->eraseColor(0);
+    bm->eraseColor(SK_ColorTRANSPARENT);
 
     // use the same colorspace, so we don't change the pixels at all
     CGColorSpaceRef cs = CGImageGetColorSpace(image);
-    CGContextRef cg = CGBitmapContextCreate(bm->getPixels(), width, height,
-                                            8, bm->rowBytes(), cs, BITMAP_INFO);
+    CGContextRef cg = CGBitmapContextCreate(bm->getPixels(), width, height, 8, bm->rowBytes(), cs, BITMAP_INFO);
+    if (NULL == cg) {
+        // perhaps the image's colorspace does not work for a context, so try just rgb
+        cs = CGColorSpaceCreateDeviceRGB();
+        cg = CGBitmapContextCreate(bm->getPixels(), width, height, 8, bm->rowBytes(), cs, BITMAP_INFO);
+        CFRelease(cs);
+    }
     CGContextDrawImage(cg, CGRectMake(0, 0, width, height), image);
     CGContextRelease(cg);
 
@@ -214,4 +219,3 @@ SkImageEncoder* SkImageEncoder::Create(Type t) {
     }
     return SkNEW_ARGS(SkImageEncoder_CG, (t));
 }
-

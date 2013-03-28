@@ -73,7 +73,10 @@ void SkPDFObject::GetResourcesHelper(SkTDArray<SkPDFObject*>* resources,
     }
 }
 
-SkPDFObjRef::SkPDFObjRef(SkPDFObject* obj) : fObj(obj) {}
+SkPDFObjRef::SkPDFObjRef(SkPDFObject* obj) : fObj(obj) {
+    SkSafeRef(obj);
+}
+
 SkPDFObjRef::~SkPDFObjRef() {}
 
 void SkPDFObjRef::emitObject(SkWStream* stream, SkPDFCatalog* catalog,
@@ -480,7 +483,7 @@ SkPDFDict::Iter::Iter(const SkPDFDict& dict)
 
 SkPDFName* SkPDFDict::Iter::next(SkPDFObject** value) {
     if (fIter != fStop) {
-        Rec* cur = fIter;
+        const Rec* cur = fIter;
         fIter++;
         *value = cur->value;
         return cur->key;
