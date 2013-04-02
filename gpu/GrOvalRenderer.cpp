@@ -85,11 +85,10 @@ void GrOvalRenderer::drawCircle(GrDrawTarget* target,
 
     // position + edge
     static const GrVertexAttrib kVertexAttribs[] = {
-        {kVec2f_GrVertexAttribType, 0},
-        {kVec4f_GrVertexAttribType, sizeof(GrPoint)}
+        {kVec2f_GrVertexAttribType, 0, kPosition_GrVertexAttribBinding},
+        {kVec4f_GrVertexAttribType, sizeof(GrPoint), kEffect_GrVertexAttribBinding}
     };
     drawState->setVertexAttribs(kVertexAttribs, SK_ARRAY_COUNT(kVertexAttribs));
-    drawState->setAttribIndex(GrDrawState::kPosition_AttribIndex, 0);
     GrAssert(sizeof(CircleVertex) == drawState->getVertexSize());
 
     GrDrawTarget::AutoReleaseGeometry geo(target, 4, 0);
@@ -108,7 +107,6 @@ void GrOvalRenderer::drawCircle(GrDrawTarget* target,
         // (kPathMaskStage in GrSWMaskHelper)
         kEdgeEffectStage = GrPaint::kTotalStages,
     };
-    drawState->setAttribBindings(GrDrawState::kDefault_AttribBindings);
 
     GrEffectRef* effect = GrCircleEdgeEffect::Create(isStroked);
     static const int kCircleEdgeAttrIndex = 1;
@@ -130,19 +128,24 @@ void GrOvalRenderer::drawCircle(GrDrawTarget* target,
         }
     }
 
+    // The radii are outset for two reasons. First, it allows the shader to simply perform
+    // clamp(distance-to-center - radius, 0, 1). Second, the outer radius is used to compute the
+    // verts of the bounding box that is rendered and the outset ensures the box will cover all
+    // pixels partially covered by the circle.
+    outerRadius += SK_ScalarHalf;
+    innerRadius -= SK_ScalarHalf;
+
     for (int i = 0; i < 4; ++i) {
         verts[i].fCenter = center;
-        verts[i].fOuterRadius = outerRadius + 0.5f;
-        verts[i].fInnerRadius = innerRadius - 0.5f;
+        verts[i].fOuterRadius = outerRadius;
+        verts[i].fInnerRadius = innerRadius;
     }
 
-    // We've extended the outer radius out half a pixel to antialias.
-    // Expand the drawn rect here so all the pixels will be captured.
     SkRect bounds = SkRect::MakeLTRB(
-        center.fX - outerRadius - SK_ScalarHalf,
-        center.fY - outerRadius - SK_ScalarHalf,
-        center.fX + outerRadius + SK_ScalarHalf,
-        center.fY + outerRadius + SK_ScalarHalf
+        center.fX - outerRadius,
+        center.fY - outerRadius,
+        center.fX + outerRadius,
+        center.fY + outerRadius
     );
 
     verts[0].fPos = SkPoint::Make(bounds.fLeft,  bounds.fTop);
@@ -180,12 +183,11 @@ void GrOvalRenderer::drawEllipse(GrDrawTarget* target,
 
     // position + edge
     static const GrVertexAttrib kVertexAttribs[] = {
-        {kVec2f_GrVertexAttribType, 0},
-        {kVec2f_GrVertexAttribType, sizeof(GrPoint)},
-        {kVec4f_GrVertexAttribType, 2*sizeof(GrPoint)}
+        {kVec2f_GrVertexAttribType, 0, kPosition_GrVertexAttribBinding},
+        {kVec2f_GrVertexAttribType, sizeof(GrPoint), kEffect_GrVertexAttribBinding},
+        {kVec4f_GrVertexAttribType, 2*sizeof(GrPoint), kEffect_GrVertexAttribBinding}
     };
     drawState->setVertexAttribs(kVertexAttribs, SK_ARRAY_COUNT(kVertexAttribs));
-    drawState->setAttribIndex(GrDrawState::kPosition_AttribIndex, 0);
     GrAssert(sizeof(EllipseVertex) == drawState->getVertexSize());
 
     GrDrawTarget::AutoReleaseGeometry geo(target, 4, 0);
@@ -204,7 +206,6 @@ void GrOvalRenderer::drawEllipse(GrDrawTarget* target,
         // (kPathMaskStage in GrSWMaskHelper)
         kEdgeEffectStage = GrPaint::kTotalStages,
     };
-    drawState->setAttribBindings(GrDrawState::kDefault_AttribBindings);
 
     GrEffectRef* effect = GrEllipseEdgeEffect::Create(isStroked);
     static const int kEllipseCenterAttrIndex = 1;
