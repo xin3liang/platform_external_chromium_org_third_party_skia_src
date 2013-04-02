@@ -22,6 +22,9 @@
 #include "SkStroke.h"
 #include "SkThread.h"
 
+#ifdef SK_BUILD_FOR_ANDROID
+    #include "SkTypeface_android.h"
+#endif
 
 #define ComputeBWRowBytes(width)        (((unsigned)(width) + 7) >> 3)
 
@@ -119,8 +122,10 @@ SkScalerContext::~SkScalerContext() {
 
 // Return the context associated with the next logical typeface, or NULL if
 // there are no more entries in the fallback chain.
-static SkScalerContext* allocNextContext(const SkScalerContext::Rec& rec) {
-    SkTypeface* newFace = SkFontHost::NextLogicalTypeface(rec.fFontID, rec.fOrigFontID);
+SkScalerContext* SkScalerContext::allocNextContext() const {
+#ifdef SK_BUILD_FOR_ANDROID
+    SkTypeface* newFace = SkAndroidNextLogicalTypeface(fRec.fFontID,
+                                                       fRec.fOrigFontID);
     if (0 == newFace) {
         return NULL;
     }
@@ -128,17 +133,20 @@ static SkScalerContext* allocNextContext(const SkScalerContext::Rec& rec) {
     SkAutoTUnref<SkTypeface> aur(newFace);
     uint32_t newFontID = newFace->uniqueID();
 
-    SkAutoDescriptor    ad(sizeof(rec) + SkDescriptor::ComputeOverhead(1));
+    SkAutoDescriptor    ad(sizeof(fRec) + SkDescriptor::ComputeOverhead(1));
     SkDescriptor*       desc = ad.getDesc();
 
     desc->init();
     SkScalerContext::Rec* newRec =
     (SkScalerContext::Rec*)desc->addEntry(kRec_SkDescriptorTag,
-                                          sizeof(rec), &rec);
+                                          sizeof(fRec), &fRec);
     newRec->fFontID = newFontID;
     desc->computeChecksum();
 
     return newFace->createScalerContext(desc);
+#else
+    return NULL;
+#endif
 }
 
 /*  Return the next context, creating it if its not already created, but return
@@ -149,7 +157,7 @@ SkScalerContext* SkScalerContext::getNextContext() {
     // if next is null, then either it isn't cached yet, or we're at the
     // end of our possible chain
     if (NULL == next) {
-        next = allocNextContext(fRec);
+        next = this->allocNextContext();
         if (NULL == next) {
             return NULL;
         }

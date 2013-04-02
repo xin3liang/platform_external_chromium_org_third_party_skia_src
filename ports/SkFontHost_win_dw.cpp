@@ -41,13 +41,6 @@ static bool isLCD(const SkScalerContext::Rec& rec) {
            SkMask::kLCD32_Format == rec.fMaskFormat;
 }
 
-SkTypeface* SkFontHost::NextLogicalTypeface(SkFontID currFontID, SkFontID origFontID) {
-  // Zero means that we don't have any fallback fonts for this fontID.
-  // This function is implemented on Android, but doesn't have much
-  // meaning here.
-  return NULL;
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 
 class DWriteOffscreen {
@@ -485,6 +478,7 @@ protected:
     virtual SkAdvancedTypefaceMetrics* onGetAdvancedTypefaceMetrics(
                                 SkAdvancedTypefaceMetrics::PerGlyphInfo,
                                 const uint32_t*, uint32_t) const SK_OVERRIDE;
+    virtual void onGetFontDescriptor(SkFontDescriptor*, bool*) const SK_OVERRIDE;
 };
 
 class SkScalerContext_Windows : public SkScalerContext {
@@ -1046,13 +1040,11 @@ void SkScalerContext_Windows::generatePath(const SkGlyph& glyph, SkPath* path) {
     path->transform(mat);
 }
 
-void SkFontHost::Serialize(const SkTypeface* rawFace, SkWStream* stream) {
-    const DWriteFontTypeface* face = static_cast<const DWriteFontTypeface*>(rawFace);
-    SkFontDescriptor descriptor(face->style());
-
+void DWriteFontTypeface::onGetFontDescriptor(SkFontDescriptor* desc,
+                                             bool* isLocalStream) const {
     // Get the family name.
     SkTScopedComPtr<IDWriteLocalizedStrings> dwFamilyNames;
-    HRV(face->fDWriteFontFamily->GetFamilyNames(&dwFamilyNames));
+    HRV(fDWriteFontFamily->GetFamilyNames(&dwFamilyNames));
 
     UINT32 dwFamilyNamesLength;
     HRV(dwFamilyNames->GetStringLength(0, &dwFamilyNamesLength));
@@ -1070,36 +1062,8 @@ void SkFontHost::Serialize(const SkTypeface* rawFace, SkWStream* stream) {
     str_len = WideCharToMultiByte(CP_UTF8, 0, dwFamilyNameChar.begin(), -1,
                                   utf8FamilyName.begin(), str_len, NULL, NULL);
 
-    descriptor.setFamilyName(utf8FamilyName.begin());
-    //TODO: FileName and PostScriptName currently unsupported.
-
-    descriptor.serialize(stream);
-
-    if (NULL != face->fDWriteFontFileLoader.get()) {
-        // store the entire font in the fontData
-        SkStream* fontStream = face->fDWriteFontFileLoader->fStream.get();
-        const uint32_t length = fontStream->getLength();
-
-        stream->writePackedUInt(length);
-        stream->writeStream(fontStream, length);
-    } else {
-        stream->writePackedUInt(0);
-    }
-}
-
-SkTypeface* SkFontHost::Deserialize(SkStream* stream) {
-    SkFontDescriptor descriptor(stream);
-
-    const uint32_t customFontDataLength = stream->readPackedUInt();
-    if (customFontDataLength > 0) {
-        // generate a new stream to store the custom typeface
-        SkAutoTUnref<SkMemoryStream> fontStream(SkNEW_ARGS(SkMemoryStream, (customFontDataLength - 1)));
-        stream->read((void*)fontStream->getMemoryBase(), customFontDataLength - 1);
-
-        return CreateTypefaceFromStream(fontStream.get());
-    }
-
-    return SkFontHost::CreateTypeface(NULL, descriptor.getFamilyName(), descriptor.getStyle());
+    desc->setFamilyName(utf8FamilyName.begin());
+    *isLocalStream = SkToBool(fDWriteFontFileLoader.get());
 }
 
 SkTypeface* SkFontHost::CreateTypefaceFromStream(SkStream* stream) {
@@ -1553,4 +1517,13 @@ SkAdvancedTypefaceMetrics* DWriteFontTypeface::onGetAdvancedTypefaceMetrics(
     }
 
     return info;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#include "SkFontMgr.h"
+
+SkFontMgr* SkFontMgr::Factory() {
+    // todo
+    return NULL;
 }

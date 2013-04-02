@@ -189,6 +189,9 @@ public:
             ::DeleteObject(font);
         }
 
+        // The fixed pitch bit is set if the font is *not* fixed pitch.
+        this->setIsFixedPitch((textMetric.tmPitchAndFamily & TMPF_FIXED_PITCH) == 0);
+
         // Used a logfont on a memory context, should never get a device font.
         // Therefore all TMPF_DEVICE will be PostScript (cubic) fonts.
         fCanBeLCD = !((textMetric.tmPitchAndFamily & TMPF_VECTOR) &&
@@ -216,6 +219,7 @@ protected:
     virtual SkAdvancedTypefaceMetrics* onGetAdvancedTypefaceMetrics(
                                 SkAdvancedTypefaceMetrics::PerGlyphInfo,
                                 const uint32_t*, uint32_t) const SK_OVERRIDE;
+    virtual void onGetFontDescriptor(SkFontDescriptor*, bool*) const SK_OVERRIDE;
 };
 
 class FontMemResourceTypeface : public LogFontTypeface {
@@ -298,13 +302,6 @@ void SkLOGFONTFromTypeface(const SkTypeface* face, LOGFONT* lf) {
     } else {
         *lf = static_cast<const LogFontTypeface*>(face)->fLogFont;
     }
-}
-
-SkTypeface* SkFontHost::NextLogicalTypeface(SkFontID currFontID, SkFontID origFontID) {
-  // Zero means that we don't have any fallback fonts for this fontID.
-  // This function is implemented on Android, but doesn't have much
-  // meaning here.
-  return NULL;
 }
 
 static void GetLogFontByID(SkFontID fontID, LOGFONT* lf) {
@@ -1279,19 +1276,17 @@ static void tchar_to_skstring(const TCHAR* t, SkString* s) {
 #endif
 }
 
-void SkFontHost::Serialize(const SkTypeface* rawFace, SkWStream* stream) {
-    const LogFontTypeface* face = static_cast<const LogFontTypeface*>(rawFace);
-    SkFontDescriptor descriptor(face->style());
-
+void LogFontTypeface::onGetFontDescriptor(SkFontDescriptor* desc,
+                                          bool* isLocalStream) const {
     // Get the actual name of the typeface. The logfont may not know this.
-    HFONT font = CreateFontIndirect(&face->fLogFont);
+    HFONT font = CreateFontIndirect(&fLogFont);
 
     HDC deviceContext = ::CreateCompatibleDC(NULL);
     HFONT savefont = (HFONT)SelectObject(deviceContext, font);
 
     int fontNameLen; //length of fontName in TCHARS.
     if (0 == (fontNameLen = GetTextFace(deviceContext, 0, NULL))) {
-        LogFontTypeface::EnsureAccessible(rawFace);
+        call_ensure_accessible(fLogFont);
         if (0 == (fontNameLen = GetTextFace(deviceContext, 0, NULL))) {
             fontNameLen = 0;
         }
@@ -1299,7 +1294,7 @@ void SkFontHost::Serialize(const SkTypeface* rawFace, SkWStream* stream) {
 
     SkAutoSTArray<LF_FULLFACESIZE, TCHAR> fontName(fontNameLen+1);
     if (0 == GetTextFace(deviceContext, fontNameLen, fontName.get())) {
-        LogFontTypeface::EnsureAccessible(rawFace);
+        call_ensure_accessible(fLogFont);
         if (0 == GetTextFace(deviceContext, fontNameLen, fontName.get())) {
             fontName[0] = 0;
         }
@@ -1315,39 +1310,9 @@ void SkFontHost::Serialize(const SkTypeface* rawFace, SkWStream* stream) {
 
     SkString familyName;
     tchar_to_skstring(fontName.get(), &familyName);
-    descriptor.setFamilyName(familyName.c_str());
-    //TODO: FileName and PostScriptName currently unsupported.
 
-    descriptor.serialize(stream);
-
-    if (face->fSerializeAsStream) {
-        // store the entire font in the fontData
-        SkAutoTUnref<SkStream> fontStream(face->openStream(NULL));
-        if (fontStream.get()) {
-            const uint32_t length = fontStream->getLength();
-            stream->writePackedUInt(length);
-            stream->writeStream(fontStream, length);
-        } else {
-            stream->writePackedUInt(0);
-        }
-    } else {
-        stream->writePackedUInt(0);
-    }
-}
-
-SkTypeface* SkFontHost::Deserialize(SkStream* stream) {
-    SkFontDescriptor descriptor(stream);
-
-    const uint32_t customFontDataLength = stream->readPackedUInt();
-    if (customFontDataLength > 0) {
-        // generate a new stream to store the custom typeface
-        SkAutoTUnref<SkMemoryStream> fontStream(SkNEW_ARGS(SkMemoryStream, (customFontDataLength - 1)));
-        stream->read((void*)fontStream->getMemoryBase(), customFontDataLength - 1);
-
-        return CreateTypefaceFromStream(fontStream.get());
-    }
-
-    return SkFontHost::CreateTypeface(NULL, descriptor.getFamilyName(), descriptor.getStyle());
+    desc->setFamilyName(familyName.c_str());
+    *isLocalStream = this->fSerializeAsStream;
 }
 
 static bool getWidthAdvance(HDC hdc, int gId, int16_t* advance) {
@@ -1708,4 +1673,13 @@ void LogFontTypeface::onFilterRec(SkScalerContextRec* rec) const {
         rec->fMaskFormat = SkMask::kA8_Format;
         rec->fFlags &= ~SkScalerContext::kGenA8FromLCD_Flag;
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#include "SkFontMgr.h"
+
+SkFontMgr* SkFontMgr::Factory() {
+    // todo
+    return NULL;
 }

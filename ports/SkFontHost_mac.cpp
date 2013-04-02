@@ -13,6 +13,7 @@
 
 #ifdef SK_BUILD_FOR_IOS
 #include <CoreText/CoreText.h>
+#include <CoreText/CTFontManager.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreFoundation/CoreFoundation.h>
 #endif
@@ -40,8 +41,20 @@
 #include "SkTypeface_mac.h"
 #include "SkUtils.h"
 #include "SkTypefaceCache.h"
+#include "SkFontMgr.h"
 
 class SkScalerContext_Mac;
+
+// CTFontManagerCopyAvailableFontFamilyNames() is not always available, so we
+// provide a wrapper here that will return an empty array if need be.
+static CFArrayRef SkCTFontManagerCopyAvailableFontFamilyNames() {
+#ifdef SK_BUILD_FOR_IOS
+    return CFArrayCreate(NULL, NULL, 0, NULL);
+#else
+    return CTFontManagerCopyAvailableFontFamilyNames();
+#endif
+}
+
 
 // Being templated and taking const T* prevents calling
 // CFSafeRelease(autoCFRelease) through implicit conversion.
@@ -82,6 +95,10 @@ public:
 private:
     CFRef fCFRef;
 };
+
+static CFStringRef make_CFString(const char str[]) {
+    return CFStringCreateWithCString(NULL, str, kCFStringEncodingUTF8);
+}
 
 template<typename T> class AutoCGTable : SkNoncopyable {
 public:
@@ -344,13 +361,14 @@ private:
     }
 };
 
-Offscreen::Offscreen() : fRGBSpace(NULL), fCG(NULL) {
+Offscreen::Offscreen() : fRGBSpace(NULL), fCG(NULL),
+                         fDoAA(false), fDoLCD(false) {
     fSize.set(0, 0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static SkTypeface::Style computeStyleBits(CTFontRef font, bool* isMonospace) {
+static SkTypeface::Style computeStyleBits(CTFontRef font, bool* isFixedPitch) {
     unsigned style = SkTypeface::kNormal;
     CTFontSymbolicTraits traits = CTFontGetSymbolicTraits(font);
 
@@ -360,8 +378,8 @@ static SkTypeface::Style computeStyleBits(CTFontRef font, bool* isMonospace) {
     if (traits & kCTFontItalicTrait) {
         style |= SkTypeface::kItalic;
     }
-    if (isMonospace) {
-        *isMonospace = (traits & kCTFontMonoSpaceTrait) != 0;
+    if (isFixedPitch) {
+        *isFixedPitch = (traits & kCTFontMonoSpaceTrait) != 0;
     }
     return (SkTypeface::Style)style;
 }
@@ -394,19 +412,54 @@ static SkFontID CTFontRef_to_SkFontID(CTFontRef fontRef) {
     return id;
 }
 
+static SkFontStyle stylebits2fontstyle(SkTypeface::Style styleBits) {
+    return SkFontStyle((styleBits & SkTypeface::kBold)
+                           ? SkFontStyle::kBold_Weight
+                           : SkFontStyle::kNormal_Weight,
+                       SkFontStyle::kNormal_Width,
+                       (styleBits & SkTypeface::kItalic)
+                           ? SkFontStyle::kItalic_Slant
+                           : SkFontStyle::kUpright_Slant);
+}
+
+#define WEIGHT_THRESHOLD    ((SkFontStyle::kNormal_Weight + SkFontStyle::kBold_Weight)/2)
+
+static SkTypeface::Style fontstyle2stylebits(const SkFontStyle& fs) {
+    unsigned style = 0;
+    if (fs.width() >= WEIGHT_THRESHOLD) {
+        style |= SkTypeface::kBold;
+    }
+    if (fs.isItalic()) {
+        style |= SkTypeface::kItalic;
+    }
+    return (SkTypeface::Style)style;
+}
+
 class SkTypeface_Mac : public SkTypeface {
 public:
-    SkTypeface_Mac(SkTypeface::Style style, SkFontID fontID, bool isMonospace,
+    SkTypeface_Mac(SkTypeface::Style style, SkFontID fontID, bool isFixedPitch,
                    CTFontRef fontRef, const char name[])
-    : SkTypeface(style, fontID, isMonospace)
-    , fName(name)
-    , fFontRef(fontRef) // caller has already called CFRetain for us
+        : SkTypeface(style, fontID, isFixedPitch)
+        , fName(name)
+        , fFontRef(fontRef) // caller has already called CFRetain for us
+        , fFontStyle(stylebits2fontstyle(style))
+    {
+        SkASSERT(fontRef);
+    }
+
+    SkTypeface_Mac(const SkFontStyle& fs, SkFontID fontID, bool isFixedPitch,
+                   CTFontRef fontRef, const char name[])
+        : SkTypeface(fontstyle2stylebits(fs), fontID, isFixedPitch)
+        , fName(name)
+        , fFontRef(fontRef) // caller has already called CFRetain for us
+        , fFontStyle(fs)
     {
         SkASSERT(fontRef);
     }
 
     SkString fName;
     AutoCFRelease<CTFontRef> fFontRef;
+    SkFontStyle fFontStyle;
 
 protected:
     friend class SkFontHost;    // to access our protected members for deprecated methods
@@ -418,22 +471,23 @@ protected:
                                   size_t length, void* data) const SK_OVERRIDE;
     virtual SkScalerContext* onCreateScalerContext(const SkDescriptor*) const SK_OVERRIDE;
     virtual void onFilterRec(SkScalerContextRec*) const SK_OVERRIDE;
-    virtual void onGetFontDescriptor(SkFontDescriptor*) const SK_OVERRIDE;
+    virtual void onGetFontDescriptor(SkFontDescriptor*, bool*) const SK_OVERRIDE;
     virtual SkAdvancedTypefaceMetrics* onGetAdvancedTypefaceMetrics(
                                 SkAdvancedTypefaceMetrics::PerGlyphInfo,
                                 const uint32_t*, uint32_t) const SK_OVERRIDE;
 
 private:
+
     typedef SkTypeface INHERITED;
 };
 
 static SkTypeface* NewFromFontRef(CTFontRef fontRef, const char name[]) {
     SkASSERT(fontRef);
-    bool isMonospace;
-    SkTypeface::Style style = computeStyleBits(fontRef, &isMonospace);
+    bool isFixedPitch;
+    SkTypeface::Style style = computeStyleBits(fontRef, &isFixedPitch);
     SkFontID fontID = CTFontRef_to_SkFontID(fontRef);
 
-    return new SkTypeface_Mac(style, fontID, isMonospace, fontRef, name);
+    return new SkTypeface_Mac(style, fontID, isFixedPitch, fontRef, name);
 }
 
 static SkTypeface* NewFromName(const char familyName[], SkTypeface::Style theStyle) {
@@ -448,8 +502,7 @@ static SkTypeface* NewFromName(const char familyName[], SkTypeface::Style theSty
     }
 
     // Create the font info
-    AutoCFRelease<CFStringRef> cfFontName(
-            CFStringCreateWithCString(NULL, familyName, kCFStringEncodingUTF8));
+    AutoCFRelease<CFStringRef> cfFontName(make_CFString(familyName));
 
     AutoCFRelease<CFNumberRef> cfFontTraits(
             CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &ctFontTraits));
@@ -1682,43 +1735,6 @@ SkStream* SkTypeface_Mac::onOpenStream(int* ttcIndex) const {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
-#include "SkStream.h"
-
-void SkFontHost::Serialize(const SkTypeface* face, SkWStream* stream) {
-    SkFontDescriptor desc;
-    face->onGetFontDescriptor(&desc);
-
-    desc.serialize(stream);
-
-    // by convention, we also write out the actual sfnt data, preceeded by
-    // a packed-length. For now we skip that, so we just write the zero.
-    stream->writePackedUInt(0);
-}
-
-SkTypeface* SkFontHost::Deserialize(SkStream* stream) {
-    SkFontDescriptor desc(stream);
-
-    // by convention, Serialize will have also written the actual sfnt data.
-    // for now, we just want to skip it.
-    size_t size = stream->readPackedUInt();
-    stream->skip(size);
-
-    return SkFontHost::CreateTypeface(NULL, desc.getFamilyName(), desc.getStyle());
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-// DEPRECATED
-SkTypeface* SkFontHost::NextLogicalTypeface(SkFontID currFontID, SkFontID origFontID) {
-    SkTypeface* face = GetDefaultFace();
-    if (face->uniqueID() == currFontID) {
-        face = NULL;
-    }
-    return SkSafeRef(face);
-}
-
-///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 int SkTypeface_Mac::onGetUPEM() const {
@@ -1847,11 +1863,319 @@ static const char* get_str(CFStringRef ref, SkString* str) {
     return str->c_str();
 }
 
-void SkTypeface_Mac::onGetFontDescriptor(SkFontDescriptor* desc) const {
-    this->INHERITED::onGetFontDescriptor(desc);
+void SkTypeface_Mac::onGetFontDescriptor(SkFontDescriptor* desc,
+                                         bool* isLocalStream) const {
     SkString tmpStr;
 
     desc->setFamilyName(get_str(CTFontCopyFamilyName(fFontRef), &tmpStr));
     desc->setFullName(get_str(CTFontCopyFullName(fFontRef), &tmpStr));
     desc->setPostscriptName(get_str(CTFontCopyPostScriptName(fFontRef), &tmpStr));
+    // TODO: need to add support for local-streams (here and openStream)
+    *isLocalStream = false;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+#if 1
+
+static bool find_desc_str(CTFontDescriptorRef desc, CFStringRef name, SkString* value) {
+    AutoCFRelease<CFStringRef> ref((CFStringRef)CTFontDescriptorCopyAttribute(desc, name));
+    if (NULL == ref.get()) {
+        return false;
+    }
+    CFStringToSkString(ref, value);
+    return true;
+}
+
+static bool find_dict_float(CFDictionaryRef dict, CFStringRef name, float* value) {
+    CFNumberRef num;
+    return CFDictionaryGetValueIfPresent(dict, name, (const void**)&num)
+    && CFNumberIsFloatType(num)
+    && CFNumberGetValue(num, kCFNumberFloatType, value);
+}
+
+#include "SkFontMgr.h"
+
+static int unit_weight_to_fontstyle(float unit) {
+    float value;
+    if (unit < 0) {
+        value = 100 + (1 + unit) * 300;
+    } else {
+        value = 400 + unit * 500;
+    }
+    return sk_float_round2int(value);
+}
+
+static int unit_width_to_fontstyle(float unit) {
+    float value;
+    if (unit < 0) {
+        value = 1 + (1 + unit) * 4;
+    } else {
+        value = 5 + unit * 4;
+    }
+    return sk_float_round2int(value);
+}
+
+static inline int sqr(int value) {
+    SkASSERT(SkAbs32(value) < 0x7FFF);  // check for overflow
+    return value * value;
+}
+
+// We normalize each axis (weight, width, italic) to be base-900
+static int compute_metric(const SkFontStyle& a, const SkFontStyle& b) {
+    return sqr(a.weight() - b.weight()) +
+           sqr((a.width() - b.width()) * 100) +
+           sqr((a.isItalic() != b.isItalic()) * 900);
+}
+
+static SkFontStyle desc2fontstyle(CTFontDescriptorRef desc) {
+    AutoCFRelease<CFDictionaryRef> dict(
+        (CFDictionaryRef)CTFontDescriptorCopyAttribute(desc,
+                                                       kCTFontTraitsAttribute));
+    if (NULL == dict.get()) {
+        return SkFontStyle();
+    }
+
+    float weight, width, slant;
+    if (!find_dict_float(dict, kCTFontWeightTrait, &weight)) {
+        weight = 0;
+    }
+    if (!find_dict_float(dict, kCTFontWidthTrait, &width)) {
+        width = 0;
+    }
+    if (!find_dict_float(dict, kCTFontSlantTrait, &slant)) {
+        slant = 0;
+    }
+
+    return SkFontStyle(unit_weight_to_fontstyle(weight),
+                       unit_width_to_fontstyle(width),
+                       slant ? SkFontStyle::kItalic_Slant
+                       : SkFontStyle::kUpright_Slant);
+}
+
+struct NameFontStyleRec {
+    SkString    fFamilyName;
+    SkFontStyle fFontStyle;
+};
+
+static bool nameFontStyleProc(SkTypeface* face, SkTypeface::Style,
+                              void* ctx) {
+    SkTypeface_Mac* macFace = (SkTypeface_Mac*)face;
+    const NameFontStyleRec* rec = (const NameFontStyleRec*)ctx;
+
+    return macFace->fFontStyle == rec->fFontStyle &&
+           macFace->fName == rec->fFamilyName;
+}
+
+static SkTypeface* createFromDesc(CFStringRef cfFamilyName,
+                                  CTFontDescriptorRef desc) {
+    NameFontStyleRec rec;
+    CFStringToSkString(cfFamilyName, &rec.fFamilyName);
+    rec.fFontStyle = desc2fontstyle(desc);
+
+    SkTypeface* face = SkTypefaceCache::FindByProcAndRef(nameFontStyleProc,
+                                                         &rec);
+    if (face) {
+        return face;
+    }
+
+    AutoCFRelease<CTFontRef> ctNamed(CTFontCreateWithName(cfFamilyName, 1, NULL));
+    CTFontRef ctFont = CTFontCreateCopyWithAttributes(ctNamed, 1, NULL, desc);
+    if (NULL == ctFont) {
+        return NULL;
+    }
+
+    SkString str;
+    CFStringToSkString(cfFamilyName, &str);
+
+    bool isFixedPitch;
+    (void)computeStyleBits(ctFont, &isFixedPitch);
+    SkFontID fontID = CTFontRef_to_SkFontID(ctFont);
+
+    face = SkNEW_ARGS(SkTypeface_Mac, (rec.fFontStyle, fontID, isFixedPitch,
+                                       ctFont, str.c_str()));
+    SkTypefaceCache::Add(face, face->style());
+    return face;
+}
+
+class SkFontStyleSet_Mac : public SkFontStyleSet {
+public:
+    SkFontStyleSet_Mac(CFStringRef familyName, CTFontDescriptorRef desc)
+        : fArray(CTFontDescriptorCreateMatchingFontDescriptors(desc, NULL))
+        , fFamilyName(familyName)
+        , fCount(0) {
+        CFRetain(familyName);
+        if (NULL == fArray) {
+            fArray = CFArrayCreate(NULL, NULL, 0, NULL);
+        }
+        fCount = CFArrayGetCount(fArray);
+    }
+
+    virtual ~SkFontStyleSet_Mac() {
+        CFRelease(fArray);
+        CFRelease(fFamilyName);
+    }
+
+    virtual int count() SK_OVERRIDE {
+        return fCount;
+    }
+
+    virtual void getStyle(int index, SkFontStyle* style,
+                          SkString* name) SK_OVERRIDE {
+        SkASSERT((unsigned)index < (unsigned)fCount);
+        CTFontDescriptorRef desc = (CTFontDescriptorRef)CFArrayGetValueAtIndex(fArray, index);
+        if (style) {
+            *style = desc2fontstyle(desc);
+        }
+        if (name) {
+            if (!find_desc_str(desc, kCTFontStyleNameAttribute, name)) {
+                name->reset();
+            }
+        }
+    }
+
+    virtual SkTypeface* createTypeface(int index) SK_OVERRIDE {
+        SkASSERT((unsigned)index < (unsigned)CFArrayGetCount(fArray));
+        CTFontDescriptorRef desc = (CTFontDescriptorRef)CFArrayGetValueAtIndex(fArray, index);
+
+        return createFromDesc(fFamilyName, desc);
+    }
+
+    virtual SkTypeface* matchStyle(const SkFontStyle& pattern) SK_OVERRIDE {
+        if (0 == fCount) {
+            return NULL;
+        }
+        return createFromDesc(fFamilyName, findMatchingDesc(pattern));
+    }
+
+private:
+    CFArrayRef  fArray;
+    CFStringRef fFamilyName;
+    int         fCount;
+
+    CTFontDescriptorRef findMatchingDesc(const SkFontStyle& pattern) const {
+        int bestMetric = SK_MaxS32;
+        CTFontDescriptorRef bestDesc = NULL;
+
+        for (int i = 0; i < fCount; ++i) {
+            CTFontDescriptorRef desc = (CTFontDescriptorRef)CFArrayGetValueAtIndex(fArray, i);
+            int metric = compute_metric(pattern, desc2fontstyle(desc));
+            if (0 == metric) {
+                return desc;
+            }
+            if (metric < bestMetric) {
+                bestMetric = metric;
+                bestDesc = desc;
+            }
+        }
+        SkASSERT(bestDesc);
+        return bestDesc;
+    }
+};
+
+class SkFontMgr_Mac : public SkFontMgr {
+    int         fCount;
+    CFArrayRef  fNames;
+
+    CFStringRef stringAt(int index) const {
+        SkASSERT((unsigned)index < (unsigned)fCount);
+        return (CFStringRef)CFArrayGetValueAtIndex(fNames, index);
+    }
+
+    void lazyInit() {
+        if (NULL == fNames) {
+            fNames = SkCTFontManagerCopyAvailableFontFamilyNames();
+            fCount = fNames ? CFArrayGetCount(fNames) : 0;
+        }
+    }
+
+    static SkFontStyleSet* CreateSet(CFStringRef cfFamilyName) {
+        AutoCFRelease<CFMutableDictionaryRef> cfAttr(
+                 CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+                                           &kCFTypeDictionaryKeyCallBacks,
+                                           &kCFTypeDictionaryValueCallBacks));
+
+        CFDictionaryAddValue(cfAttr, kCTFontFamilyNameAttribute, cfFamilyName);
+
+        AutoCFRelease<CTFontDescriptorRef> desc(
+                                CTFontDescriptorCreateWithAttributes(cfAttr));
+        return SkNEW_ARGS(SkFontStyleSet_Mac, (cfFamilyName, desc));
+    }
+
+public:
+    SkFontMgr_Mac() : fCount(0), fNames(NULL) {}
+
+    virtual ~SkFontMgr_Mac() {
+        CFSafeRelease(fNames);
+    }
+
+protected:
+    virtual int onCountFamilies() SK_OVERRIDE {
+        this->lazyInit();
+        return fCount;
+    }
+
+    virtual void onGetFamilyName(int index, SkString* familyName) SK_OVERRIDE {
+        this->lazyInit();
+        if ((unsigned)index < (unsigned)fCount) {
+            CFStringToSkString(this->stringAt(index), familyName);
+        } else {
+            familyName->reset();
+        }
+    }
+
+    virtual SkFontStyleSet* onCreateStyleSet(int index) SK_OVERRIDE {
+        this->lazyInit();
+        if ((unsigned)index >= (unsigned)fCount) {
+            return NULL;
+        }
+        return CreateSet(this->stringAt(index));
+    }
+
+    virtual SkFontStyleSet* onMatchFamily(const char familyName[]) SK_OVERRIDE {
+        AutoCFRelease<CFStringRef> cfName(make_CFString(familyName));
+        return CreateSet(cfName);
+    }
+
+    virtual SkTypeface* onMatchFamilyStyle(const char familyName[],
+                                           const SkFontStyle&) SK_OVERRIDE {
+        return NULL;
+    }
+
+    virtual SkTypeface* onMatchFaceStyle(const SkTypeface* familyMember,
+                                         const SkFontStyle&) SK_OVERRIDE {
+        return NULL;
+    }
+
+    virtual SkTypeface* onCreateFromData(SkData* data,
+                                         int ttcIndex) SK_OVERRIDE {
+        AutoCFRelease<CGDataProviderRef> pr(SkCreateDataProviderFromData(data));
+        if (NULL == pr) {
+            return NULL;
+        }
+        return create_from_dataProvider(pr);
+    }
+
+    virtual SkTypeface* onCreateFromStream(SkStream* stream,
+                                           int ttcIndex) SK_OVERRIDE {
+        AutoCFRelease<CGDataProviderRef> pr(SkCreateDataProviderFromStream(stream));
+        if (NULL == pr) {
+            return NULL;
+        }
+        return create_from_dataProvider(pr);
+    }
+
+    virtual SkTypeface* onCreateFromFile(const char path[],
+                                         int ttcIndex) SK_OVERRIDE {
+        AutoCFRelease<CGDataProviderRef> pr(CGDataProviderCreateWithFilename(path));
+        if (NULL == pr) {
+            return NULL;
+        }
+        return create_from_dataProvider(pr);
+    }
+};
+
+SkFontMgr* SkFontMgr::Factory() {
+    return SkNEW(SkFontMgr_Mac);
+}
+#endif
