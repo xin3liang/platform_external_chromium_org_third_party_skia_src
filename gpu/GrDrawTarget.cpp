@@ -435,7 +435,7 @@ bool GrDrawTarget::setupDstReadIfNecessary(DrawInfo* info) {
         //GrPrintf("No dev bounds when dst copy is made.\n");
 #endif
     }
-    
+
     GrDrawTarget::AutoGeometryAndStatePush agasp(this, kReset_ASRInit);
 
     // The draw will resolve dst if it has MSAA. Two things to consider in the future:
@@ -462,12 +462,12 @@ bool GrDrawTarget::setupDstReadIfNecessary(DrawInfo* info) {
     SkMatrix matrix;
     matrix.setIDiv(rt->width(), rt->height());
     this->drawState()->createTextureEffect(kTextureStage, rt->asTexture(), matrix);
-    
+
     SkRect srcRect = SkRect::MakeFromIRect(copyRect);
     SkRect dstRect = SkRect::MakeWH(SkIntToScalar(copyRect.width()),
                                     SkIntToScalar(copyRect.height()));
     this->drawRect(dstRect, NULL, &srcRect, NULL);
-    
+
     info->fDstCopy.setTexture(ast.texture());
     info->fDstCopy.setOffset(copyRect.fLeft, copyRect.fTop);
     return true;
@@ -611,10 +611,10 @@ void GrDrawTarget::drawIndexedInstances(GrPrimitiveType type,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void GrDrawTarget::drawRect(const GrRect& rect,
-                            const SkMatrix* matrix,
-                            const GrRect* localRect,
-                            const SkMatrix* localMatrix) {
+void GrDrawTarget::onDrawRect(const GrRect& rect,
+                              const SkMatrix* matrix,
+                              const GrRect* localRect,
+                              const SkMatrix* localMatrix) {
     // position + (optional) texture coord
     static const GrVertexAttrib kAttribs[] = {
         {kVec2f_GrVertexAttribType, 0,               kPosition_GrVertexAttribBinding},
