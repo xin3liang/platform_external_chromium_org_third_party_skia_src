@@ -671,9 +671,16 @@ void SkGpuDevice::drawRect(const SkDraw& draw, const SkRect& rect,
     if (paint.getMaskFilter() || paint.getPathEffect()) {
         usePath = true;
     }
-    // until we aa rotated rects...
     if (!usePath && paint.isAntiAlias() && !fContext->getMatrix().rectStaysRect()) {
-        usePath = true;
+#ifdef SHADER_AA_FILL_RECT
+        if (doStroke) {
+#endif
+            usePath = true;
+#ifdef SHADER_AA_FILL_RECT
+        } else {
+            usePath = !fContext->getMatrix().preservesRightAngles();
+        }
+#endif
     }
     // small miter limit means right angles show bevel...
     if (SkPaint::kMiter_Join == paint.getStrokeJoin() &&
@@ -1404,26 +1411,6 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
     fContext->drawRectToRect(*grPaint, dstRect, paintRect, &m);
 }
 
-namespace {
-
-void apply_effect(GrContext* context,
-                  GrTexture* srcTexture,
-                  GrTexture* dstTexture,
-                  const GrRect& rect,
-                  GrEffectRef* effect) {
-    SkASSERT(srcTexture && srcTexture->getContext() == context);
-    GrContext::AutoMatrix am;
-    am.setIdentity(context);
-    GrContext::AutoRenderTarget art(context, dstTexture->asRenderTarget());
-    GrContext::AutoClip acs(context, rect);
-
-    GrPaint paint;
-    paint.colorStage(0)->setEffect(effect);
-    context->drawRect(paint, rect);
-}
-
-};
-
 static SkBitmap wrap_texture(GrTexture* texture) {
     SkBitmap result;
     bool dummy;
@@ -1439,26 +1426,11 @@ static bool filter_texture(SkDevice* device, GrContext* context,
     GrAssert(filter);
     SkDeviceImageFilterProxy proxy(device);
 
-    GrTextureDesc desc;
-    desc.fFlags = kRenderTarget_GrTextureFlagBit,
-    desc.fWidth = w;
-    desc.fHeight = h;
-    desc.fConfig = kRGBA_8888_GrPixelConfig;
-    GrEffectRef* effect;
-
     if (filter->canFilterImageGPU()) {
         // Save the render target and set it to NULL, so we don't accidentally draw to it in the
         // filter.  Also set the clip wide open and the matrix to identity.
         GrContext::AutoWideOpenIdentityDraw awo(context, NULL);
         return filter->filterImageGPU(&proxy, wrap_texture(texture), result);
-    } else if (filter->asNewEffect(&effect, texture)) {
-        GrAutoScratchTexture dst(context, desc);
-        SkRect r = SkRect::MakeWH(SkIntToScalar(w), SkIntToScalar(h));
-        apply_effect(context, texture, dst.texture(), r, effect);
-        SkAutoTUnref<GrTexture> resultTex(dst.detach());
-        effect->unref();
-        *result = wrap_texture(resultTex.get());
-        return true;
     } else {
         return false;
     }
@@ -1594,11 +1566,7 @@ void SkGpuDevice::drawDevice(const SkDraw& draw, SkDevice* device,
 }
 
 bool SkGpuDevice::canHandleImageFilter(SkImageFilter* filter) {
-    if (!filter->asNewEffect(NULL, NULL) &&
-        !filter->canFilterImageGPU()) {
-        return false;
-    }
-    return true;
+    return filter->canFilterImageGPU();
 }
 
 bool SkGpuDevice::filterImage(SkImageFilter* filter, const SkBitmap& src,

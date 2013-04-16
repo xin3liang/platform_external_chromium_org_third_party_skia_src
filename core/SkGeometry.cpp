@@ -1380,3 +1380,107 @@ int SkBuildQuadArc(const SkVector& uStart, const SkVector& uStop,
     matrix.mapPoints(quadPoints, pointCount);
     return pointCount;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+static SkScalar eval_ratquad(const SkScalar src[], SkScalar w, SkScalar t) {
+    SkASSERT(src);
+    SkASSERT(t >= 0 && t <= SK_Scalar1);
+
+    SkScalar    src2w = SkScalarMul(src[2], w);
+    SkScalar    C = src[0];
+    SkScalar    A = src[4] - 2 * src2w + C;
+    SkScalar    B = 2 * (src2w - C);
+    SkScalar numer = SkScalarMulAdd(SkScalarMulAdd(A, t, B), t, C);
+
+    B = 2 * (w - SK_Scalar1);
+    C = SK_Scalar1;
+    A = -B;
+    SkScalar denom = SkScalarMulAdd(SkScalarMulAdd(A, t, B), t, C);
+
+    return SkScalarDiv(numer, denom);
+}
+
+struct SkP3D {
+    SkScalar fX, fY, fZ;
+
+    void set(SkScalar x, SkScalar y, SkScalar z) {
+        fX = x; fY = y; fZ = z;
+    }
+
+    void projectDown(SkPoint* dst) const {
+        dst->set(fX / fZ, fY / fZ);
+    }
+};
+
+// we just return the middle 3 points, since the first and last are dups of src
+//
+static void p3d_interp(const SkScalar src[3], SkScalar dst[3], SkScalar t) {
+    SkScalar ab = SkScalarInterp(src[0], src[3], t);
+    SkScalar bc = SkScalarInterp(src[3], src[6], t);
+    dst[0] = ab;
+    dst[3] = SkScalarInterp(ab, bc, t);
+    dst[6] = bc;
+}
+
+static void ratquad_mapTo3D(const SkPoint src[3], SkScalar w, SkP3D dst[]) {
+    dst[0].set(src[0].fX * 1, src[0].fY * 1, 1);
+    dst[1].set(src[1].fX * w, src[1].fY * w, w);
+    dst[2].set(src[2].fX * 1, src[2].fY * 1, 1);
+}
+
+void SkRationalQuad::evalAt(SkScalar t, SkPoint* pt) const {
+    SkASSERT(t >= 0 && t <= SK_Scalar1);
+
+    if (pt) {
+        pt->set(eval_ratquad(&fPts[0].fX, fW, t),
+                eval_ratquad(&fPts[0].fY, fW, t));
+    }
+}
+
+void SkRationalQuad::chopAt(SkScalar t, SkRationalQuad dst[2]) const {
+    SkP3D tmp[3], tmp2[3];
+
+    ratquad_mapTo3D(fPts, fW, tmp);
+
+    p3d_interp(&tmp[0].fX, &tmp2[0].fX, t);
+    p3d_interp(&tmp[0].fY, &tmp2[0].fY, t);
+    p3d_interp(&tmp[0].fZ, &tmp2[0].fZ, t);
+
+    dst[0].fPts[0] = fPts[0];
+    tmp2[0].projectDown(&dst[0].fPts[1]);
+    tmp2[1].projectDown(&dst[0].fPts[2]); dst[1].fPts[0] = dst[0].fPts[2];
+    tmp2[2].projectDown(&dst[1].fPts[1]);
+    dst[1].fPts[2] = fPts[2];
+
+    // to put in "standard form", where w0 and w2 are both 1, we compute the
+    // new w1 as sqrt(w1*w1/w0*w2)
+    // or
+    // w1 /= sqrt(w0*w2)
+    //
+    // However, in our case, we know that for dst[0], w0 == 1, and for dst[1], w2 == 1
+    //
+    SkScalar root = SkScalarSqrt(tmp2[1].fZ);
+    dst[0].fW = tmp2[0].fZ / root;
+    dst[1].fW = tmp2[2].fZ / root;
+}
+
+void SkRationalQuad::chop(SkRationalQuad dst[2]) const {
+    SkScalar scale = SkScalarInvert(SK_Scalar1 + fW);
+    SkScalar p1x = fW * fPts[1].fX;
+    SkScalar p1y = fW * fPts[1].fY;
+    SkScalar mx = (fPts[0].fX + 2 * p1x + fPts[2].fX) * scale * SK_ScalarHalf;
+    SkScalar my = (fPts[0].fY + 2 * p1y + fPts[2].fY) * scale * SK_ScalarHalf;
+
+    dst[0].fPts[0] = fPts[0];
+    dst[0].fPts[1].set((fPts[0].fX + p1x) * scale,
+                       (fPts[0].fY + p1y) * scale);
+    dst[0].fPts[2].set(mx, my);
+
+    dst[1].fPts[0].set(mx, my);
+    dst[1].fPts[1].set((p1x + fPts[2].fX) * scale,
+                       (p1y + fPts[2].fY) * scale);
+    dst[1].fPts[2] = fPts[2];
+
+    dst[0].fW = dst[1].fW = SkScalarSqrt((1 + fW) * SK_ScalarHalf);
+}

@@ -373,7 +373,6 @@ GrTexture* GrContext::createResizedTexture(const GrTextureDesc& desc,
             verts[1].setIRectFan(0, 0, 1, 1, 2 * sizeof(GrPoint));
             fGpu->drawNonIndexed(kTriangleFan_GrPrimitiveType, 0, 4);
         }
-        texture->releaseRenderTarget();
     } else {
         // TODO: Our CPU stretch doesn't filter. But we create separate
         // stretched textures when the texture params is either filtered or
@@ -682,7 +681,7 @@ static bool isIRect(const GrRect& r) {
 
 static bool apply_aa_to_rect(GrDrawTarget* target,
                              const GrRect& rect,
-                             SkScalar width,
+                             SkScalar strokeWidth,
                              const SkMatrix* matrix,
                              SkMatrix* combinedMatrix,
                              GrRect* devRect,
@@ -711,29 +710,54 @@ static bool apply_aa_to_rect(GrDrawTarget* target,
         return false;
     }
 
-    if (0 == width && target->willUseHWAALines()) {
+    if (0 == strokeWidth && target->willUseHWAALines()) {
         return false;
     }
 
-    if (!drawState.getViewMatrix().preservesAxisAlignment()) {
-        return false;
-    }
+#ifdef SHADER_AA_FILL_RECT
+    if (strokeWidth >= 0) {
+#endif
+        if (!drawState.getViewMatrix().preservesAxisAlignment()) {
+            return false;
+        }
 
-    if (NULL != matrix &&
-        !matrix->preservesAxisAlignment()) {
-        return false;
+        if (NULL != matrix && !matrix->preservesAxisAlignment()) {
+            return false;
+        }
+#ifdef SHADER_AA_FILL_RECT
+    } else {
+        if (!drawState.getViewMatrix().preservesAxisAlignment() &&
+            !drawState.getViewMatrix().preservesRightAngles()) {
+            return false;
+        }
+
+        if (NULL != matrix && !matrix->preservesRightAngles()) {
+            return false;
+        }
     }
+#endif
 
     *combinedMatrix = drawState.getViewMatrix();
     if (NULL != matrix) {
         combinedMatrix->preConcat(*matrix);
-        GrAssert(combinedMatrix->preservesAxisAlignment());
+
+#if GR_DEBUG
+#ifdef SHADER_AA_FILL_RECT
+        if (strokeWidth >= 0) {
+#endif
+            GrAssert(combinedMatrix->preservesAxisAlignment());
+#ifdef SHADER_AA_FILL_RECT
+        } else {
+            GrAssert(combinedMatrix->preservesRightAngles());
+        }
+#endif
+#endif
     }
 
     combinedMatrix->mapRect(devRect, rect);
     devRect->sort();
 
-    if (width < 0) {
+    if (strokeWidth < 0) {
         return !isIRect(*devRect);
     } else {
         return true;
@@ -757,7 +781,6 @@ void GrContext::drawRect(const GrPaint& paint,
     bool doAA = needAA && apply_aa_to_rect(target, rect, width, matrix,
                                            &combinedMatrix, &devRect,
                                            &useVertexCoverage);
-
     if (doAA) {
         GrDrawState::AutoDeviceCoordDraw adcd(target->drawState());
         if (!adcd.succeeded()) {
@@ -773,10 +796,17 @@ void GrContext::drawRect(const GrPaint& paint,
                 strokeSize.set(SK_Scalar1, SK_Scalar1);
             }
             fAARectRenderer->strokeAARect(this->getGpu(), target, devRect,
-                                         strokeSize, useVertexCoverage);
+                                          strokeSize, useVertexCoverage);
         } else {
+            // filled AA rect
+#ifdef SHADER_AA_FILL_RECT
+            fAARectRenderer->shaderFillAARect(this->getGpu(), target,
+                                              rect, combinedMatrix, devRect,
+                                              useVertexCoverage);
+#else
             fAARectRenderer->fillAARect(this->getGpu(), target,
-                                       devRect, useVertexCoverage);
+                                        devRect, useVertexCoverage);
+#endif
         }
         return;
     }
@@ -822,6 +852,7 @@ void GrContext::drawRect(const GrPaint& paint,
 
         target->drawNonIndexed(primType, 0, vertCount);
     } else {
+        // filled BW rect
 #if GR_STATIC_RECT_VB
             const GrVertexBuffer* sqVB = fGpu->getUnitSquareVertexBuffer();
             if (NULL == sqVB) {
