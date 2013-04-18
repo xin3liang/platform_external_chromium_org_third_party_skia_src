@@ -13,12 +13,6 @@ SK_DEFINE_INST_COUNT(SkSurface)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void SkSurface_Base::installIntoCanvasForDirtyNotification() {
-    if (fCachedCanvas) {
-        fCachedCanvas->setSurfaceBase(this);
-    }
-}
-
 SkSurface_Base::SkSurface_Base(int width, int height) : INHERITED(width, height) {
     fCachedCanvas = NULL;
     fCachedImage = NULL;
@@ -43,37 +37,21 @@ void SkSurface_Base::onDraw(SkCanvas* canvas, SkScalar x, SkScalar y,
     }
 }
 
-SkCanvas* SkSurface_Base::getCachedCanvas() {
-    if (NULL == fCachedCanvas) {
-        fCachedCanvas = this->onNewCanvas();
-        this->installIntoCanvasForDirtyNotification();
-    }
-    return fCachedCanvas;
-}
-
-SkImage* SkSurface_Base::getCachedImage() {
-    if (NULL == fCachedImage) {
-        fCachedImage = this->onNewImageSnapshot();
-        this->installIntoCanvasForDirtyNotification();
-    }
-    return fCachedImage;
-}
-
-void SkSurface_Base::aboutToDraw(SkCanvas* canvas) {
+void SkSurface_Base::aboutToDraw() {
     this->dirtyGenerationID();
 
-    if (canvas) {
-        SkASSERT(canvas == fCachedCanvas);
-        SkASSERT(canvas->getSurfaceBase() == this);
-        canvas->setSurfaceBase(NULL);
+    if (NULL != fCachedCanvas) {
+        SkASSERT(fCachedCanvas->getSurfaceBase() == this || \
+                 NULL == fCachedCanvas->getSurfaceBase());
+        fCachedCanvas->setSurfaceBase(NULL);
     }
 
-    if (fCachedImage) {
+    if (NULL != fCachedImage) {
         // the surface may need to fork its backend, if its sharing it with
         // the cached image. Note: we only call if there is an outstanding owner
         // on the image (besides us).
         if (fCachedImage->getRefCnt() > 1) {
-            this->onCopyOnWrite(fCachedImage, canvas);
+            this->onCopyOnWrite();
         }
 
         // regardless of copy-on-write, we must drop our cached image now, so
@@ -110,7 +88,7 @@ uint32_t SkSurface::generationID() {
 }
 
 void SkSurface::notifyContentChanged() {
-    asSB(this)->aboutToDraw(NULL);
+    asSB(this)->aboutToDraw();
 }
 
 SkCanvas* SkSurface::getCanvas() {

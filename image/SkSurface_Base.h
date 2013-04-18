@@ -9,6 +9,7 @@
 #define SkSurface_Base_DEFINED
 
 #include "SkSurface.h"
+#include "SkCanvas.h"
 
 class SkSurface_Base : public SkSurface {
 public:
@@ -51,7 +52,7 @@ public:
      *
      *  The default implementation does nothing.
      */
-    virtual void onCopyOnWrite(SkImage* cachedImage, SkCanvas*) = 0;
+    virtual void onCopyOnWrite() = 0;
 
     inline SkCanvas* getCachedCanvas();
     inline SkImage* getCachedImage();
@@ -63,7 +64,7 @@ private:
     SkCanvas*   fCachedCanvas;
     SkImage*    fCachedImage;
 
-    void aboutToDraw(SkCanvas*);
+    void aboutToDraw();
     friend class SkCanvas;
     friend class SkSurface;
 
@@ -71,5 +72,27 @@ private:
 
     typedef SkSurface INHERITED;
 };
+
+SkCanvas* SkSurface_Base::getCachedCanvas() {
+    if (NULL == fCachedCanvas) {
+        fCachedCanvas = this->onNewCanvas();
+        this->installIntoCanvasForDirtyNotification();
+    }
+    return fCachedCanvas;
+}
+
+SkImage* SkSurface_Base::getCachedImage() {
+    if (NULL == fCachedImage) {
+        fCachedImage = this->onNewImageSnapshot();
+        this->installIntoCanvasForDirtyNotification();
+    }
+    return fCachedImage;
+}
+
+void SkSurface_Base::installIntoCanvasForDirtyNotification() {
+    if (NULL != fCachedCanvas) {
+        fCachedCanvas->setSurfaceBase(this);
+    }
+}
 
 #endif
