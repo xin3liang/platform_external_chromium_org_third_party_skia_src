@@ -322,6 +322,16 @@ static void stretchImage(void* dst,
     }
 }
 
+namespace {
+
+// position + local coordinate
+extern const GrVertexAttrib gVertexAttribs[] = {
+    {kVec2f_GrVertexAttribType, 0,               kPosition_GrVertexAttribBinding},
+    {kVec2f_GrVertexAttribType, sizeof(GrPoint), kLocalCoord_GrVertexAttribBinding}
+};
+
+};
+
 // The desired texture is NPOT and tiled but that isn't supported by
 // the current hardware. Resize the texture to be a POT
 GrTexture* GrContext::createResizedTexture(const GrTextureDesc& desc,
@@ -358,12 +368,7 @@ GrTexture* GrContext::createResizedTexture(const GrTextureDesc& desc,
         GrTextureParams params(SkShader::kClamp_TileMode, needsFiltering);
         drawState->createTextureEffect(0, clampedTexture, SkMatrix::I(), params);
 
-        // position + local coordinate
-        static const GrVertexAttrib kVertexAttribs[] = {
-            {kVec2f_GrVertexAttribType, 0,               kPosition_GrVertexAttribBinding},
-            {kVec2f_GrVertexAttribType, sizeof(GrPoint), kLocalCoord_GrVertexAttribBinding}
-        };
-        drawState->setVertexAttribs(kVertexAttribs, SK_ARRAY_COUNT(kVertexAttribs));
+        drawState->setVertexAttribs<gVertexAttribs>(SK_ARRAY_COUNT(gVertexAttribs));
 
         GrDrawTarget::AutoReleaseGeometry arg(fGpu, 4, 0);
 
@@ -853,30 +858,7 @@ void GrContext::drawRect(const GrPaint& paint,
         target->drawNonIndexed(primType, 0, vertCount);
     } else {
         // filled BW rect
-#if GR_STATIC_RECT_VB
-            const GrVertexBuffer* sqVB = fGpu->getUnitSquareVertexBuffer();
-            if (NULL == sqVB) {
-                GrPrintf("Failed to create static rect vb.\n");
-                return;
-            }
-
-            GrDrawState* drawState = target->drawState();
-            target->drawState()->setDefaultVertexAttribs();
-            target->setVertexSourceToBuffer(sqVB);
-            SkMatrix m;
-            m.setAll(rect.width(),    0,             rect.fLeft,
-                        0,            rect.height(), rect.fTop,
-                        0,            0,             SkMatrix::I()[8]);
-
-            if (NULL != matrix) {
-                m.postConcat(*matrix);
-            }
-            GrDrawState::AutoViewMatrixRestore avmr(drawState, m);
-
-            target->drawNonIndexed(kTriangleFan_GrPrimitiveType, 0, 4);
-#else
-            target->drawSimpleRect(rect, matrix);
-#endif
+        target->drawSimpleRect(rect, matrix);
     }
 }
 
@@ -890,47 +872,46 @@ void GrContext::drawRectToRect(const GrPaint& paint,
     GrDrawTarget* target = this->prepareToDraw(&paint, BUFFERED_DRAW);
     GrDrawState::AutoStageDisable atr(fDrawState);
 
-#if GR_STATIC_RECT_VB
-    GrDrawState* drawState = target->drawState();
-
-    SkMatrix m;
-
-    m.setAll(dstRect.width(), 0,                dstRect.fLeft,
-             0,               dstRect.height(), dstRect.fTop,
-             0,               0,                SkMatrix::I()[8]);
-    if (NULL != dstMatrix) {
-        m.postConcat(*dstMatrix);
-    }
-
-    // This code path plays a little fast and loose with the notion of local coords and coord
-    // change matrices in order to account for localRect and localMatrix. The unit square VB only
-    // has one set of coords. Rather than using AutoViewMatrixRestore we instead directly set concat
-    // with m and then call GrDrawState::localCoordChange() with a matrix that accounts for
-    // localRect and localMatrix. This code path is preventing some encapsulation in GrDrawState.
-    SkMatrix savedViewMatrix = drawState->getViewMatrix();
-    drawState->preConcatViewMatrix(m);
-
-    m.setAll(localRect.width(), 0,                localRect.fLeft,
-             0,               localRect.height(), localRect.fTop,
-             0,               0,                  SkMatrix::I()[8]);
-    if (NULL != localMatrix) {
-        m.postConcat(*localMatrix);
-    }
-    drawState->localCoordChange(m);
-
-    const GrVertexBuffer* sqVB = fGpu->getUnitSquareVertexBuffer();
-    if (NULL == sqVB) {
-        GrPrintf("Failed to create static rect vb.\n");
-        return;
-    }
-    drawState->setDefaultVertexAttribs();
-    target->setVertexSourceToBuffer(sqVB);
-    target->drawNonIndexed(kTriangleFan_GrPrimitiveType, 0, 4);
-    drawState->setViewMatrix(savedViewMatrix);
-#else
     target->drawRect(dstRect, dstMatrix, &localRect, localMatrix);
-#endif
 }
+
+namespace {
+
+extern const GrVertexAttrib gPosUVColorAttribs[] = {
+    {kVec2f_GrVertexAttribType,  0, kPosition_GrVertexAttribBinding },
+    {kVec2f_GrVertexAttribType,  sizeof(GrPoint), kLocalCoord_GrVertexAttribBinding },
+    {kVec4ub_GrVertexAttribType, 2*sizeof(GrPoint), kColor_GrVertexAttribBinding} 
+};
+
+extern const GrVertexAttrib gPosColorAttribs[] = {
+    {kVec2f_GrVertexAttribType,  0, kPosition_GrVertexAttribBinding},
+    {kVec4ub_GrVertexAttribType, sizeof(GrPoint), kColor_GrVertexAttribBinding},
+};
+
+static void set_vertex_attributes(GrDrawState* drawState,
+                                  const GrPoint* texCoords,
+                                  const GrColor* colors,
+                                  int* colorOffset,
+                                  int* texOffset) {
+    *texOffset = -1;
+    *colorOffset = -1;
+
+    if (NULL != texCoords && NULL != colors) {
+        *texOffset = sizeof(GrPoint);
+        *colorOffset = 2*sizeof(GrPoint);
+        drawState->setVertexAttribs<gPosUVColorAttribs>(3);
+    } else if (NULL != texCoords) {
+        *texOffset = sizeof(GrPoint);
+        drawState->setVertexAttribs<gPosUVColorAttribs>(2);
+    } else if (NULL != colors) {
+        *colorOffset = sizeof(GrPoint);
+        drawState->setVertexAttribs<gPosColorAttribs>(2);
+    } else {
+        drawState->setVertexAttribs<gPosColorAttribs>(1);
+    }
+}
+
+};
 
 void GrContext::drawVertices(const GrPaint& paint,
                              GrPrimitiveType primitiveType,
@@ -949,36 +930,10 @@ void GrContext::drawVertices(const GrPaint& paint,
 
     GrDrawState* drawState = target->drawState();
 
-    GrVertexAttribArray<3> attribs;
-    size_t currentOffset = 0;
     int colorOffset = -1, texOffset = -1;
-
-    // set position attribute
-    GrVertexAttrib currAttrib =
-        {kVec2f_GrVertexAttribType, currentOffset, kPosition_GrVertexAttribBinding};
-    attribs.push_back(currAttrib);
-    currentOffset += sizeof(GrPoint);
-
-    // set up optional texture coordinate attributes
-    if (NULL != texCoords) {
-        currAttrib.set(kVec2f_GrVertexAttribType, currentOffset, kLocalCoord_GrVertexAttribBinding);
-        attribs.push_back(currAttrib);
-        texOffset = currentOffset;
-        currentOffset += sizeof(GrPoint);
-    }
-
-    // set up optional color attributes
-    if (NULL != colors) {
-        currAttrib.set(kVec4ub_GrVertexAttribType, currentOffset, kColor_GrVertexAttribBinding);
-        attribs.push_back(currAttrib);
-        colorOffset = currentOffset;
-        currentOffset += sizeof(GrColor);
-    }
-
-    drawState->setVertexAttribs(attribs.begin(), attribs.count());
+    set_vertex_attributes(drawState, texCoords, colors, &colorOffset, &texOffset);
 
     size_t vertexSize = drawState->getVertexSize();
-    GrAssert(vertexSize == currentOffset);
     if (sizeof(GrPoint) != vertexSize) {
         if (!geo.set(target, vertexCount, 0)) {
             GrPrintf("Failed to get space for vertices!\n");
