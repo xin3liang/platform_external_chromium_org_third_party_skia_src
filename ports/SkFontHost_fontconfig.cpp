@@ -43,7 +43,7 @@ static SkFontConfigInterface* RefFCI() {
             return fci;
         }
         fci = SkFontConfigInterface::GetSingletonDirectInterface();
-        SkFontConfigInterface::SetGlobal(fci)->unref();
+        SkFontConfigInterface::SetGlobal(fci);
     }
 }
 
@@ -237,6 +237,7 @@ static bool is_lower(char c) {
 
 #include "SkFontMgr.h"
 #include <fontconfig/fontconfig.h>
+#include <unistd.h>
 
 static int get_int(FcPattern* pattern, const char field[]) {
     int value;
