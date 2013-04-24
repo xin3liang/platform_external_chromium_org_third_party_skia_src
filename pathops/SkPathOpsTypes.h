@@ -15,28 +15,13 @@
 #include "SkPathOpsDebug.h"
 #include "SkScalar.h"
 
-// FIXME: move these into SkTypes.h
-template <typename T> inline T SkTMax(T a, T b) {
-    if (a < b)
-        a = b;
-    return a;
-}
-
-template <typename T> inline T SkTMin(T a, T b) {
-    if (a > b)
-        a = b;
-    return a;
-}
-
-// FIXME: move this into SkFloatingPoint.h
-#define sk_double_isnan(a) sk_float_isnan(a)
-
 enum SkPathOpsMask {
     kWinding_PathOpsMask = -1,
     kNo_PathOpsMask = 0,
     kEvenOdd_PathOpsMask = 1
 };
 
+// Use Almost Equal when comparing coordinates. Use epsilon to compare T values.
 extern bool AlmostEqualUlps(float A, float B);
 inline bool AlmostEqualUlps(double A, double B) {
     return AlmostEqualUlps(SkDoubleToScalar(A), SkDoubleToScalar(B));
