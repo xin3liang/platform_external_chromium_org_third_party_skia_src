@@ -10,10 +10,16 @@
 
 #include "GrContext.h"
 #include "GrDrawState.h"
+#include "GrDrawTargetCaps.h"
+#include "GrEffect.h"
 #include "GrPathUtils.h"
+#include "GrTBackendEffectFactory.h"
 #include "SkString.h"
 #include "SkStrokeRec.h"
 #include "SkTrace.h"
+
+#include "gl/GrGLEffect.h"
+#include "gl/GrGLSL.h"
 
 GrAAConvexPathRenderer::GrAAConvexPathRenderer() {
 }
@@ -428,13 +434,136 @@ void create_vertices(const SegmentArray&  segments,
 
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+/*
+ * Quadratic specified by 0=u^2-v canonical coords. u and v are the first
+ * two components of the vertex attribute. Coverage is based on signed
+ * distance with negative being inside, positive outside. The edge is specified in
+ * window space (y-down). If either the third or fourth component of the interpolated
+ * vertex coord is > 0 then the pixel is considered outside the edge. This is used to
+ * attempt to trim to a portion of the infinite quad.
+ * Requires shader derivative instruction support.
+ */
+
+class QuadEdgeEffect : public GrEffect {
+public:
+
+    static GrEffectRef* Create() {
+        GR_CREATE_STATIC_EFFECT(gQuadEdgeEffect, QuadEdgeEffect, ());
+        gQuadEdgeEffect->ref();
+        return gQuadEdgeEffect;
+    }
+
+    virtual ~QuadEdgeEffect() {}
+
+    static const char* Name() { return "QuadEdge"; }
+
+    virtual void getConstantColorComponents(GrColor* color,
+                                            uint32_t* validFlags) const SK_OVERRIDE {
+        *validFlags = 0;
+    }
+
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<QuadEdgeEffect>::getInstance();
+    }
+
+    class GLEffect : public GrGLEffect {
+    public:
+        GLEffect(const GrBackendEffectFactory& factory, const GrDrawEffect&)
+            : INHERITED (factory) {}
+
+        virtual void emitCode(GrGLShaderBuilder* builder,
+                              const GrDrawEffect& drawEffect,
+                              EffectKey key,
+                              const char* outputColor,
+                              const char* inputColor,
+                              const TextureSamplerArray& samplers) SK_OVERRIDE {
+            const char *vsName, *fsName;
+            const SkString* attrName =
+                builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+            builder->fsCodeAppendf("\t\tfloat edgeAlpha;\n");
+
+            SkAssertResult(builder->enableFeature(
+                                              GrGLShaderBuilder::kStandardDerivatives_GLSLFeature));
+            builder->addVarying(kVec4f_GrSLType, "QuadEdge", &vsName, &fsName);
+
+            // keep the derivative instructions outside the conditional
+            builder->fsCodeAppendf("\t\tvec2 duvdx = dFdx(%s.xy);\n", fsName);
+            builder->fsCodeAppendf("\t\tvec2 duvdy = dFdy(%s.xy);\n", fsName);
+            builder->fsCodeAppendf("\t\tif (%s.z > 0.0 && %s.w > 0.0) {\n", fsName, fsName);
+            // today we know z and w are in device space. We could use derivatives
+            builder->fsCodeAppendf("\t\t\tedgeAlpha = min(min(%s.z, %s.w) + 0.5, 1.0);\n", fsName,
+                                    fsName);
+            builder->fsCodeAppendf ("\t\t} else {\n");
+            builder->fsCodeAppendf("\t\t\tvec2 gF = vec2(2.0*%s.x*duvdx.x - duvdx.y,\n"
+                                   "\t\t\t               2.0*%s.x*duvdy.x - duvdy.y);\n",
+                                   fsName, fsName);
+            builder->fsCodeAppendf("\t\t\tedgeAlpha = (%s.x*%s.x - %s.y);\n", fsName, fsName,
+                                    fsName);
+            builder->fsCodeAppendf("\t\t\tedgeAlpha = "
+                                   "clamp(0.5 - edgeAlpha / length(gF), 0.0, 1.0);\n\t\t}\n");
+
+            SkString modulate;
+            GrGLSLModulatef<4>(&modulate, inputColor, "edgeAlpha");
+            builder->fsCodeAppendf("\t%s = %s;\n", outputColor, modulate.c_str());
+
+            builder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
+        }
+
+        static inline EffectKey GenKey(const GrDrawEffect& drawEffect, const GrGLCaps&) {
+            return 0x0;
+        }
+
+        virtual void setData(const GrGLUniformManager&, const GrDrawEffect&) SK_OVERRIDE {}
+
+    private:
+        typedef GrGLEffect INHERITED;
+    };
+
+private:
+    QuadEdgeEffect() {
+        this->addVertexAttrib(kVec4f_GrSLType);
+    }
+
+    virtual bool onIsEqual(const GrEffect& other) const SK_OVERRIDE {
+        return true;
+    }
+
+    GR_DECLARE_EFFECT_TEST;
+
+    typedef GrEffect INHERITED;
+};
+
+GR_DEFINE_EFFECT_TEST(QuadEdgeEffect);
+
+GrEffectRef* QuadEdgeEffect::TestCreate(SkMWCRandom* random,
+                                        GrContext*,
+                                        const GrDrawTargetCaps& caps,
+                                        GrTexture*[]) {
+    // Doesn't work without derivative instructions.
+    return caps.shaderDerivativeSupport() ? QuadEdgeEffect::Create() : NULL;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 bool GrAAConvexPathRenderer::canDrawPath(const SkPath& path,
                                          const SkStrokeRec& stroke,
                                          const GrDrawTarget* target,
                                          bool antiAlias) const {
-    return (target->getCaps().shaderDerivativeSupport() && antiAlias &&
+    return (target->caps()->shaderDerivativeSupport() && antiAlias &&
             stroke.isFillStyle() && !path.isInverseFillType() && path.isConvex());
 }
+
+namespace {
+
+// position + edge
+extern const GrVertexAttrib gPathAttribs[] = {
+    {kVec2f_GrVertexAttribType, 0,               kPosition_GrVertexAttribBinding},
+    {kVec4f_GrVertexAttribType, sizeof(GrPoint), kEffect_GrVertexAttribBinding}
+};
+
+};
 
 bool GrAAConvexPathRenderer::onDrawPath(const SkPath& origPath,
                                         const SkStrokeRec&,
@@ -445,6 +574,8 @@ bool GrAAConvexPathRenderer::onDrawPath(const SkPath& origPath,
     if (path->isEmpty()) {
         return true;
     }
+
+    GrDrawTarget::AutoStateRestore asr(target, GrDrawTarget::kPreserve_ASRInit);
     GrDrawState* drawState = target->drawState();
 
     GrDrawState::AutoDeviceCoordDraw adcd(drawState);
@@ -478,17 +609,18 @@ bool GrAAConvexPathRenderer::onDrawPath(const SkPath& origPath,
         return false;
     }
 
-    // position + edge
-    static const GrVertexAttrib kAttribs[] = {
-        {kVec2f_GrVertexAttribType, 0},
-        {kVec4f_GrVertexAttribType, sizeof(GrPoint)}
-    };
-    static const GrAttribBindings bindings = GrDrawState::kEdge_AttribBindingsBit;
+    drawState->setVertexAttribs<gPathAttribs>(SK_ARRAY_COUNT(gPathAttribs));
 
-    drawState->setVertexAttribs(kAttribs, SK_ARRAY_COUNT(kAttribs));
-    drawState->setAttribIndex(GrDrawState::kPosition_AttribIndex, 0);
-    drawState->setAttribIndex(GrDrawState::kEdge_AttribIndex, 1);
-    drawState->setAttribBindings(bindings);
+    enum {
+        // the edge effects share this stage with glyph rendering
+        // (kGlyphMaskStage in GrTextContext) && SW path rendering
+        // (kPathMaskStage in GrSWMaskHelper)
+        kEdgeEffectStage = GrPaint::kTotalStages,
+    };
+    static const int kEdgeAttrIndex = 1;
+    GrEffectRef* quadEffect = QuadEdgeEffect::Create();
+    drawState->setEffect(kEdgeEffectStage, quadEffect, kEdgeAttrIndex)->unref();
+
     GrDrawTarget::AutoReleaseGeometry arg(target, vCount, iCount);
     if (!arg.succeeded()) {
         return false;
@@ -499,14 +631,11 @@ bool GrAAConvexPathRenderer::onDrawPath(const SkPath& origPath,
 
     create_vertices(segments, fanPt, verts, idxs);
 
-    GrDrawState::VertexEdgeType oldEdgeType = drawState->getVertexEdgeType();
-    drawState->setVertexEdgeType(GrDrawState::kQuad_EdgeType);
     target->drawIndexed(kTriangles_GrPrimitiveType,
                         0,        // start vertex
                         0,        // start index
                         vCount,
                         iCount);
-    drawState->setVertexEdgeType(oldEdgeType);
 
     return true;
 }
