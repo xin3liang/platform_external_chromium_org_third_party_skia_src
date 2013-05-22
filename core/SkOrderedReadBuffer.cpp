@@ -88,12 +88,10 @@ int32_t SkOrderedReadBuffer::read32() {
     return fReader.readInt();
 }
 
-char* SkOrderedReadBuffer::readString() {
-    const char* string = fReader.readString();
-    const size_t length = strlen(string);
-    char* value = (char*)sk_malloc_throw(length + 1);
-    strcpy(value, string);
-    return value;
+void SkOrderedReadBuffer::readString(SkString* string) {
+    size_t len;
+    const char* strContents = fReader.readString(&len);
+    string->set(strContents, len);
 }
 
 void* SkOrderedReadBuffer::readEncodedString(size_t* length, SkPaint::TextEncoding encoding) {
@@ -209,7 +207,13 @@ void SkOrderedReadBuffer::readBitmap(SkBitmap* bitmap) {
                 // FIXME: Once the writer is changed to record the (x,y) offset,
                 // they will be used to store the correct portion of the picture.
                 SkBitmap subsetBm;
+#ifdef BUMP_PICTURE_VERSION
+                int32_t x = fReader.readS32();
+                int32_t y = fReader.readS32();
+                SkIRect subset = SkIRect::MakeXYWH(x, y, width, height);
+#else
                 SkIRect subset = SkIRect::MakeWH(width, height);
+#endif
                 if (bitmap->extractSubset(&subsetBm, subset)) {
                     bitmap->swap(subsetBm);
                     return;
