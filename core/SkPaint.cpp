@@ -101,6 +101,10 @@ SkPaint::SkPaint(const SkPaint& src) {
     SkSafeRef(fLooper);
     SkSafeRef(fImageFilter);
     SkSafeRef(fAnnotation);
+
+#ifdef SK_BUILD_FOR_ANDROID
+    new (&fPaintOptionsAndroid) SkPaintOptionsAndroid(src.fPaintOptionsAndroid);
+#endif
 }
 
 SkPaint::~SkPaint() {
@@ -915,12 +919,12 @@ class SkAutoRestorePaintTextSizeAndFrame {
 public:
     SkAutoRestorePaintTextSizeAndFrame(const SkPaint* paint)
             : fPaint((SkPaint*)paint) {
-        fTextSize = paint->getTextSize();
-        fStyle = paint->getStyle();
-        fPaint->setStyle(SkPaint::kFill_Style);
 #ifdef SK_BUILD_FOR_ANDROID
         fGenerationID = fPaint->getGenerationID();
 #endif
+        fTextSize = paint->getTextSize();
+        fStyle = paint->getStyle();
+        fPaint->setStyle(SkPaint::kFill_Style);
     }
 
     ~SkAutoRestorePaintTextSizeAndFrame() {
@@ -2551,52 +2555,4 @@ bool SkPaint::nothingToDraw() const {
         }
     }
     return false;
-}
-
-
-//////////// Move these to their own file soon.
-
-SK_DEFINE_INST_COUNT(SkDrawLooper)
-
-bool SkDrawLooper::canComputeFastBounds(const SkPaint& paint) {
-    SkCanvas canvas;
-
-    this->init(&canvas);
-    for (;;) {
-        SkPaint p(paint);
-        if (this->next(&canvas, &p)) {
-            p.setLooper(NULL);
-            if (!p.canComputeFastBounds()) {
-                return false;
-            }
-        } else {
-            break;
-        }
-    }
-    return true;
-}
-
-void SkDrawLooper::computeFastBounds(const SkPaint& paint, const SkRect& src,
-                                     SkRect* dst) {
-    SkCanvas canvas;
-
-    this->init(&canvas);
-    for (bool firstTime = true;; firstTime = false) {
-        SkPaint p(paint);
-        if (this->next(&canvas, &p)) {
-            SkRect r(src);
-
-            p.setLooper(NULL);
-            p.computeFastBounds(r, &r);
-            canvas.getTotalMatrix().mapRect(&r);
-
-            if (firstTime) {
-                *dst = r;
-            } else {
-                dst->join(r);
-            }
-        } else {
-            break;
-        }
-    }
 }
