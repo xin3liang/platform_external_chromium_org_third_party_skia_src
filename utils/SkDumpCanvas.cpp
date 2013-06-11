@@ -84,6 +84,9 @@ static void dumpVerbs(const SkPath& path, SkString* str) {
                 break;
             case SkPath::kDone_Verb:
                 return;
+            case SkPath::kConic_Verb:
+                SkASSERT(0);
+                break;
         }
     }
 }
@@ -440,6 +443,18 @@ void SkDumpCanvas::drawData(const void* data, size_t length) {
 //    this->dump(kDrawData_Verb, NULL, "drawData(%d)", length);
     this->dump(kDrawData_Verb, NULL, "drawData(%d) %.*s", length,
                SkMin32(length, 64), data);
+}
+
+void SkDumpCanvas::beginCommentGroup(const char* description) {
+    this->dump(kBeginCommentGroup_Verb, NULL, "beginCommentGroup(%s)", description);
+}
+
+void SkDumpCanvas::addComment(const char* kywd, const char* value) {
+    this->dump(kAddComment_Verb, NULL, "addComment(%s, %s)", kywd, value);
+}
+
+void SkDumpCanvas::endCommentGroup() {
+    this->dump(kEndCommentGroup_Verb, NULL, "endCommentGroup()");
 }
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -221,7 +221,10 @@ int generate_lines_and_quads(const SkPath& path,
         GrPoint devPts[4];
         SkPath::Verb verb = iter.next(pathPts);
         switch (verb) {
-            case SkPath::kMove_Verb:
+             case SkPath::kConic_Verb:
+                SkASSERT(0);
+                break;
+           case SkPath::kMove_Verb:
                 break;
             case SkPath::kLine_Verb:
                 m.mapPoints(devPts, pathPts, 2);
@@ -816,18 +819,16 @@ bool GrAAHairLinePathRenderer::onDrawPath(const SkPath& path,
         return false;
     }
 
-    GrDrawTarget::AutoStateRestore asr(target, GrDrawTarget::kPreserve_ASRInit);
-    GrDrawState* drawState = target->drawState();
+    GrDrawTarget::AutoStateRestore asr;
 
-    GrDrawState::AutoDeviceCoordDraw adcd;
     // createGeom transforms the geometry to device space when the matrix does not have
     // perspective.
-    if (!drawState->getViewMatrix().hasPerspective()) {
-        adcd.set(drawState);
-        if (!adcd.succeeded()) {
-            return false;
-        }
+    if (target->getDrawState().getViewMatrix().hasPerspective()) {
+        asr.set(target, GrDrawTarget::kPreserve_ASRInit);
+    } else if (!asr.setIdentity(target, GrDrawTarget::kPreserve_ASRInit)) {
+        return false;
     }
+    GrDrawState* drawState = target->drawState();
 
     // TODO: See whether rendering lines as degenerate quads improves perf
     // when we have a mix

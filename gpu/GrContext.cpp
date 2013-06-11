@@ -91,6 +91,7 @@ GrContext::GrContext() {
     ++THREAD_INSTANCE_COUNT;
     fDrawState = NULL;
     fGpu = NULL;
+    fClip = NULL;
     fPathRendererChain = NULL;
     fSoftwarePathRenderer = NULL;
     fTextureCache = NULL;
@@ -100,6 +101,7 @@ GrContext::GrContext() {
     fDrawBufferIBAllocPool = NULL;
     fAARectRenderer = NULL;
     fOvalRenderer = NULL;
+    fViewMatrix.reset();
 }
 
 bool GrContext::init(GrBackend backend, GrBackendContext backendContext) {
@@ -594,18 +596,6 @@ bool GrContext::supportsIndex8PixelConfig(const GrTextureParams* params,
     return true;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-const GrClipData* GrContext::getClip() const {
-    return fGpu->getClip();
-}
-
-void GrContext::setClip(const GrClipData* clipData) {
-    fGpu->setClip(clipData);
-
-    fDrawState->setState(GrDrawState::kClip_StateBit,
-                         clipData && clipData->fClipStack && !clipData->fClipStack->isWideOpen());
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -630,7 +620,7 @@ void GrContext::drawPaint(const GrPaint& origPaint) {
     // map the four corners and bound them with a new rect. This will not
     // produce a correct result for some perspective matrices.
     if (!this->getMatrix().hasPerspective()) {
-        if (!fDrawState->getViewInverse(&inverse)) {
+        if (!fViewMatrix.invert(&inverse)) {
             GrPrintf("Could not invert matrix\n");
             return;
         }
@@ -782,13 +772,13 @@ void GrContext::drawRect(const GrPaint& paint,
     SkMatrix combinedMatrix;
     bool useVertexCoverage;
     bool needAA = paint.isAntiAlias() &&
-                  !this->getRenderTarget()->isMultisampled();
+                  !target->getDrawState().getRenderTarget()->isMultisampled();
     bool doAA = needAA && apply_aa_to_rect(target, rect, width, matrix,
                                            &combinedMatrix, &devRect,
                                            &useVertexCoverage);
     if (doAA) {
-        GrDrawState::AutoDeviceCoordDraw adcd(target->drawState());
-        if (!adcd.succeeded()) {
+        GrDrawState::AutoViewMatrixRestore avmr;
+        if (!avmr.setIdentity(target->drawState())) {
             return;
         }
         if (width >= 0) {
@@ -856,7 +846,6 @@ void GrContext::drawRectToRect(const GrPaint& paint,
                                const SkMatrix* dstMatrix,
                                const SkMatrix* localMatrix) {
     SK_TRACE_EVENT0("GrContext::drawRectToRect");
-
     GrDrawTarget* target = this->prepareToDraw(&paint, BUFFERED_DRAW);
     GrDrawState::AutoStageDisable atr(fDrawState);
 
@@ -966,7 +955,7 @@ void GrContext::drawRRect(const GrPaint& paint,
     GrDrawState::AutoStageDisable atr(fDrawState);
 
     bool useAA = paint.isAntiAlias() &&
-                 !this->getRenderTarget()->isMultisampled() &&
+                 !target->getDrawState().getRenderTarget()->isMultisampled() &&
                  !disable_coverage_aa_for_blend(target);
 
     if (!fOvalRenderer->drawSimpleRRect(target, this, useAA, rect, stroke)) {
@@ -986,7 +975,7 @@ void GrContext::drawOval(const GrPaint& paint,
     GrDrawState::AutoStageDisable atr(fDrawState);
 
     bool useAA = paint.isAntiAlias() &&
-                 !this->getRenderTarget()->isMultisampled() &&
+                 !target->getDrawState().getRenderTarget()->isMultisampled() &&
                  !disable_coverage_aa_for_blend(target);
 
     if (!fOvalRenderer->drawOval(target, this, useAA, oval, stroke)) {
@@ -1059,21 +1048,22 @@ void GrContext::drawPath(const GrPaint& paint, const SkPath& path, const SkStrok
     GrDrawTarget* target = this->prepareToDraw(&paint, BUFFERED_DRAW);
     GrDrawState::AutoStageDisable atr(fDrawState);
 
-    bool useAA = paint.isAntiAlias() && !this->getRenderTarget()->isMultisampled();
+    bool useAA = paint.isAntiAlias() && !target->getDrawState().getRenderTarget()->isMultisampled();
     if (useAA && stroke.getWidth() < 0 && !path.isConvex()) {
         // Concave AA paths are expensive - try to avoid them for special cases
         bool useVertexCoverage;
         SkRect rects[2];
 
         if (is_nested_rects(target, path, stroke, rects, &useVertexCoverage)) {
-            GrDrawState::AutoDeviceCoordDraw adcd(target->drawState());
-            if (!adcd.succeeded()) {
+            SkMatrix origViewMatrix = target->getDrawState().getViewMatrix();
+            GrDrawState::AutoViewMatrixRestore avmr;
+            if (!avmr.setIdentity(target->drawState())) {
                 return;
             }
 
             fAARectRenderer->fillAANestedRects(this->getGpu(), target,
                                                rects,
-                                               adcd.getOriginalMatrix(),
+                                               origViewMatrix,
                                                useVertexCoverage);
             return;
         }
@@ -1142,7 +1132,9 @@ void GrContext::flush(int flagsBitfield) {
     } else {
         this->flushDrawBuffer();
     }
+    // TODO: Remove this flag
     if (kForceCurrentRenderTarget_FlushBit & flagsBitfield) {
+        fGpu->drawState()->setRenderTarget(this->getRenderTarget());
         fGpu->forceRenderTargetFlush();
     }
 }
@@ -1256,7 +1248,7 @@ bool GrContext::readRenderTargetPixels(GrRenderTarget* target,
     ASSERT_OWNED_RESOURCE(target);
 
     if (NULL == target) {
-        target = fDrawState->getRenderTarget();
+        target = fRenderTarget.get();
         if (NULL == target) {
             return false;
         }
@@ -1444,7 +1436,7 @@ bool GrContext::writeRenderTargetPixels(GrRenderTarget* target,
     ASSERT_OWNED_RESOURCE(target);
 
     if (NULL == target) {
-        target = fDrawState->getRenderTarget();
+        target = fRenderTarget.get();
         if (NULL == target) {
             return false;
         }
@@ -1542,14 +1534,13 @@ bool GrContext::writeRenderTargetPixels(GrRenderTarget* target,
     // writeRenderTargetPixels can be called in the midst of drawing another
     // object (e.g., when uploading a SW path rendering to the gpu while
     // drawing a rect) so preserve the current geometry.
-    GrDrawTarget::AutoGeometryAndStatePush agasp(fGpu, GrDrawTarget::kReset_ASRInit);
+    SkMatrix matrix;
+    matrix.setTranslate(SkIntToScalar(left), SkIntToScalar(top));
+    GrDrawTarget::AutoGeometryAndStatePush agasp(fGpu, GrDrawTarget::kReset_ASRInit, &matrix);
     GrDrawState* drawState = fGpu->drawState();
     GrAssert(effect);
     drawState->setEffect(0, effect);
 
-    SkMatrix matrix;
-    matrix.setTranslate(SkIntToScalar(left), SkIntToScalar(top));
-    drawState->setViewMatrix(matrix);
     drawState->setRenderTarget(target);
 
     fGpu->drawSimpleRect(GrRect::MakeWH(SkIntToScalar(width), SkIntToScalar(height)), NULL);
@@ -1562,24 +1553,34 @@ GrDrawTarget* GrContext::prepareToDraw(const GrPaint* paint, BufferedDraw buffer
         this->flushDrawBuffer();
         fLastDrawWasBuffered = kNo_BufferedDraw;
     }
+    ASSERT_OWNED_RESOURCE(fRenderTarget.get());
     if (NULL != paint) {
         GrAssert(fDrawState->stagesDisabled());
-        fDrawState->setFromPaint(*paint);
+        fDrawState->setFromPaint(*paint, fViewMatrix, fRenderTarget.get());
 #if GR_DEBUG_PARTIAL_COVERAGE_CHECK
         if ((paint->hasMask() || 0xff != paint->fCoverage) &&
             !fGpu->canApplyCoverage()) {
             GrPrintf("Partial pixel coverage will be incorrectly blended.\n");
         }
 #endif
+    } else {
+        fDrawState->reset(fViewMatrix);
+        fDrawState->setRenderTarget(fRenderTarget.get());
     }
+    GrDrawTarget* target;
     if (kYes_BufferedDraw == buffered) {
-        fDrawBuffer->setClip(fGpu->getClip());
         fLastDrawWasBuffered = kYes_BufferedDraw;
-        return fDrawBuffer;
+        target = fDrawBuffer;
     } else {
         GrAssert(kNo_BufferedDraw == buffered);
-        return fGpu;
+        fLastDrawWasBuffered = kNo_BufferedDraw;
+        target = fGpu;
     }
+    fDrawState->setState(GrDrawState::kClip_StateBit, NULL != fClip &&
+                                                     !fClip->fClipStack->isWideOpen());
+    target->setClip(fClip);
+    GrAssert(fDrawState == target->drawState());
+    return target;
 }
 
 /*
@@ -1617,37 +1618,8 @@ GrPathRenderer* GrContext::getPathRenderer(const SkPath& path,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void GrContext::setRenderTarget(GrRenderTarget* target) {
-    ASSERT_OWNED_RESOURCE(target);
-    fDrawState->setRenderTarget(target);
-}
-
-GrRenderTarget* GrContext::getRenderTarget() {
-    return fDrawState->getRenderTarget();
-}
-
-const GrRenderTarget* GrContext::getRenderTarget() const {
-    return fDrawState->getRenderTarget();
-}
-
 bool GrContext::isConfigRenderable(GrPixelConfig config) const {
     return fGpu->isConfigRenderable(config);
-}
-
-const SkMatrix& GrContext::getMatrix() const {
-    return fDrawState->getViewMatrix();
-}
-
-void GrContext::setMatrix(const SkMatrix& m) {
-    fDrawState->setViewMatrix(m);
-}
-
-void GrContext::setIdentityMatrix() {
-    fDrawState->viewMatrix()->reset();
-}
-
-void GrContext::concatMatrix(const SkMatrix& m) const {
-    fDrawState->preConcatViewMatrix(m);
 }
 
 static inline intptr_t setOrClear(intptr_t bits, int shift, intptr_t pred) {
