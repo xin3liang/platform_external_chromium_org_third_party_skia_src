@@ -7,10 +7,12 @@
 
 #include "SkLua.h"
 #include "SkCanvas.h"
+#include "SkData.h"
 #include "SkDocument.h"
+#include "SkImage.h"
+#include "SkMatrix.h"
 #include "SkPaint.h"
 #include "SkPath.h"
-#include "SkMatrix.h"
 #include "SkRRect.h"
 #include "SkString.h"
 #include "SkTypeface.h"
@@ -30,6 +32,7 @@ template <typename T> const char* get_mtname();
 
 DEF_MTNAME(SkCanvas)
 DEF_MTNAME(SkDocument)
+DEF_MTNAME(SkImage)
 DEF_MTNAME(SkMatrix)
 DEF_MTNAME(SkRRect)
 DEF_MTNAME(SkPath)
@@ -225,6 +228,14 @@ static SkScalar lua2scalar(lua_State* L, int index) {
     return SkLuaToScalar(lua_tonumber(L, index));
 }
 
+static SkScalar lua2scalar_def(lua_State* L, int index, SkScalar defaultValue) {
+    if (lua_isnumber(L, index)) {
+        return SkLuaToScalar(lua_tonumber(L, index));
+    } else {
+        return defaultValue;
+    }
+}
+
 static SkScalar getfield_scalar(lua_State* L, int index, const char key[]) {
     SkASSERT(lua_istable(L, index));
     lua_pushstring(L, key);
@@ -302,6 +313,25 @@ static int lcanvas_drawCircle(lua_State* L) {
     return 0;
 }
 
+static int lcanvas_drawImage(lua_State* L) {
+    SkCanvas* canvas = get_ref<SkCanvas>(L, 1);
+    SkImage* image = get_ref<SkImage>(L, 2);
+    if (NULL == image) {
+        return 0;
+    }
+    SkScalar x = lua2scalar(L, 3);
+    SkScalar y = lua2scalar(L, 4);
+
+    SkPaint paint;
+    const SkPaint* paintPtr = NULL;
+    if (lua_isnumber(L, 5)) {
+        paint.setAlpha(SkScalarRoundToInt(lua2scalar(L, 5) * 255));
+        paintPtr = &paint;
+    }
+    image->draw(canvas, x, y, paintPtr);
+    return 0;
+}
+
 static int lcanvas_drawPath(lua_State* L) {
     get_ref<SkCanvas>(L, 1)->drawPath(*get_obj<SkPath>(L, 2),
                                       *get_obj<SkPaint>(L, 3));
@@ -343,8 +373,23 @@ static int lcanvas_restore(lua_State* L) {
     return 0;
 }
 
+static int lcanvas_scale(lua_State* L) {
+    SkScalar sx = lua2scalar_def(L, 2, 1);
+    SkScalar sy = lua2scalar_def(L, 3, sx);
+    get_ref<SkCanvas>(L, 1)->scale(sx, sy);
+    return 0;
+}
+
 static int lcanvas_translate(lua_State* L) {
-    get_ref<SkCanvas>(L, 1)->translate(lua2scalar(L, 2), lua2scalar(L, 3));
+    SkScalar tx = lua2scalar_def(L, 2, 0);
+    SkScalar ty = lua2scalar_def(L, 3, 0);
+    get_ref<SkCanvas>(L, 1)->translate(tx, ty);
+    return 0;
+}
+
+static int lcanvas_rotate(lua_State* L) {
+    SkScalar degrees = lua2scalar_def(L, 2, 0);
+    get_ref<SkCanvas>(L, 1)->rotate(degrees);
     return 0;
 }
 
@@ -358,13 +403,16 @@ static const struct luaL_Reg gSkCanvas_Methods[] = {
     { "drawRect", lcanvas_drawRect },
     { "drawOval", lcanvas_drawOval },
     { "drawCircle", lcanvas_drawCircle },
+    { "drawImage", lcanvas_drawImage },
     { "drawPath", lcanvas_drawPath },
     { "drawText", lcanvas_drawText },
     { "getSaveCount", lcanvas_getSaveCount },
     { "getTotalMatrix", lcanvas_getTotalMatrix },
     { "save", lcanvas_save },
     { "restore", lcanvas_restore },
+    { "scale", lcanvas_scale },
     { "translate", lcanvas_translate },
+    { "rotate", lcanvas_rotate },
     { "__gc", lcanvas_gc },
     { NULL, NULL }
 };
@@ -731,6 +779,30 @@ static const struct luaL_Reg gSkRRect_Methods[] = {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static int limage_width(lua_State* L) {
+    lua_pushinteger(L, get_ref<SkImage>(L, 1)->width());
+    return 1;
+}
+
+static int limage_height(lua_State* L) {
+    lua_pushinteger(L, get_ref<SkImage>(L, 1)->height());
+    return 1;
+}
+
+static int limage_gc(lua_State* L) {
+    get_ref<SkImage>(L, 1)->unref();
+    return 0;
+}
+
+static const struct luaL_Reg gSkImage_Methods[] = {
+    { "width", limage_width },
+    { "height", limage_height },
+    { "__gc", limage_gc },
+    { NULL, NULL }
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
 static int ltypeface_gc(lua_State* L) {
     get_ref<SkTypeface>(L, 1)->unref();
     return 0;
@@ -827,6 +899,22 @@ static int lsk_newTypeface(lua_State* L) {
     return 1;
 }
 
+static int lsk_loadImage(lua_State* L) {
+    if (lua_gettop(L) > 0 && lua_isstring(L, 1)) {
+        const char* name = lua_tolstring(L, 1, NULL);
+        SkAutoDataUnref data(SkData::NewFromFileName(name));
+        if (data.get()) {
+            SkImage* image = SkImage::NewEncodedData(data.get());
+            if (image) {
+                push_ref(L, image);
+                image->unref();
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 static void register_Sk(lua_State* L) {
     lua_newtable(L);
     lua_pushvalue(L, -1);
@@ -834,6 +922,7 @@ static void register_Sk(lua_State* L) {
     // the Sk table is still on top
 
     setfield_function(L, "newDocumentPDF", lsk_newDocumentPDF);
+    setfield_function(L, "loadImage", lsk_loadImage);
     setfield_function(L, "newPaint", lsk_newPaint);
     setfield_function(L, "newPath", lsk_newPath);
     setfield_function(L, "newRRect", lsk_newRRect);
@@ -854,6 +943,7 @@ void SkLua::Load(lua_State* L) {
     register_Sk(L);
     REG_CLASS(L, SkCanvas);
     REG_CLASS(L, SkDocument);
+    REG_CLASS(L, SkImage);
     REG_CLASS(L, SkPath);
     REG_CLASS(L, SkPaint);
     REG_CLASS(L, SkRRect);
