@@ -264,41 +264,67 @@ void SkPicture::draw(SkCanvas* surface, SkDrawPictureCallback* callback) {
 
 #include "SkStream.h"
 
-SkPicture::SkPicture(SkStream* stream) {
-    this->initFromStream(stream, NULL, NULL);
+bool SkPicture::StreamIsSKP(SkStream* stream, SkPictInfo* pInfo) {
+    if (NULL == stream) {
+        return false;
+    }
+
+    SkPictInfo info;
+    if (!stream->read(&info, sizeof(SkPictInfo))) {
+        return false;
+    }
+    if (PICTURE_VERSION != info.fVersion) {
+        return false;
+    }
+
+    if (pInfo != NULL) {
+        *pInfo = info;
+    }
+    return true;
 }
 
 SkPicture::SkPicture(SkStream* stream, bool* success, InstallPixelRefProc proc) {
-    this->initFromStream(stream, success, proc);
+    fRecord = NULL;
+    SkAutoTUnref<SkPicture> picture(CreateFromStream(stream, proc));
+    if (NULL == picture.get()) {
+        fPlayback = NULL;
+        fWidth = fHeight = 0;
+        if (success) {
+            *success = false;
+        }
+    } else {
+        fPlayback = picture->fPlayback;
+        picture->fPlayback = NULL;
+        fWidth = picture->fWidth;
+        fHeight = picture->fHeight;
+        if (success) {
+            *success = true;
+        }
+    }
 }
 
-void SkPicture::initFromStream(SkStream* stream, bool* success, InstallPixelRefProc proc) {
-    if (success) {
-        *success = false;
-    }
-    fRecord = NULL;
-    fPlayback = NULL;
-    fWidth = fHeight = 0;
+SkPicture::SkPicture(SkPicturePlayback* playback, int width, int height)
+    : fPlayback(playback)
+    , fRecord(NULL)
+    , fWidth(width)
+    , fHeight(height) {}
 
+SkPicture* SkPicture::CreateFromStream(SkStream* stream, InstallPixelRefProc proc) {
     SkPictInfo info;
 
-    if (!stream->read(&info, sizeof(info))) {
-        return;
-    }
-    if (PICTURE_VERSION != info.fVersion) {
-        return;
+    if (!StreamIsSKP(stream, &info)) {
+        return NULL;
     }
 
+    SkPicturePlayback* playback;
+    // Check to see if there is a playback to recreate.
     if (stream->readBool()) {
-        fPlayback = SkNEW_ARGS(SkPicturePlayback, (stream, info, proc));
+        playback = SkNEW_ARGS(SkPicturePlayback, (stream, info, proc));
+    } else {
+        playback = NULL;
     }
 
-    // do this at the end, so that they will be zero if we hit an error.
-    fWidth = info.fWidth;
-    fHeight = info.fHeight;
-    if (success) {
-        *success = true;
-    }
+    return SkNEW_ARGS(SkPicture, (playback, info.fWidth, info.fHeight));
 }
 
 void SkPicture::serialize(SkWStream* stream, EncodeBitmap encoder) const {
