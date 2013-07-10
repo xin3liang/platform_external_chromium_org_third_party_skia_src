@@ -461,31 +461,9 @@ private:
 
 #include "SkColorPriv.h"
 
-class AutoValidator {
-public:
-    AutoValidator(SkDevice* device) : fDevice(device) {}
-    ~AutoValidator() {
-#ifdef SK_DEBUG
-        const SkBitmap& bm = fDevice->accessBitmap(false);
-        if (bm.config() == SkBitmap::kARGB_4444_Config) {
-            for (int y = 0; y < bm.height(); y++) {
-                const SkPMColor16* p = bm.getAddr16(0, y);
-                for (int x = 0; x < bm.width(); x++) {
-                    SkPMColor16 c = p[x];
-                    SkPMColor16Assert(c);
-                }
-            }
-        }
-#endif
-    }
-private:
-    SkDevice* fDevice;
-};
-
 ////////// macros to place around the internal draw calls //////////////////
 
 #define LOOPER_BEGIN_DRAWDEVICE(paint, type)                        \
-/*    AutoValidator   validator(fMCRec->fTopLayer->fDevice); */     \
     this->predrawNotify();                                          \
     AutoDrawLooper  looper(this, paint, true);                      \
     while (looper.next(type)) {                                     \
@@ -493,7 +471,6 @@ private:
         SkDrawIter          iter(this);
 
 #define LOOPER_BEGIN(paint, type)                                   \
-/*    AutoValidator   validator(fMCRec->fTopLayer->fDevice); */     \
     this->predrawNotify();                                          \
     AutoDrawLooper  looper(this, paint);                            \
     while (looper.next(type)) {                                     \
