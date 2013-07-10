@@ -50,6 +50,23 @@ SkImageDecoder::~SkImageDecoder() {
     SkSafeUnref(fAllocator);
 }
 
+void SkImageDecoder::copyFieldsToOther(SkImageDecoder* other) {
+    if (NULL == other) {
+        return;
+    }
+    other->setPeeker(fPeeker);
+    other->setChooser(fChooser);
+    other->setAllocator(fAllocator);
+    other->setSampleSize(fSampleSize);
+    if (fUsePrefTable) {
+        other->setPrefConfigTable(fPrefTable);
+    } else {
+        other->fDefaultPref = fDefaultPref;
+    }
+    other->setPreferQualityOverSpeed(fPreferQualityOverSpeed);
+    other->setRequireUnpremultipliedColors(fRequireUnpremultipliedColors);
+}
+
 SkImageDecoder::Format SkImageDecoder::getFormat() const {
     return kUnknown_Format;
 }
@@ -164,18 +181,11 @@ SkBitmap::Config SkImageDecoder::getPrefConfig(SrcDepth srcDepth,
 }
 
 bool SkImageDecoder::decode(SkStream* stream, SkBitmap* bm,
-                            SkBitmap::Config pref, Mode mode, bool reuseBitmap) {
+                            SkBitmap::Config pref, Mode mode) {
     // we reset this to false before calling onDecode
     fShouldCancelDecode = false;
     // assign this, for use by getPrefConfig(), in case fUsePrefTable is false
     fDefaultPref = pref;
-
-    if (reuseBitmap) {
-        SkAutoLockPixels alp(*bm);
-        if (NULL != bm->getPixels()) {
-            return this->onDecode(stream, bm, mode);
-        }
-    }
 
     // pass a temporary bitmap, so that if we return false, we are assured of
     // leaving the caller's bitmap untouched.
