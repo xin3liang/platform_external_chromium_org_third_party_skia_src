@@ -452,10 +452,10 @@ void apply_morphology_pass(GrContext* context,
                            GrMorphologyEffect::MorphologyType morphType,
                            Gr1DKernelEffect::Direction direction) {
     GrPaint paint;
-    paint.colorStage(0)->setEffect(GrMorphologyEffect::Create(texture,
-                                                              direction,
-                                                              radius,
-                                                              morphType))->unref();
+    paint.addColorEffect(GrMorphologyEffect::Create(texture,
+                                                    direction,
+                                                    radius,
+                                                    morphType))->unref();
     context->drawRect(paint, SkRect::MakeFromIRect(rect));
 }
 
@@ -502,9 +502,10 @@ GrTexture* apply_morphology(GrTexture* srcTexture,
 
 };
 
-bool SkDilateImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result) {
+bool SkDilateImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result,
+                                         SkIPoint* offset) {
     SkBitmap inputBM;
-    if (!SkImageFilterUtils::GetInputResultGPU(getInput(0), proxy, src, &inputBM)) {
+    if (!SkImageFilterUtils::GetInputResultGPU(getInput(0), proxy, src, &inputBM, offset)) {
         return false;
     }
     GrTexture* input = inputBM.getTexture();
@@ -515,9 +516,10 @@ bool SkDilateImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBi
     return SkImageFilterUtils::WrapTexture(resultTex, src.width(), src.height(), result);
 }
 
-bool SkErodeImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result) {
+bool SkErodeImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result,
+                                        SkIPoint* offset) {
     SkBitmap inputBM;
-    if (!SkImageFilterUtils::GetInputResultGPU(getInput(0), proxy, src, &inputBM)) {
+    if (!SkImageFilterUtils::GetInputResultGPU(getInput(0), proxy, src, &inputBM, offset)) {
         return false;
     }
     GrTexture* input = inputBM.getTexture();

@@ -56,10 +56,31 @@ void SkIntersections::flip() {
 
 void SkIntersections::insertCoincidentPair(double s1, double e1, double s2, double e2,
         const SkDPoint& startPt, const SkDPoint& endPt) {
-    if (fSwap) {
-        remove(s2, e2, startPt, endPt);
-    } else {
-        remove(s1, e1, startPt, endPt);
+    SkASSERT(s1 < e1);
+    SkASSERT(s2 != e2);
+    if (coincidentUsed() != fUsed) { // if the curve is partially coincident, treat it as fully so
+        for (int index = fUsed - 1; index >= 0; --index) {
+            if (fIsCoincident[0] & (1 << index)) {
+                continue;
+            }
+            double nonCoinT = fT[0][index];
+            if (!between(s1, nonCoinT, e1)) {
+                if (s1 > nonCoinT) {
+                    s1 = nonCoinT;
+                } else {
+                    e1 = nonCoinT;
+                }
+            }
+            nonCoinT = fT[1][index];
+            if (!between(s2, nonCoinT, e2)) {
+                if ((s2 > nonCoinT) ^ (s2 > e2)) {
+                    s2 = nonCoinT;
+                } else {
+                    e2 = nonCoinT;
+                }
+            }
+            removeOne(index);
+        }
     }
     SkASSERT(coincidentUsed() == fUsed);
     SkASSERT((coincidentUsed() & 1) != 1);
@@ -145,7 +166,10 @@ int SkIntersections::insert(double one, double two, const SkDPoint& pt) {
     for (index = 0; index < fUsed; ++index) {
         double oldOne = fT[0][index];
         double oldTwo = fT[1][index];
-        if (roughly_equal(oldOne, one) && roughly_equal(oldTwo, two)) {
+        if (one == oldOne && two == oldTwo) {
+            return -1;
+        }
+        if (more_roughly_equal(oldOne, one) && more_roughly_equal(oldTwo, two)) {
             if ((precisely_zero(one) && !precisely_zero(oldOne))
                     || (precisely_equal(one, 1) && !precisely_equal(oldOne, 1))
                     || (precisely_zero(two) && !precisely_zero(oldTwo))
@@ -209,6 +233,7 @@ void SkIntersections::quickRemoveOne(int index, int replace) {
     }
 }
 
+#if 0
 void SkIntersections::remove(double one, double two, const SkDPoint& startPt,
         const SkDPoint& endPt) {
     for (int index = fUsed - 1; index >= 0; --index) {
@@ -220,6 +245,7 @@ void SkIntersections::remove(double one, double two, const SkDPoint& startPt,
         }
     }
 }
+#endif
 
 void SkIntersections::removeOne(int index) {
     int remaining = --fUsed - index;

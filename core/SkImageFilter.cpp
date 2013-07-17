@@ -98,11 +98,12 @@ bool SkImageFilter::canFilterImageGPU() const {
     return this->asNewEffect(NULL, NULL);
 }
 
-bool SkImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result) {
+bool SkImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result,
+                                   SkIPoint* offset) {
 #if SK_SUPPORT_GPU
     SkBitmap input;
     SkASSERT(fInputCount == 1);
-    if (!SkImageFilterUtils::GetInputResultGPU(this->getInput(0), proxy, src, &input)) {
+    if (!SkImageFilterUtils::GetInputResultGPU(this->getInput(0), proxy, src, &input, offset)) {
         return false;
     }
     GrTexture* srcTexture = input.getTexture();
@@ -126,7 +127,7 @@ bool SkImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* 
     SkASSERT(effect);
     SkAutoUnref effectRef(effect);
     GrPaint paint;
-    paint.colorStage(0)->setEffect(effect);
+    paint.addColorEffect(effect);
     context->drawRect(paint, rect);
     SkAutoTUnref<GrTexture> resultTex(dst.detach());
     SkImageFilterUtils::WrapTexture(resultTex, input.width(), input.height(), result);

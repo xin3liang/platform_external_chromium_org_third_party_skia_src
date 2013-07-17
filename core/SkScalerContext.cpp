@@ -852,12 +852,11 @@ protected:
 
 extern SkScalerContext* SkCreateColorScalerContext(const SkDescriptor* desc);
 
-SkScalerContext* SkTypeface::createScalerContext(const SkDescriptor* desc) const {
-    SkScalerContext* c = NULL;  //SkCreateColorScalerContext(desc);
-    if (NULL == c) {
-        c = this->onCreateScalerContext(desc);
-    }
-    if (NULL == c) {
+SkScalerContext* SkTypeface::createScalerContext(const SkDescriptor* desc,
+                                                 bool allowFailure) const {
+    SkScalerContext* c = this->onCreateScalerContext(desc);
+
+    if (!c && !allowFailure) {
         c = SkNEW_ARGS(SkScalerContext_Empty,
                        (const_cast<SkTypeface*>(this), desc));
     }

@@ -45,6 +45,10 @@ public:
         SkDEBUGCODE(fDepth = i.fDepth);
     }
 
+    void allowNear(bool nearAllowed) {
+        fAllowNear = nearAllowed;
+    }
+
     int cubic(const SkPoint a[4]) {
         SkDCubic cubic;
         cubic.set(a);
@@ -86,6 +90,11 @@ public:
         SkDQuad quad;
         quad.set(b);
         return intersect(cubic, quad);
+    }
+
+    bool hasT(double t) const {
+        SkASSERT(t == 0 || t == 1);
+        return fUsed > 0 && (t == 0 ? fT[0][0] == 0 : fT[0][fUsed - 1] == 1);
     }
 
     int insertSwap(double one, double two, const SkDPoint& pt) {
@@ -158,6 +167,7 @@ public:
 
     // leaves flip, swap alone
     void reset() {
+        fAllowNear = true;
         fUsed = 0;
     }
 
@@ -233,12 +243,13 @@ public:
 private:
     int computePoints(const SkDLine& line, int used);
     // used by addCoincident to remove ordinary intersections in range
-    void remove(double one, double two, const SkDPoint& startPt, const SkDPoint& endPt);
+ //   void remove(double one, double two, const SkDPoint& startPt, const SkDPoint& endPt);
 
     SkDPoint fPt[9];
     double fT[2][9];
     uint16_t fIsCoincident[2];  // bit arrays, one bit set for each coincident T
     unsigned char fUsed;
+    bool fAllowNear;
     bool fSwap;
 #ifdef SK_DEBUG
     int fDepth;
