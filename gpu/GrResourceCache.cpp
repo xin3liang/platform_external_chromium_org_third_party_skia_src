@@ -88,10 +88,10 @@ GrResourceCache::~GrResourceCache() {
 }
 
 void GrResourceCache::getLimits(int* maxResources, size_t* maxResourceBytes) const{
-    if (maxResources) {
+    if (NULL != maxResources) {
         *maxResources = fMaxCount;
     }
-    if (maxResourceBytes) {
+    if (NULL != maxResourceBytes) {
         *maxResourceBytes = fMaxBytes;
     }
 }
@@ -164,7 +164,7 @@ void GrResourceCache::attachToHead(GrResourceEntry* entry,
 class GrTFindUnreffedFunctor {
 public:
     bool operator()(const GrResourceEntry* entry) const {
-        return 1 == entry->resource()->getRefCnt();
+        return entry->resource()->unique();
     }
 };
 
@@ -194,10 +194,6 @@ GrResource* GrResourceCache::find(const GrResourceKey& key, uint32_t ownershipFl
     }
 
     return entry->fResource;
-}
-
-bool GrResourceCache::hasKey(const GrResourceKey& key) const {
-    return NULL != fCache.find(key);
 }
 
 void GrResourceCache::addResource(const GrResourceKey& key,
@@ -289,7 +285,7 @@ void GrResourceCache::purgeAsNeeded(int extraCount, size_t extraBytes) {
     fPurging = true;
 
     this->internalPurge(extraCount, extraBytes);
-    if (((fEntryCount+extraCount) > fMaxCount || 
+    if (((fEntryCount+extraCount) > fMaxCount ||
         (fEntryBytes+extraBytes) > fMaxBytes) &&
         NULL != fOverbudgetCB) {
         // Despite the purge we're still over budget. See if Ganesh can
@@ -300,6 +296,17 @@ void GrResourceCache::purgeAsNeeded(int extraCount, size_t extraBytes) {
     }
 
     fPurging = false;
+}
+
+void GrResourceCache::deleteResource(GrResourceEntry* entry) {
+    GrAssert(1 == entry->fResource->getRefCnt());
+
+    // remove from our cache
+    fCache.remove(entry->key(), entry);
+
+    // remove from our llist
+    this->internalDetach(entry);
+    delete entry;
 }
 
 void GrResourceCache::internalPurge(int extraCount, size_t extraBytes) {
@@ -324,22 +331,16 @@ void GrResourceCache::internalPurge(int extraCount, size_t extraBytes) {
         while (NULL != entry) {
             GrAutoResourceCacheValidate atcv(this);
 
-            if ((fEntryCount+extraCount) <= fMaxCount && 
+            if ((fEntryCount+extraCount) <= fMaxCount &&
                 (fEntryBytes+extraBytes) <= fMaxBytes) {
                 withinBudget = true;
                 break;
             }
 
             GrResourceEntry* prev = iter.prev();
-            if (1 == entry->fResource->getRefCnt()) {
+            if (entry->fResource->unique()) {
                 changed = true;
-
-                // remove from our cache
-                fCache.remove(entry->key(), entry);
-
-                // remove from our llist
-                this->internalDetach(entry);
-                delete entry;
+                this->deleteResource(entry);
             }
             entry = prev;
         }
