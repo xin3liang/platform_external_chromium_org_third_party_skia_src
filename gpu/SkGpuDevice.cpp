@@ -1280,8 +1280,8 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
         return;
     }
 
-    GrRect dstRect(srcRect);
-    GrRect paintRect;
+    SkRect dstRect(srcRect);
+    SkRect paintRect;
     SkScalar wInv = SkScalarInvert(SkIntToScalar(bitmap.width()));
     SkScalar hInv = SkScalarInvert(SkIntToScalar(bitmap.height()));
     paintRect.setLTRB(SkScalarMul(srcRect.fLeft,   wInv),
@@ -1296,7 +1296,7 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
                              srcRect.height() < bitmap.height();
         if (m.rectStaysRect() && fContext->getMatrix().rectStaysRect()) {
             // sampling is axis-aligned
-            GrRect transformedRect;
+            SkRect transformedRect;
             SkMatrix srcToDeviceMatrix(m);
             srcToDeviceMatrix.postConcat(fContext->getMatrix());
             srcToDeviceMatrix.mapRect(&transformedRect, srcRect);
@@ -1312,7 +1312,7 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
         }
     }
 
-    GrRect textureDomain = GrRect::MakeEmpty();
+    SkRect textureDomain = SkRect::MakeEmpty();
     SkAutoTUnref<GrEffectRef> effect;
     if (needsTextureDomain) {
         // Use a constrained texture domain to avoid color bleeding
@@ -1388,12 +1388,14 @@ void SkGpuDevice::drawSprite(const SkDraw& draw, const SkBitmap& bitmap,
 
     SkImageFilter* filter = paint.getImageFilter();
     SkIPoint offset = SkIPoint::Make(0, 0);
+    // This bitmap will own the filtered result as a texture.
+    SkBitmap filteredBitmap;
+
     if (NULL != filter) {
-        SkBitmap filterBitmap;
-        if (filter_texture(this, fContext, texture, filter, w, h, &filterBitmap, &offset)) {
-            texture = (GrTexture*) filterBitmap.getTexture();
-            w = filterBitmap.width();
-            h = filterBitmap.height();
+        if (filter_texture(this, fContext, texture, filter, w, h, &filteredBitmap, &offset)) {
+            texture = (GrTexture*) filteredBitmap.getTexture();
+            w = filteredBitmap.width();
+            h = filteredBitmap.height();
         }
     }
 
@@ -1405,11 +1407,11 @@ void SkGpuDevice::drawSprite(const SkDraw& draw, const SkBitmap& bitmap,
     }
 
     fContext->drawRectToRect(grPaint,
-                             GrRect::MakeXYWH(SkIntToScalar(left),
+                             SkRect::MakeXYWH(SkIntToScalar(left),
                                               SkIntToScalar(top),
                                               SkIntToScalar(w),
                                               SkIntToScalar(h)),
-                             GrRect::MakeXYWH(SkIntToScalar(offset.fX),
+                             SkRect::MakeXYWH(SkIntToScalar(offset.fX),
                                               SkIntToScalar(offset.fY),
                                               SK_Scalar1 * w / texture->width(),
                                               SK_Scalar1 * h / texture->height()));
@@ -1468,14 +1470,15 @@ void SkGpuDevice::drawDevice(const SkDraw& draw, SkDevice* device,
     int h = bm.height();
 
     SkImageFilter* filter = paint.getImageFilter();
+    // This bitmap will own the filtered result as a texture.
+    SkBitmap filteredBitmap;
 
     if (NULL != filter) {
-        SkBitmap filterBitmap;
         SkIPoint offset = SkIPoint::Make(0, 0);
-        if (filter_texture(this, fContext, devTex, filter, w, h, &filterBitmap, &offset)) {
-            devTex = filterBitmap.getTexture();
-            w = filterBitmap.width();
-            h = filterBitmap.height();
+        if (filter_texture(this, fContext, devTex, filter, w, h, &filteredBitmap, &offset)) {
+            devTex = filteredBitmap.getTexture();
+            w = filteredBitmap.width();
+            h = filteredBitmap.height();
             x += offset.fX;
             y += offset.fY;
         }
@@ -1488,14 +1491,14 @@ void SkGpuDevice::drawDevice(const SkDraw& draw, SkDevice* device,
         return;
     }
 
-    GrRect dstRect = GrRect::MakeXYWH(SkIntToScalar(x),
+    SkRect dstRect = SkRect::MakeXYWH(SkIntToScalar(x),
                                       SkIntToScalar(y),
                                       SkIntToScalar(w),
                                       SkIntToScalar(h));
 
     // The device being drawn may not fill up its texture (e.g. saveLayer uses approximate
     // scratch texture).
-    GrRect srcRect = GrRect::MakeWH(SK_Scalar1 * w / devTex->width(),
+    SkRect srcRect = SkRect::MakeWH(SK_Scalar1 * w / devTex->width(),
                                     SK_Scalar1 * h / devTex->height());
 
     fContext->drawRectToRect(grPaint, dstRect, srcRect);

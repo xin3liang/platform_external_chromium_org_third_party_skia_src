@@ -289,21 +289,33 @@ bool SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
     /* this gives another few percents */
     cinfo.do_block_smoothing = 0;
 
+    SrcDepth srcDepth = k32Bit_SrcDepth;
     /* default format is RGB */
     if (cinfo.jpeg_color_space == JCS_CMYK) {
         // libjpeg cannot convert from CMYK to RGB - here we set up
         // so libjpeg will give us CMYK samples back and we will
         // later manually convert them to RGB
         cinfo.out_color_space = JCS_CMYK;
+    } else if (cinfo.jpeg_color_space == JCS_GRAYSCALE) {
+        cinfo.out_color_space = JCS_GRAYSCALE;
+        srcDepth = k8BitGray_SrcDepth;
     } else {
         cinfo.out_color_space = JCS_RGB;
     }
 
-    SkBitmap::Config config = this->getPrefConfig(k32Bit_SrcDepth, false);
+    SkBitmap::Config config = this->getPrefConfig(srcDepth, false);
     // only these make sense for jpegs
-    if (config != SkBitmap::kARGB_8888_Config &&
-        config != SkBitmap::kARGB_4444_Config &&
-        config != SkBitmap::kRGB_565_Config) {
+    if (SkBitmap::kA8_Config == config) {
+        if (cinfo.jpeg_color_space != JCS_GRAYSCALE) {
+            // Converting from a non grayscale image to A8 is
+            // not currently supported.
+            config = SkBitmap::kARGB_8888_Config;
+            // Change the output from jpeg back to RGB.
+            cinfo.out_color_space = JCS_RGB;
+        }
+    } else if (config != SkBitmap::kARGB_8888_Config &&
+               config != SkBitmap::kARGB_4444_Config &&
+               config != SkBitmap::kRGB_565_Config) {
         config = SkBitmap::kARGB_8888_Config;
     }
 
@@ -321,7 +333,7 @@ bool SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
 
     if (1 == sampleSize && SkImageDecoder::kDecodeBounds_Mode == mode) {
         bm->setConfig(config, cinfo.image_width, cinfo.image_height);
-        bm->setIsOpaque(true);
+        bm->setIsOpaque(config != SkBitmap::kA8_Config);
         return true;
     }
 
@@ -343,7 +355,7 @@ bool SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
             SkScaledBitmapSampler smpl(cinfo.output_width, cinfo.output_height,
                                        recompute_sampleSize(sampleSize, cinfo));
             bm->setConfig(config, smpl.scaledWidth(), smpl.scaledHeight());
-            bm->setIsOpaque(true);
+            bm->setIsOpaque(config != SkBitmap::kA8_Config);
             return true;
         } else {
             return return_false(cinfo, *bm, "start_decompress");
@@ -358,7 +370,7 @@ bool SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
 
     SkScaledBitmapSampler sampler(cinfo.output_width, cinfo.output_height, sampleSize);
     bm->setConfig(config, sampler.scaledWidth(), sampler.scaledHeight());
-    bm->setIsOpaque(true);
+    bm->setIsOpaque(config != SkBitmap::kA8_Config);
     if (SkImageDecoder::kDecodeBounds_Mode == mode) {
         return true;
     }
