@@ -31,6 +31,7 @@
 #endif
 
 class SkPaint;
+struct SkConvolutionProcs;
 
 struct SkBitmapProcState {
 
@@ -79,6 +80,8 @@ struct SkBitmapProcState {
     SkFixed             fFilterOneX;
     SkFixed             fFilterOneY;
 
+    SkConvolutionProcs* fConvolutionProcs;         // possiblyScaleImage
+
     SkPMColor           fPaintPMColor;      // chooseProcs - A8 config
     SkFixed             fInvSx;             // chooseProcs
     SkFixed             fInvKy;             // chooseProcs
@@ -114,6 +117,11 @@ struct SkBitmapProcState {
      */
     void platformProcs();
 
+    /** Platforms can also optionally overwrite the convolution functions
+        if we have SIMD versions of them.
+      */
+
+    void platformConvolutionProcs();
 
     /** Given the byte size of the index buffer to be passed to the matrix proc,
         return the maximum number of resulting pixels that can be computed
@@ -160,7 +168,7 @@ private:
 
     void possiblyScaleImage();
 
-    SkBitmapFilter *fBitmapFilter;
+    SkBitmapFilter* fBitmapFilter;
 
     ShaderProc32 chooseBitmapFilterProc();
 
@@ -218,8 +226,6 @@ void ClampX_ClampY_nofilter_affine(const SkBitmapProcState& s,
 void S32_D16_filter_DX(const SkBitmapProcState& s,
                                    const uint32_t* xy, int count, uint16_t* colors);
 
-void highQualityFilter_ScaleOnly(const SkBitmapProcState &s, int x, int y,
-                             SkPMColor *SK_RESTRICT colors, int count);
 void highQualityFilter(const SkBitmapProcState &s, int x, int y,
                    SkPMColor *SK_RESTRICT colors, int count);
 
