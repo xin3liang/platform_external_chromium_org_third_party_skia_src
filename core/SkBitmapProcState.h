@@ -13,6 +13,7 @@
 #include "SkBitmap.h"
 #include "SkBitmapFilter.h"
 #include "SkMatrix.h"
+#include "SkScaledImageCache.h"
 
 #define FractionalInt_IS_64BIT
 
@@ -35,8 +36,9 @@ struct SkConvolutionProcs;
 
 struct SkBitmapProcState {
 
-    SkBitmapProcState(): fBitmapFilter(NULL) {}
+    SkBitmapProcState(): fScaledCacheID(NULL), fBitmapFilter(NULL) {}
     ~SkBitmapProcState() {
+        SkASSERT(NULL == fScaledCacheID);
         SkDELETE(fBitmapFilter);
     }
 
@@ -89,12 +91,7 @@ struct SkBitmapProcState {
     uint8_t             fInvType;           // chooseProcs
     uint8_t             fTileModeX;         // CONSTRUCTOR
     uint8_t             fTileModeY;         // CONSTRUCTOR
-
-    enum {
-        kNone_BitmapFilter,
-        kBilerp_BitmapFilter,
-        kHQ_BitmapFilter
-    } fFilterQuality;          // chooseProcs
+    uint8_t             fFilterLevel;       // chooseProcs
 
     /** The shader will let us know when we can release some of our resources
       * like scaled bitmaps.
@@ -161,6 +158,8 @@ private:
 
     SkBitmap            fOrigBitmap;        // CONSTRUCTOR
     SkBitmap            fScaledBitmap;      // chooseProcs
+
+    SkScaledImageCache::ID* fScaledCacheID;
 
     MatrixProc chooseMatrixProc(bool trivial_matrix);
     bool chooseProcs(const SkMatrix& inv, const SkPaint&);
