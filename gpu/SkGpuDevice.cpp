@@ -24,6 +24,7 @@
 #include "SkRRect.h"
 #include "SkStroke.h"
 #include "SkUtils.h"
+#include "SkErrorInternals.h"
 
 #define CACHE_COMPATIBLE_DEVICE_TEXTURES 1
 
@@ -1078,21 +1079,10 @@ bool SkGpuDevice::shouldTileBitmap(const SkBitmap& bitmap,
 
 void SkGpuDevice::drawBitmap(const SkDraw& draw,
                              const SkBitmap& bitmap,
-                             const SkIRect* srcRectPtr,
                              const SkMatrix& m,
                              const SkPaint& paint) {
-
-    SkRect  tmp;
-    SkRect* tmpPtr = NULL;
-
-    // convert from SkIRect to SkRect
-    if (NULL != srcRectPtr) {
-        tmp.set(*srcRectPtr);
-        tmpPtr = &tmp;
-    }
-
     // We cannot call drawBitmapRect here since 'm' could be anything
-    this->drawBitmapCommon(draw, bitmap, tmpPtr, m, paint);
+    this->drawBitmapCommon(draw, bitmap, NULL, m, paint);
 }
 
 void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
@@ -1145,7 +1135,36 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
     }
 
     GrTextureParams params;
-    params.setBilerp(paint.isFilterBitmap());
+    SkPaint::FilterLevel paintFilterLevel = paint.getFilterLevel();
+    GrTextureParams::FilterMode textureFilterMode;
+    switch(paintFilterLevel) {
+        case SkPaint::kNone_FilterLevel:
+            textureFilterMode = GrTextureParams::kNone_FilterMode;
+            break;
+        case SkPaint::kLow_FilterLevel:
+            textureFilterMode = GrTextureParams::kBilerp_FilterMode;
+            break;
+        case SkPaint::kMedium_FilterLevel:
+            textureFilterMode = GrTextureParams::kMipMap_FilterMode;
+            break;
+        case SkPaint::kHigh_FilterLevel:
+            SkErrorInternals::SetError( kInvalidPaint_SkError,
+                                        "Sorry, I don't yet support high quality "
+                                        "filtering on the GPU.  Falling back to "
+                                        "MIPMaps.");
+            textureFilterMode = GrTextureParams::kMipMap_FilterMode;
+            break;
+        default:
+            SkErrorInternals::SetError( kInvalidPaint_SkError,
+                                        "Sorry, I don't understand the filtering "
+                                        "mode you asked for.  Falling back to "
+                                        "MIPMaps.");
+            textureFilterMode = GrTextureParams::kMipMap_FilterMode;
+            break;
+    
+    }
+    
+    params.setFilterMode(textureFilterMode);
 
     if (!this->shouldTileBitmap(bitmap, params, srcRectPtr)) {
         // take the simple case
@@ -1216,9 +1235,8 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
     }
 }
 
-namespace {
-
-bool hasAlignedSamples(const SkRect& srcRect, const SkRect& transformedRect) {
+static bool has_aligned_samples(const SkRect& srcRect, 
+                                const SkRect& transformedRect) {
     // detect pixel disalignment
     if (SkScalarAbs(SkScalarRoundToScalar(transformedRect.left()) -
             transformedRect.left()) < COLOR_BLEED_TOLERANCE &&
@@ -1233,11 +1251,12 @@ bool hasAlignedSamples(const SkRect& srcRect, const SkRect& transformedRect) {
     return false;
 }
 
-bool mayColorBleed(const SkRect& srcRect, const SkRect& transformedRect,
-                   const SkMatrix& m) {
-    // Only gets called if hasAlignedSamples returned false.
+static bool may_color_bleed(const SkRect& srcRect, 
+                            const SkRect& transformedRect,
+                            const SkMatrix& m) {
+    // Only gets called if has_aligned_samples returned false.
     // So we can assume that sampling is axis aligned but not texel aligned.
-    GrAssert(!hasAlignedSamples(srcRect, transformedRect));
+    GrAssert(!has_aligned_samples(srcRect, transformedRect));
     SkRect innerSrcRect(srcRect), innerTransformedRect,
         outerTransformedRect(transformedRect);
     innerSrcRect.inset(SK_ScalarHalf, SK_ScalarHalf);
@@ -1257,7 +1276,6 @@ bool mayColorBleed(const SkRect& srcRect, const SkRect& transformedRect,
     return inner != outer;
 }
 
-} // unnamed namespace
 
 /*
  *  This is called by drawBitmap(), which has to handle images that may be too
@@ -1290,24 +1308,23 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
                       SkScalarMul(srcRect.fBottom, hInv));
 
     bool needsTextureDomain = false;
-    if (params.isBilerp()) {
+    if (params.filterMode() != GrTextureParams::kNone_FilterMode) {
         // Need texture domain if drawing a sub rect.
         needsTextureDomain = srcRect.width() < bitmap.width() ||
                              srcRect.height() < bitmap.height();
-        if (m.rectStaysRect() && fContext->getMatrix().rectStaysRect()) {
+        if (needsTextureDomain && m.rectStaysRect() && fContext->getMatrix().rectStaysRect()) {
             // sampling is axis-aligned
             SkRect transformedRect;
             SkMatrix srcToDeviceMatrix(m);
             srcToDeviceMatrix.postConcat(fContext->getMatrix());
             srcToDeviceMatrix.mapRect(&transformedRect, srcRect);
 
-            if (hasAlignedSamples(srcRect, transformedRect)) {
+            if (has_aligned_samples(srcRect, transformedRect)) {
                 // We could also turn off filtering here (but we already did a cache lookup with
                 // params).
                 needsTextureDomain = false;
             } else {
-                needsTextureDomain = needsTextureDomain &&
-                    mayColorBleed(srcRect, transformedRect, m);
+                needsTextureDomain = may_color_bleed(srcRect, transformedRect, m);
             }
         }
     }
@@ -1336,7 +1353,7 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
                                                    SkMatrix::I(),
                                                    textureDomain,
                                                    GrTextureDomainEffect::kClamp_WrapMode,
-                                                   params.isBilerp()));
+                                                   params.filterMode()));
     } else {
         effect.reset(GrSimpleTextureEffect::Create(texture, SkMatrix::I(), params));
     }

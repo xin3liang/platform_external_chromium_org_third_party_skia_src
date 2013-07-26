@@ -34,11 +34,11 @@ public:
     static ID* FindAndLock(const SkBitmap& original, SkScalar scaleX,
                            SkScalar scaleY, SkBitmap* scaled);
     static ID* FindAndLockMip(const SkBitmap& original, SkMipMap const**);
-    
+
     static ID* AddAndLock(const SkBitmap& original, SkScalar scaleX,
                           SkScalar scaleY, const SkBitmap& scaled);
     static ID* AddAndLockMip(const SkBitmap& original, const SkMipMap*);
-    
+
     static void Unlock(ID*);
 
     static size_t GetBytesUsed();
@@ -88,10 +88,14 @@ public:
      */
     size_t setByteLimit(size_t newLimit);
 
-private:
+public:
     struct Rec;
+private:
     Rec*    fHead;
     Rec*    fTail;
+
+    class Hash;
+    Hash*   fHash;
 
     size_t  fBytesUsed;
     size_t  fByteLimit;
