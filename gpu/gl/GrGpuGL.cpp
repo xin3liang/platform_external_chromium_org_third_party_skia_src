@@ -526,9 +526,14 @@ bool GrGpuGL::onWriteTexturePixels(GrTexture* texture,
     desc.fTextureID = glTex->textureID();
     desc.fOrigin = glTex->origin();
 
-    return this->uploadTexData(desc, false,
-                               left, top, width, height,
-                               config, buffer, rowBytes);
+    if (this->uploadTexData(desc, false,
+                            left, top, width, height,
+                            config, buffer, rowBytes)) {
+        texture->dirtyMipMaps(true);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 namespace {
@@ -961,15 +966,16 @@ GrTexture* GrGpuGL::onCreateTexture(const GrTextureDesc& desc,
     GrGLTexture::TexParams initialTexParams;
     // we only set a subset here so invalidate first
     initialTexParams.invalidate();
-    initialTexParams.fFilter = GR_GL_NEAREST;
+    initialTexParams.fMinFilter = GR_GL_NEAREST;
+    initialTexParams.fMagFilter = GR_GL_NEAREST;
     initialTexParams.fWrapS = GR_GL_CLAMP_TO_EDGE;
     initialTexParams.fWrapT = GR_GL_CLAMP_TO_EDGE;
     GL_CALL(TexParameteri(GR_GL_TEXTURE_2D,
                           GR_GL_TEXTURE_MAG_FILTER,
-                          initialTexParams.fFilter));
+                          initialTexParams.fMagFilter));
     GL_CALL(TexParameteri(GR_GL_TEXTURE_2D,
                           GR_GL_TEXTURE_MIN_FILTER,
-                          initialTexParams.fFilter));
+                          initialTexParams.fMinFilter));
     GL_CALL(TexParameteri(GR_GL_TEXTURE_2D,
                           GR_GL_TEXTURE_WRAP_S,
                           initialTexParams.fWrapS));
@@ -1547,6 +1553,11 @@ void GrGpuGL::flushRenderTarget(const SkIRect* bound) {
     if (NULL == bound || !bound->isEmpty()) {
         rt->flagAsNeedingResolve(bound);
     }
+
+    GrTexture *texture = rt->asTexture();
+    if (texture) {
+        texture->dirtyMipMaps(true);
+    }
 }
 
 GrGLenum gPrimitiveType2GLMode[] = {
@@ -2006,21 +2017,44 @@ void GrGpuGL::bindTexture(int unitIdx, const GrTextureParams& params, GrGLTextur
     bool setAll = timestamp < this->getResetTimestamp();
     GrGLTexture::TexParams newTexParams;
 
-    newTexParams.fFilter = (params.filterMode() == GrTextureParams::kNone_FilterMode) ? GR_GL_NEAREST : GR_GL_LINEAR;
+    static GrGLenum glMinFilterModes[] = {
+        GR_GL_NEAREST,
+        GR_GL_LINEAR,
+        GR_GL_LINEAR_MIPMAP_LINEAR
+    };
+    static GrGLenum glMagFilterModes[] = {
+        GR_GL_NEAREST,
+        GR_GL_LINEAR,
+        GR_GL_LINEAR
+    };
+    newTexParams.fMinFilter = glMinFilterModes[params.filterMode()];
+    newTexParams.fMagFilter = glMagFilterModes[params.filterMode()];
+
+#ifndef SKIA_IGNORE_GPU_MIPMAPS
+    if (params.filterMode() == GrTextureParams::kMipMap_FilterMode &&
+        texture->mipMapsAreDirty()) {
+//        GL_CALL(Hint(GR_GL_GENERATE_MIPMAP_HINT,GR_GL_NICEST));
+        GL_CALL(GenerateMipmap(GR_GL_TEXTURE_2D));
+        texture->dirtyMipMaps(false);
+    }
+#endif
 
     newTexParams.fWrapS = tile_to_gl_wrap(params.getTileModeX());
     newTexParams.fWrapT = tile_to_gl_wrap(params.getTileModeY());
     memcpy(newTexParams.fSwizzleRGBA,
            GrGLShaderBuilder::GetTexParamSwizzle(texture->config(), this->glCaps()),
            sizeof(newTexParams.fSwizzleRGBA));
-    if (setAll || newTexParams.fFilter != oldTexParams.fFilter) {
+    if (setAll || newTexParams.fMagFilter != oldTexParams.fMagFilter) {
         this->setTextureUnit(unitIdx);
         GL_CALL(TexParameteri(GR_GL_TEXTURE_2D,
                               GR_GL_TEXTURE_MAG_FILTER,
-                              newTexParams.fFilter));
+                              newTexParams.fMagFilter));
+    }
+    if (setAll || newTexParams.fMinFilter != oldTexParams.fMinFilter) {
+        this->setTextureUnit(unitIdx);
         GL_CALL(TexParameteri(GR_GL_TEXTURE_2D,
                               GR_GL_TEXTURE_MIN_FILTER,
-                              newTexParams.fFilter));
+                              newTexParams.fMinFilter));
     }
     if (setAll || newTexParams.fWrapS != oldTexParams.fWrapS) {
         this->setTextureUnit(unitIdx);
