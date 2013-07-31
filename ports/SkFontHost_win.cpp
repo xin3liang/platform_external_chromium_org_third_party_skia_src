@@ -250,6 +250,7 @@ protected:
     virtual void onGetFontDescriptor(SkFontDescriptor*, bool*) const SK_OVERRIDE;
     virtual int onCountGlyphs() const SK_OVERRIDE;
     virtual int onGetUPEM() const SK_OVERRIDE;
+    virtual SkTypeface* onRefMatchingStyle(Style) const SK_OVERRIDE;
 };
 
 class FontMemResourceTypeface : public LogFontTypeface {
@@ -522,10 +523,10 @@ const void* HDCOffscreen::draw(const SkGlyph& glyph, bool isBW,
 //////////////////////////////////////////////////////////////////////////////
 #define BUFFERSIZE (1 << 13)
 
-class SkScalerContext_Windows : public SkScalerContext {
+class SkScalerContext_GDI : public SkScalerContext {
 public:
-    SkScalerContext_Windows(SkTypeface*, const SkDescriptor* desc);
-    virtual ~SkScalerContext_Windows();
+    SkScalerContext_GDI(SkTypeface*, const SkDescriptor* desc);
+    virtual ~SkScalerContext_GDI();
 
     // Returns true if the constructor was able to complete all of its
     // initializations (which may include calling GDI).
@@ -550,14 +551,17 @@ private:
      *  Used to find the magnitude of advances.
      */
     MAT2         fGsA;
+    /** The total matrix without the textSize. */
     MAT2         fMat22;
+    /** Scales font to EM size. */
+    MAT2         fHighResMat22;
     HDC          fDDC;
     HFONT        fSavefont;
     HFONT        fFont;
-    HFONT        fHiResFont;
     SCRIPT_CACHE fSC;
     int          fGlyphCount;
 
+    /** The total matrix which also removes EM scale. */
     SkMatrix     fHiResMatrix;
     /** fG_inv is the inverse of the rotational part of the total matrix.
      *  Used to set the direction of advances.
@@ -589,13 +593,12 @@ static BYTE compute_quality(const SkScalerContext::Rec& rec) {
     }
 }
 
-SkScalerContext_Windows::SkScalerContext_Windows(SkTypeface* rawTypeface,
+SkScalerContext_GDI::SkScalerContext_GDI(SkTypeface* rawTypeface,
                                                  const SkDescriptor* desc)
         : SkScalerContext(rawTypeface, desc)
         , fDDC(0)
         , fSavefont(0)
         , fFont(0)
-        , fHiResFont(0)
         , fSC(0)
         , fGlyphCount(-1)
 {
@@ -705,7 +708,7 @@ SkScalerContext_Windows::SkScalerContext_Windows(SkTypeface* rawTypeface,
     if (fTM.tmPitchAndFamily & TMPF_VECTOR) {
         // Truetype or PostScript.
         // Stroked FON also gets here (TMPF_VECTOR), but we don't handle it.
-        fType = SkScalerContext_Windows::kTrueType_Type;
+        fType = SkScalerContext_GDI::kTrueType_Type;
 
         // fPost2x2 is column-major, left handed (y down).
         // XFORM 2x2 is row-major, left handed (y down).
@@ -735,22 +738,23 @@ SkScalerContext_Windows::SkScalerContext_Windows(SkTypeface* rawTypeface,
                 success = GetOutlineTextMetrics(fDDC, sizeof(otm), &otm);
             }
             if (0 != success) {
-                lf.lfHeight = -SkToS32(otm.otmEMSquare);
-                fHiResFont = CreateFontIndirect(&lf);
-                if (!fHiResFont) {
-                    return;
-                }
+                SkScalar scale = SkIntToScalar(otm.otmEMSquare);
 
-                // construct a matrix to go from HIRES logical units to our device units
-                fRec.getSingleMatrix(&fHiResMatrix);
-                SkScalar scale = SkScalarInvert(SkIntToScalar(otm.otmEMSquare));
-                fHiResMatrix.preScale(scale, scale);
+                SkScalar textScale = scale / textSize;
+                fHighResMat22.eM11 = float2FIXED(textScale);
+                fHighResMat22.eM12 = float2FIXED(0);
+                fHighResMat22.eM21 = float2FIXED(0);
+                fHighResMat22.eM22 = float2FIXED(textScale);
+
+                SkScalar invScale = SkScalarInvert(scale);
+                fHiResMatrix = A;
+                fHiResMatrix.preScale(invScale, invScale);
             }
         }
 
     } else {
         // Assume bitmap
-        fType = SkScalerContext_Windows::kBitmap_Type;
+        fType = SkScalerContext_GDI::kBitmap_Type;
 
         xform.eM11 = 1.0f;
         xform.eM12 = 0.0f;
@@ -770,7 +774,7 @@ SkScalerContext_Windows::SkScalerContext_Windows(SkTypeface* rawTypeface,
     fOffscreen.init(fFont, xform);
 }
 
-SkScalerContext_Windows::~SkScalerContext_Windows() {
+SkScalerContext_GDI::~SkScalerContext_GDI() {
     if (fDDC) {
         ::SelectObject(fDDC, fSavefont);
         ::DeleteDC(fDDC);
@@ -778,19 +782,16 @@ SkScalerContext_Windows::~SkScalerContext_Windows() {
     if (fFont) {
         ::DeleteObject(fFont);
     }
-    if (fHiResFont) {
-        ::DeleteObject(fHiResFont);
-    }
     if (fSC) {
         ::ScriptFreeCache(&fSC);
     }
 }
 
-bool SkScalerContext_Windows::isValid() const {
+bool SkScalerContext_GDI::isValid() const {
     return fDDC && fFont;
 }
 
-unsigned SkScalerContext_Windows::generateGlyphCount() {
+unsigned SkScalerContext_GDI::generateGlyphCount() {
     if (fGlyphCount < 0) {
         fGlyphCount = calculateGlyphCount(
                           fDDC, static_cast<const LogFontTypeface*>(this->getTypeface())->fLogFont);
@@ -798,7 +799,7 @@ unsigned SkScalerContext_Windows::generateGlyphCount() {
     return fGlyphCount;
 }
 
-uint16_t SkScalerContext_Windows::generateCharToGlyph(SkUnichar uni) {
+uint16_t SkScalerContext_GDI::generateCharToGlyph(SkUnichar uni) {
     uint16_t index = 0;
     WCHAR c[2];
     // TODO(ctguil): Support characters that generate more than one glyph.
@@ -823,15 +824,14 @@ uint16_t SkScalerContext_Windows::generateCharToGlyph(SkUnichar uni) {
     return index;
 }
 
-void SkScalerContext_Windows::generateAdvance(SkGlyph* glyph) {
+void SkScalerContext_GDI::generateAdvance(SkGlyph* glyph) {
     this->generateMetrics(glyph);
 }
 
-static const MAT2 gMat2Identity = {{0, 1}, {0, 0}, {0, 0}, {0, 1}};
-void SkScalerContext_Windows::generateMetrics(SkGlyph* glyph) {
+void SkScalerContext_GDI::generateMetrics(SkGlyph* glyph) {
     SkASSERT(fDDC);
 
-    if (fType == SkScalerContext_Windows::kBitmap_Type) {
+    if (fType == SkScalerContext_GDI::kBitmap_Type) {
         SIZE size;
         WORD glyphs = glyph->getGlyphID(0);
         if (0 == GetTextExtentPointI(fDDC, &glyphs, 1, &size)) {
@@ -898,17 +898,15 @@ void SkScalerContext_Windows::generateMetrics(SkGlyph* glyph) {
     glyph->fRsbDelta = 0;
     glyph->fLsbDelta = 0;
 
-    if (fHiResFont) {
-        SelectObject(fDDC, fHiResFont);
+    if (this->isSubpixel()) {
         sk_bzero(&gm, sizeof(gm));
-        status = GetGlyphOutlineW(fDDC, glyphId, GGO_METRICS | GGO_GLYPH_INDEX, &gm, 0, NULL, &gMat2Identity);
+        status = GetGlyphOutlineW(fDDC, glyphId, GGO_METRICS | GGO_GLYPH_INDEX, &gm, 0, NULL, &fHighResMat22);
         if (GDI_ERROR != status) {
             SkPoint advance;
             fHiResMatrix.mapXY(SkIntToScalar(gm.gmCellIncX), SkIntToScalar(gm.gmCellIncY), &advance);
             glyph->fAdvanceX = SkScalarToFixed(advance.fX);
             glyph->fAdvanceY = SkScalarToFixed(advance.fY);
         }
-        SelectObject(fDDC, fFont);
     } else if (!isAxisAligned(this->fRec)) {
         status = GetGlyphOutlineW(fDDC, glyphId, GGO_METRICS | GGO_GLYPH_INDEX, &gm, 0, NULL, &fGsA);
         if (GDI_ERROR != status) {
@@ -920,7 +918,8 @@ void SkScalerContext_Windows::generateMetrics(SkGlyph* glyph) {
     }
 }
 
-void SkScalerContext_Windows::generateFontMetrics(SkPaint::FontMetrics* mx, SkPaint::FontMetrics* my) {
+static const MAT2 gMat2Identity = {{0, 1}, {0, 0}, {0, 0}, {0, 1}};
+void SkScalerContext_GDI::generateFontMetrics(SkPaint::FontMetrics* mx, SkPaint::FontMetrics* my) {
     if (!(mx || my)) {
       return;
     }
@@ -935,7 +934,7 @@ void SkScalerContext_Windows::generateFontMetrics(SkPaint::FontMetrics* mx, SkPa
     SkASSERT(fDDC);
 
 #ifndef SK_GDI_ALWAYS_USE_TEXTMETRICS_FOR_FONT_METRICS
-    if (fType == SkScalerContext_Windows::kBitmap_Type) {
+    if (fType == SkScalerContext_GDI::kBitmap_Type) {
 #endif
         if (mx) {
             mx->fTop = SkIntToScalar(-fTM.tmAscent);
@@ -1254,7 +1253,7 @@ static inline unsigned clamp255(unsigned x) {
     return x - (x >> 8);
 }
 
-void SkScalerContext_Windows::generateImage(const SkGlyph& glyph) {
+void SkScalerContext_GDI::generateImage(const SkGlyph& glyph) {
     SkASSERT(fDDC);
 
     const bool isBW = SkMask::kBW_Format == fRec.fMaskFormat;
@@ -1604,7 +1603,7 @@ static void sk_path_from_gdi_paths(SkPath* path, const uint8_t* glyphbuf, DWORD 
     }
 }
 
-DWORD SkScalerContext_Windows::getGDIGlyphPath(const SkGlyph& glyph, UINT flags,
+DWORD SkScalerContext_GDI::getGDIGlyphPath(const SkGlyph& glyph, UINT flags,
                                                SkAutoSTMalloc<BUFFERSIZE, uint8_t>* glyphbuf)
 {
     GLYPHMETRICS gm;
@@ -1641,7 +1640,7 @@ DWORD SkScalerContext_Windows::getGDIGlyphPath(const SkGlyph& glyph, UINT flags,
     return total_size;
 }
 
-void SkScalerContext_Windows::generatePath(const SkGlyph& glyph, SkPath* path) {
+void SkScalerContext_GDI::generatePath(const SkGlyph& glyph, SkPath* path) {
     SkASSERT(&glyph && path);
     SkASSERT(fDDC);
 
@@ -1986,10 +1985,6 @@ static SkTypeface* create_from_stream(SkStream* stream) {
     return SkCreateFontMemResourceTypefaceFromLOGFONT(lf, fontReference);
 }
 
-SkTypeface* SkFontHost::CreateTypefaceFromStream(SkStream* stream) {
-    return create_from_stream(stream);
-}
-
 SkStream* LogFontTypeface::onOpenStream(int* ttcIndex) const {
     *ttcIndex = 0;
 
@@ -2056,43 +2051,13 @@ int LogFontTypeface::onGetUPEM() const {
 }
 
 SkScalerContext* LogFontTypeface::onCreateScalerContext(const SkDescriptor* desc) const {
-    SkScalerContext_Windows* ctx = SkNEW_ARGS(SkScalerContext_Windows,
+    SkScalerContext_GDI* ctx = SkNEW_ARGS(SkScalerContext_GDI,
                                                 (const_cast<LogFontTypeface*>(this), desc));
     if (!ctx->isValid()) {
         SkDELETE(ctx);
         ctx = NULL;
     }
     return ctx;
-}
-
-/** Return the closest matching typeface given either an existing family
- (specified by a typeface in that family) or by a familyName, and a
- requested style.
- 1) If familyFace is null, use familyName.
- 2) If familyName is null, use familyFace.
- 3) If both are null, return the default font that best matches style
- This MUST not return NULL.
- */
-
-SkTypeface* SkFontHost::CreateTypeface(const SkTypeface* familyFace,
-                                       const char familyName[],
-                                       SkTypeface::Style style) {
-    LOGFONT lf;
-    if (NULL == familyFace && NULL == familyName) {
-        lf = get_default_font();
-    } else if (familyFace) {
-        LogFontTypeface* face = (LogFontTypeface*)familyFace;
-        lf = face->fLogFont;
-    } else {
-        logfont_for_name(familyName, &lf);
-    }
-    setStyle(&lf, style);
-    return SkCreateTypefaceFromLOGFONT(lf);
-}
-
-SkTypeface* SkFontHost::CreateTypefaceFromFile(const char path[]) {
-    SkAutoTUnref<SkStream> stream(SkStream::NewFromFile(path));
-    return stream.get() ? CreateTypefaceFromStream(stream) : NULL;
 }
 
 void LogFontTypeface::onFilterRec(SkScalerContextRec* rec) const {
@@ -2147,6 +2112,26 @@ void LogFontTypeface::onFilterRec(SkScalerContextRec* rec) const {
         rec->fMaskFormat = SkMask::kA8_Format;
         rec->fFlags &= ~SkScalerContext::kGenA8FromLCD_Flag;
     }
+}
+
+static SkTypeface* create_typeface(const SkTypeface* familyFace,
+                                   const char familyName[],
+                                   unsigned styleBits) {
+    LOGFONT lf;
+    if (NULL == familyFace && NULL == familyName) {
+        lf = get_default_font();
+    } else if (familyFace) {
+        LogFontTypeface* face = (LogFontTypeface*)familyFace;
+        lf = face->fLogFont;
+    } else {
+        logfont_for_name(familyName, &lf);
+    }
+    setStyle(&lf, (SkTypeface::Style)styleBits);
+    return SkCreateTypefaceFromLOGFONT(lf);
+}
+
+SkTypeface* LogFontTypeface::onRefMatchingStyle(Style style) const {
+    return create_typeface(this, NULL, style);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2316,9 +2301,35 @@ protected:
         return this->createFromStream(stream);
     }
 
+    virtual SkTypeface* onLegacyCreateTypeface(const char familyName[],
+                                               unsigned styleBits) SK_OVERRIDE {
+        return create_typeface(NULL, familyName, styleBits);
+    }
+
 private:
     SkTDArray<ENUMLOGFONTEX> fLogFontArray;
 };
+
+///////////////////////////////////////////////////////////////////////////////
+
+#ifndef SK_FONTHOST_USES_FONTMGR
+
+SkTypeface* SkFontHost::CreateTypeface(const SkTypeface* familyFace,
+                                       const char familyName[],
+                                       SkTypeface::Style styleBits) {
+    return create_typeface(familyFace, familyName, styleBits);
+}
+
+SkTypeface* SkFontHost::CreateTypefaceFromFile(const char path[]) {
+    SkAutoTUnref<SkStream> stream(SkStream::NewFromFile(path));
+    return stream.get() ? CreateTypefaceFromStream(stream) : NULL;
+}
+
+SkTypeface* SkFontHost::CreateTypefaceFromStream(SkStream* stream) {
+    return create_from_stream(stream);
+}
+
+#endif
 
 SkFontMgr* SkFontMgr::Factory() {
     return SkNEW(SkFontMgrGDI);
