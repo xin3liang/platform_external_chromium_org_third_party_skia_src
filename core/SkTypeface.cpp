@@ -209,6 +209,10 @@ SkAdvancedTypefaceMetrics* SkTypeface::getAdvancedTypefaceMetrics(
     return this->onGetAdvancedTypefaceMetrics(info, glyphIDs, glyphIDsCount);
 }
 
+SkTypeface* SkTypeface::refMatchingStyle(Style style) const {
+    return this->onRefMatchingStyle(style);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -219,20 +223,6 @@ int SkTypeface::onCharsToGlyphs(const void* chars, Encoding encoding,
         sk_bzero(glyphs, glyphCount * sizeof(glyphs[0]));
     }
     return 0;
-}
-
-int SkTypeface::onGetUPEM() const {
-    int upem = 0;
-
-    SkAdvancedTypefaceMetrics* metrics;
-    metrics = this->getAdvancedTypefaceMetrics(
-                             SkAdvancedTypefaceMetrics::kNo_PerGlyphInfo,
-                             NULL, 0);
-    if (metrics) {
-        upem = metrics->fEmSize;
-        metrics->unref();
-    }
-    return upem;
 }
 
 int SkTypeface::onGetTableTags(SkFontTableTag tags[]) const {
