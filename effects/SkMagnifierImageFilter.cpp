@@ -118,9 +118,6 @@ private:
 GrGLMagnifierEffect::GrGLMagnifierEffect(const GrBackendEffectFactory& factory,
                                          const GrDrawEffect& drawEffect)
     : INHERITED(factory)
-    , fOffsetVar(GrGLUniformManager::kInvalidUniformHandle)
-    , fZoomVar(GrGLUniformManager::kInvalidUniformHandle)
-    , fInsetVar(GrGLUniformManager::kInvalidUniformHandle)
     , fEffectMatrix(drawEffect.castEffect<GrMagnifierEffect>().coordsType()) {
 }
 
@@ -219,7 +216,7 @@ GrEffectRef* GrMagnifierEffect::TestCreate(SkMWCRandom* random,
                 inset));
     GrEffectRef* effect;
     filter->asNewEffect(&effect, textures[0], SkIPoint::Make(0, 0));
-    GrAssert(NULL != effect);
+    SkASSERT(NULL != effect);
     return effect;
 }
 

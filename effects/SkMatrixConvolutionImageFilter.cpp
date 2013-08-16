@@ -351,11 +351,6 @@ private:
 GrGLMatrixConvolutionEffect::GrGLMatrixConvolutionEffect(const GrBackendEffectFactory& factory,
                                                          const GrDrawEffect& drawEffect)
     : INHERITED(factory)
-    , fKernelUni(GrGLUniformManager::kInvalidUniformHandle)
-    , fImageIncrementUni(GrGLUniformManager::kInvalidUniformHandle)
-    , fTargetUni(GrGLUniformManager::kInvalidUniformHandle)
-    , fGainUni(GrGLUniformManager::kInvalidUniformHandle)
-    , fBiasUni(GrGLUniformManager::kInvalidUniformHandle)
     , fEffectMatrix(drawEffect.castEffect<GrMatrixConvolutionEffect>().coordsType()) {
     const GrMatrixConvolutionEffect& m = drawEffect.castEffect<GrMatrixConvolutionEffect>();
     fKernelSize = m.kernelSize();
@@ -470,8 +465,8 @@ void GrGLMatrixConvolutionEffect::setData(const GrGLUniformManager& uman,
     const GrMatrixConvolutionEffect& conv = drawEffect.castEffect<GrMatrixConvolutionEffect>();
     GrTexture& texture = *conv.texture(0);
     // the code we generated was for a specific kernel size
-    GrAssert(conv.kernelSize() == fKernelSize);
-    GrAssert(conv.tileMode() == fTileMode);
+    SkASSERT(conv.kernelSize() == fKernelSize);
+    SkASSERT(conv.tileMode() == fTileMode);
     float imageIncrement[2];
     float ySign = texture.origin() == kTopLeft_GrSurfaceOrigin ? 1.0f : -1.0f;
     imageIncrement[0] = 1.0f / texture.width();
