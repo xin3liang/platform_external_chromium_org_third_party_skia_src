@@ -214,6 +214,7 @@ private:
 class SkCanvas::MCRec {
 public:
     MCRec*          fNext;
+    int             fFlags;
     SkMatrix*       fMatrix;        // points to either fMatrixStorage or prev MCRec
     SkRasterClip*   fRasterClip;    // points to either fRegionStorage or prev MCRec
     SkDrawFilter*   fFilter;        // the current filter (or null)
@@ -227,7 +228,7 @@ public:
     */
     DeviceCM*   fTopLayer;
 
-    MCRec(const MCRec* prev, int flags) {
+    MCRec(const MCRec* prev, int flags) : fFlags(flags) {
         if (NULL != prev) {
             if (flags & SkCanvas::kMatrix_SaveFlag) {
                 fMatrixStorage = *prev->fMatrix;
@@ -720,8 +721,9 @@ int SkCanvas::internalSave(SaveFlags flags) {
     newTop->fNext = fMCRec;
     fMCRec = newTop;
 
-    fClipStack.save();
-    SkASSERT(fClipStack.getSaveCount() == this->getSaveCount() - 1);
+    if (SkCanvas::kClip_SaveFlag & flags) {
+        fClipStack.save();
+    }
 
     return saveCount;
 }
@@ -896,7 +898,10 @@ void SkCanvas::internalRestore() {
     fDeviceCMDirty = true;
     fLocalBoundsCompareTypeDirty = true;
 
-    fClipStack.restore();
+    if (SkCanvas::kClip_SaveFlag & fMCRec->fFlags) {
+        fClipStack.restore();
+    }
+
     // reserve our layer (if any)
     DeviceCM* layer = fMCRec->fLayer;   // may be null
     // now detach it from fMCRec so we can pop(). Gets freed after its drawn
@@ -924,8 +929,6 @@ void SkCanvas::internalRestore() {
         }
         SkDELETE(layer);
     }
-
-    SkASSERT(fClipStack.getSaveCount() == this->getSaveCount() - 1);
 }
 
 int SkCanvas::getSaveCount() const {
@@ -1748,7 +1751,8 @@ void SkCanvas::drawBitmap(const SkBitmap& bitmap, SkScalar x, SkScalar y,
 
 // this one is non-virtual, so it can be called safely by other canvas apis
 void SkCanvas::internalDrawBitmapRect(const SkBitmap& bitmap, const SkRect* src,
-                                      const SkRect& dst, const SkPaint* paint) {
+                                      const SkRect& dst, const SkPaint* paint,
+                                      DrawBitmapRectFlags flags) {
     if (bitmap.width() == 0 || bitmap.height() == 0 || dst.isEmpty()) {
         return;
     }
@@ -1774,16 +1778,17 @@ void SkCanvas::internalDrawBitmapRect(const SkBitmap& bitmap, const SkRect* src,
     LOOPER_BEGIN(*paint, SkDrawFilter::kBitmap_Type)
 
     while (iter.next()) {
-        iter.fDevice->drawBitmapRect(iter, bitmap, src, dst, looper.paint());
+        iter.fDevice->drawBitmapRect(iter, bitmap, src, dst, looper.paint(), flags);
     }
 
     LOOPER_END
 }
 
 void SkCanvas::drawBitmapRectToRect(const SkBitmap& bitmap, const SkRect* src,
-                                    const SkRect& dst, const SkPaint* paint) {
+                                    const SkRect& dst, const SkPaint* paint,
+                                    DrawBitmapRectFlags flags) {
     SkDEBUGCODE(bitmap.validate();)
-    this->internalDrawBitmapRect(bitmap, src, dst, paint);
+    this->internalDrawBitmapRect(bitmap, src, dst, paint, flags);
 }
 
 void SkCanvas::drawBitmapMatrix(const SkBitmap& bitmap, const SkMatrix& matrix,
@@ -1853,7 +1858,8 @@ void SkCanvas::internalDrawBitmapNine(const SkBitmap& bitmap,
             s.fRight = srcX[x+1];
             d.fLeft = dstX[x];
             d.fRight = dstX[x+1];
-            this->internalDrawBitmapRect(bitmap, &s, d, paint);
+            this->internalDrawBitmapRect(bitmap, &s, d, paint,
+                                         kNone_DrawBitmapRectflag);
         }
     }
 }
