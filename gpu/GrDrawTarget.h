@@ -539,8 +539,8 @@ public:
                  int            vertexCount,
                  int            indexCount);
         bool succeeded() const { return NULL != fTarget; }
-        void* vertices() const { GrAssert(this->succeeded()); return fVertices; }
-        void* indices() const { GrAssert(this->succeeded()); return fIndices; }
+        void* vertices() const { SkASSERT(this->succeeded()); return fVertices; }
+        void* indices() const { SkASSERT(this->succeeded()); return fIndices; }
         GrPoint* positions() const {
             return static_cast<GrPoint*>(this->vertices());
         }
@@ -584,7 +584,7 @@ public:
     public:
         AutoGeometryPush(GrDrawTarget* target)
             : fAttribRestore(target->drawState()) {
-            GrAssert(NULL != target);
+            SkASSERT(NULL != target);
             fTarget = target;
             target->pushGeometrySource();
         }
@@ -606,7 +606,7 @@ public:
                                  ASRInit init,
                                  const SkMatrix* viewMatrix = NULL)
             : fState(target, init, viewMatrix) {
-            GrAssert(NULL != target);
+            SkASSERT(NULL != target);
             fTarget = target;
             target->pushGeometrySource();
             if (kPreserve_ASRInit == init) {
@@ -620,6 +620,23 @@ public:
         AutoStateRestore fState;
         GrDrawTarget*    fTarget;
     };
+
+    ///////////////////////////////////////////////////////////////////////////
+    // Draw execution tracking (for font atlases and other resources)
+    class DrawToken {
+    public:
+        DrawToken(GrDrawTarget* drawTarget, uint32_t drawID) :
+                  fDrawTarget(drawTarget), fDrawID(drawID) {}
+
+        bool isIssued() { return NULL != fDrawTarget && fDrawTarget->isIssued(fDrawID); }
+
+    private:
+        GrDrawTarget*  fDrawTarget;
+        uint32_t       fDrawID;   // this may wrap, but we're doing direct comparison
+                                  // so that should be okay
+    };
+
+    virtual DrawToken getCurrentDrawToken() { return DrawToken(this, 0); }
 
 protected:
 
@@ -702,7 +719,7 @@ protected:
     // it is preferable to call this rather than getGeomSrc()->fVertexSize because of the assert.
     size_t getVertexSize() const {
         // the vertex layout is only valid if a vertex source has been specified.
-        GrAssert(this->getGeomSrc().fVertexSrc != kNone_GeometrySrcType);
+        SkASSERT(this->getGeomSrc().fVertexSrc != kNone_GeometrySrcType);
         return this->getGeomSrc().fVertexSize;
     }
 
@@ -838,6 +855,9 @@ private:
     // Makes a copy of the dst if it is necessary for the draw. Returns false if a copy is required
     // but couldn't be made. Otherwise, returns true.
     bool setupDstReadIfNecessary(DrawInfo* info);
+
+    // Check to see if this set of draw commands has been sent out
+    virtual bool       isIssued(uint32_t drawID) { return true; }
 
     enum {
         kPreallocGeoSrcStateStackCnt = 4,

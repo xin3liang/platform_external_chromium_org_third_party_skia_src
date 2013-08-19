@@ -105,7 +105,7 @@ void GrGLCaps::init(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
         GR_GL_GetIntegerv(gli, GR_GL_MAX_FRAGMENT_UNIFORM_VECTORS,
                           &fMaxFragmentUniformVectors);
     } else {
-        GrAssert(kDesktop_GrGLBinding == binding);
+        SkASSERT(kDesktop_GrGLBinding == binding);
         GrGLint max;
         GR_GL_GetIntegerv(gli, GR_GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, &max);
         fMaxFragmentUniformVectors = max / 4;
@@ -130,7 +130,7 @@ void GrGLCaps::init(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
             fBGRAFormatSupport = true;
             fBGRAIsInternalFormat = true;
         }
-        GrAssert(fBGRAFormatSupport ||
+        SkASSERT(fBGRAFormatSupport ||
                  kSkia8888_GrPixelConfig != kBGRA_8888_GrPixelConfig);
     }
 
@@ -147,10 +147,11 @@ void GrGLCaps::init(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
         fPackRowLengthSupport = true;
         fPackFlipYSupport = false;
     } else {
-        fUnpackRowLengthSupport =ctxInfo.hasExtension("GL_EXT_unpack_subimage");
+        fUnpackRowLengthSupport = version >= GR_GL_VER(3,0) ||
+                                  ctxInfo.hasExtension("GL_EXT_unpack_subimage");
         fUnpackFlipYSupport = ctxInfo.hasExtension("GL_CHROMIUM_flipy");
-        // no extension for pack row length
-        fPackRowLengthSupport = false;
+        fPackRowLengthSupport = version >= GR_GL_VER(3,0) ||
+                                ctxInfo.hasExtension("GL_NV_pack_subimage");
         fPackFlipYSupport =
             ctxInfo.hasExtension("GL_ANGLE_pack_reverse_row_order");
     }
@@ -213,7 +214,8 @@ void GrGLCaps::init(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
         fVertexArrayObjectSupport = version >= GR_GL_VER(3, 0) ||
                                     ctxInfo.hasExtension("GL_ARB_vertex_array_object");
     } else {
-        fVertexArrayObjectSupport = ctxInfo.hasExtension("GL_OES_vertex_array_object");
+        fVertexArrayObjectSupport = version >= GR_GL_VER(3, 0) ||
+                                    ctxInfo.hasExtension("GL_OES_vertex_array_object");
     }
 
     if (kES_GrGLBinding == binding) {
@@ -273,7 +275,9 @@ void GrGLCaps::init(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
         }
     } else {
         // Unextended ES2 supports NPOT textures with clamp_to_edge and non-mip filters only
-        fNPOTTextureTileSupport = ctxInfo.hasExtension("GL_OES_texture_npot");
+        // ES3 has no limitations.
+        fNPOTTextureTileSupport = ctxInfo.version() >= GR_GL_VER(3,0) ||
+                                  ctxInfo.hasExtension("GL_OES_texture_npot");
     }
 
     fHWAALineSupport = (kDesktop_GrGLBinding == binding);
@@ -414,7 +418,7 @@ const GrGLCaps::MSAACoverageMode& GrGLCaps::getMSAACoverageMode(int desiredSampl
     if (0 == fMSAACoverageModes.count()) {
         return kNoneMode;
     } else {
-        GrAssert(kNone_CoverageAAType != fCoverageAAType);
+        SkASSERT(kNone_CoverageAAType != fCoverageAAType);
         int max = (fMSAACoverageModes.end() - 1)->fCoverageSampleCnt;
         desiredSampleCount = GrMin(desiredSampleCount, max);
         MSAACoverageMode desiredMode = {desiredSampleCount, 0};
@@ -425,7 +429,7 @@ const GrGLCaps::MSAACoverageMode& GrGLCaps::getMSAACoverageMode(int desiredSampl
         if (idx < 0) {
             idx = ~idx;
         }
-        GrAssert(idx >= 0 && idx < fMSAACoverageModes.count());
+        SkASSERT(idx >= 0 && idx < fMSAACoverageModes.count());
         return fMSAACoverageModes[idx];
     }
 }
@@ -483,7 +487,7 @@ void GrGLCaps::initStencilFormats(const GrGLContextInfo& ctxInfo) {
             fStencilFormats.push_back() = gS4;
         }
     }
-    GrAssert(0 == fStencilVerifiedColorConfigs.count());
+    SkASSERT(0 == fStencilVerifiedColorConfigs.count());
     fStencilVerifiedColorConfigs.push_back_n(fStencilFormats.count());
 }
 
@@ -493,12 +497,12 @@ void GrGLCaps::markColorConfigAndStencilFormatAsVerified(
 #if !GR_GL_CHECK_FBO_STATUS_ONCE_PER_FORMAT
     return;
 #endif
-    GrAssert((unsigned)config < (unsigned)kGrPixelConfigCnt);
-    GrAssert(fStencilFormats.count() == fStencilVerifiedColorConfigs.count());
+    SkASSERT((unsigned)config < (unsigned)kGrPixelConfigCnt);
+    SkASSERT(fStencilFormats.count() == fStencilVerifiedColorConfigs.count());
     int count = fStencilFormats.count();
     // we expect a really small number of possible formats so linear search
     // should be OK
-    GrAssert(count < 16);
+    SkASSERT(count < 16);
     for (int i = 0; i < count; ++i) {
         if (format.fInternalFormat ==
             fStencilFormats[i].fInternalFormat) {
@@ -516,11 +520,11 @@ bool GrGLCaps::isColorConfigAndStencilFormatVerified(
 #if !GR_GL_CHECK_FBO_STATUS_ONCE_PER_FORMAT
     return false;
 #endif
-    GrAssert((unsigned)config < (unsigned)kGrPixelConfigCnt);
+    SkASSERT((unsigned)config < (unsigned)kGrPixelConfigCnt);
     int count = fStencilFormats.count();
     // we expect a really small number of possible formats so linear search
     // should be OK
-    GrAssert(count < 16);
+    SkASSERT(count < 16);
     for (int i = 0; i < count; ++i) {
         if (format.fInternalFormat ==
             fStencilFormats[i].fInternalFormat) {
