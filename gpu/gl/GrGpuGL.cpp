@@ -201,6 +201,10 @@ void GrGpuGL::fillInConfigRenderableTable() {
     //  GL_OES_rgb8_rgba8 and/or GL_ARM_rgba8 adds support for RGBA8
     //  GL_EXT_texture_format_BGRA8888 and/or GL_APPLE_texture_format_BGRA8888 added BGRA support
 
+    // ES 3.0
+    // Same as ES 2.0 except R8 and RGBA8 are supported without extensions (the functions called
+    // below already account for this).
+
     if (kDesktop_GrGLBinding == this->glBinding()) {
         // Post 3.0 we will get R8
         // Prior to 3.0 we will get ALPHA8 (with GL_ARB_framebuffer_object)
@@ -610,8 +614,10 @@ bool GrGpuGL::uploadTexData(const GrGLTexture::Desc& desc,
     GrGLenum internalFormat;
     GrGLenum externalFormat;
     GrGLenum externalType;
-    // glTexStorage requires sized internal formats on both desktop and ES. ES
-    // glTexImage requires an unsized format.
+    // glTexStorage requires sized internal formats on both desktop and ES. ES2 requires an unsized
+    // format for glTexImage, unlike ES3 and desktop. However, we allow the driver to decide the
+    // size of the internal format whenever possible and so only use a sized internal format when
+    // using texture storage.
     if (!this->configToGLFormats(dataConfig, useTexStorage, &internalFormat,
                                  &externalFormat, &externalType)) {
         return false;
@@ -809,7 +815,7 @@ bool GrGpuGL::createRenderTargetObjects(int width, int height,
         if (!desc->fRTFBOID ||
             !desc->fMSColorRenderbufferID ||
             !this->configToGLFormats(desc->fConfig,
-                                     // GLES requires sized internal formats
+                                     // ES2 and ES3 require sized internal formats for rb storage.
                                      kES_GrGLBinding == this->glBinding(),
                                      &msColorFormat,
                                      NULL,
@@ -1975,15 +1981,8 @@ void GrGpuGL::flushBlend(bool isLines,
         }
     }
 }
-namespace {
 
-inline void set_tex_swizzle(GrGLenum swizzle[4], const GrGLInterface* gl) {
-    GR_GL_CALL(gl, TexParameteriv(GR_GL_TEXTURE_2D,
-                                  GR_GL_TEXTURE_SWIZZLE_RGBA,
-                                  reinterpret_cast<const GrGLint*>(swizzle)));
-}
-
-inline GrGLenum tile_to_gl_wrap(SkShader::TileMode tm) {
+static inline GrGLenum tile_to_gl_wrap(SkShader::TileMode tm) {
     static const GrGLenum gWrapModes[] = {
         GR_GL_CLAMP_TO_EDGE,
         GR_GL_REPEAT,
@@ -1994,8 +1993,6 @@ inline GrGLenum tile_to_gl_wrap(SkShader::TileMode tm) {
     GR_STATIC_ASSERT(1 == SkShader::kRepeat_TileMode);
     GR_STATIC_ASSERT(2 == SkShader::kMirror_TileMode);
     return gWrapModes[tm];
-}
-
 }
 
 void GrGpuGL::bindTexture(int unitIdx, const GrTextureParams& params, GrGLTexture* texture) {
@@ -2076,8 +2073,18 @@ void GrGpuGL::bindTexture(int unitIdx, const GrTextureParams& params, GrGLTextur
                           oldTexParams.fSwizzleRGBA,
                           sizeof(newTexParams.fSwizzleRGBA)))) {
         this->setTextureUnit(unitIdx);
-        set_tex_swizzle(newTexParams.fSwizzleRGBA,
-                        this->glInterface());
+        if (this->glBinding() == kES_GrGLBinding) {
+            // ES3 added swizzle support but not GL_TEXTURE_SWIZZLE_RGBA.
+            const GrGLenum* swizzle = newTexParams.fSwizzleRGBA;
+            GL_CALL(TexParameteri(GR_GL_TEXTURE_2D, GR_GL_TEXTURE_SWIZZLE_R, swizzle[0]));
+            GL_CALL(TexParameteri(GR_GL_TEXTURE_2D, GR_GL_TEXTURE_SWIZZLE_G, swizzle[1]));
+            GL_CALL(TexParameteri(GR_GL_TEXTURE_2D, GR_GL_TEXTURE_SWIZZLE_B, swizzle[2]));
+            GL_CALL(TexParameteri(GR_GL_TEXTURE_2D, GR_GL_TEXTURE_SWIZZLE_A, swizzle[3]));
+        } else {
+            GR_STATIC_ASSERT(sizeof(newTexParams.fSwizzleRGBA[0]) == sizeof(GrGLint));
+            const GrGLint* swizzle = reinterpret_cast<const GrGLint*>(newTexParams.fSwizzleRGBA);
+            GL_CALL(TexParameteriv(GR_GL_TEXTURE_2D, GR_GL_TEXTURE_SWIZZLE_RGBA, swizzle));
+        }
     }
     texture->setCachedTexParams(newTexParams, this->getResetTimestamp());
 }

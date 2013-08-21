@@ -1083,7 +1083,33 @@ void SkGpuDevice::drawBitmap(const SkDraw& draw,
                              const SkPaint& paint) {
     // We cannot call drawBitmapRect here since 'm' could be anything
     this->drawBitmapCommon(draw, bitmap, NULL, m, paint,
-                           SkCanvas::kNone_DrawBitmapRectflag);
+                           SkCanvas::kNone_DrawBitmapRectFlag);
+}
+
+// This method outsets 'iRect' by 1 all around and then clamps its extents to
+// 'clamp'. 'offset' is adjusted to remain positioned over the top-left corner
+// of 'iRect' for all possible outsets/clamps.
+static inline void clamped_unit_outset_with_offset(SkIRect* iRect, SkPoint* offset, 
+                                                   const SkIRect& clamp) {
+    iRect->outset(1, 1);
+
+    if (iRect->fLeft < clamp.fLeft) {
+        iRect->fLeft = clamp.fLeft;
+    } else {
+        offset->fX -= SK_Scalar1;
+    }
+    if (iRect->fTop < clamp.fTop) {
+        iRect->fTop = clamp.fTop;
+    } else {
+        offset->fY -= SK_Scalar1;
+    }
+
+    if (iRect->fRight > clamp.fRight) {
+        iRect->fRight = clamp.fRight;
+    }
+    if (iRect->fBottom > clamp.fBottom) {
+        iRect->fBottom = clamp.fBottom;
+    }
 }
 
 void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
@@ -1102,8 +1128,6 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
     }
 
     if (paint.getMaskFilter()){
-        // TODO: this path needs to be updated to respect the bleed flag
-
         // Convert the bitmap to a shader so that the rect can be drawn
         // through drawRect, which supports mask filters.
         SkMatrix        newM(m);
@@ -1112,13 +1136,24 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
         if (NULL != srcRectPtr) {
             SkIRect iSrc;
             srcRect.roundOut(&iSrc);
+
+            SkPoint offset = SkPoint::Make(SkIntToScalar(iSrc.fLeft), 
+                                           SkIntToScalar(iSrc.fTop));
+
+            if (SkCanvas::kBleed_DrawBitmapRectFlag & flags) {
+                // In bleed mode we want to expand the src rect on all sides
+                // but stay within the bitmap bounds
+                SkIRect iClampRect = SkIRect::MakeWH(bitmap.width(), bitmap.height());
+                clamped_unit_outset_with_offset(&iSrc, &offset, iClampRect);
+            }
+
             if (!bitmap.extractSubset(&tmp, iSrc)) {
                 return;     // extraction failed
             }
             bitmapPtr = &tmp;
-            srcRect.offset(SkIntToScalar(-iSrc.fLeft), SkIntToScalar(-iSrc.fTop));
+            srcRect.offset(-offset.fX, -offset.fY);
             // The source rect has changed so update the matrix
-            newM.preTranslate(SkIntToScalar(iSrc.fLeft), SkIntToScalar(iSrc.fTop));
+            newM.preTranslate(offset.fX, offset.fY);
         }
 
         SkPaint paintWithTexture(paint);
@@ -1186,8 +1221,12 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
                                   const GrTextureParams& params,
                                   const SkPaint& paint,
                                   SkCanvas::DrawBitmapRectFlags flags) {
-    // TODO: this method needs to be updated to respect the bleed flag
-    const int maxTextureSize = fContext->getMaxTextureSize();
+    int maxTextureSize = fContext->getMaxTextureSize();
+    if (SkPaint::kNone_FilterLevel != paint.getFilterLevel()) {
+        // We may need a skosh more room if we have to bump out the tile
+        // by 1 pixel all around
+        maxTextureSize -= 2;
+    }
 
     int tileSize = determine_tile_size(bitmap, srcRect, maxTextureSize);
 
@@ -1228,12 +1267,31 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
             SkBitmap tmpB;
             SkIRect iTileR;
             tileR.roundOut(&iTileR);
+            SkPoint offset = SkPoint::Make(SkIntToScalar(iTileR.fLeft), 
+                                           SkIntToScalar(iTileR.fTop));
+
+            if (SkPaint::kNone_FilterLevel != paint.getFilterLevel()) {
+                SkIRect iClampRect;
+
+                if (SkCanvas::kBleed_DrawBitmapRectFlag & flags) {
+                    // In bleed mode we want to always expand the tile on all edges
+                    // but stay within the bitmap bounds
+                    iClampRect = SkIRect::MakeWH(bitmap.width(), bitmap.height());
+                } else {
+                    // In texture-domain/clamp mode we only want to expand the
+                    // tile on edges interior to "srcRect" (i.e., we want to
+                    // not bleed across the original clamped edges)
+                    srcRect.roundOut(&iClampRect);
+                }
+
+                clamped_unit_outset_with_offset(&iTileR, &offset, iClampRect);
+            }
+
             if (bitmap.extractSubset(&tmpB, iTileR)) {
                 // now offset it to make it "local" to our tmp bitmap
-                tileR.offset(SkIntToScalar(-iTileR.fLeft), SkIntToScalar(-iTileR.fTop));
+                tileR.offset(-offset.fX, -offset.fY);
                 SkMatrix tmpM(m);
-                tmpM.preTranslate(SkIntToScalar(iTileR.fLeft),
-                                  SkIntToScalar(iTileR.fTop));
+                tmpM.preTranslate(offset.fX, offset.fY);
 
                 this->internalDrawBitmap(tmpB, tileR, tmpM, params, paint, flags);
             }
