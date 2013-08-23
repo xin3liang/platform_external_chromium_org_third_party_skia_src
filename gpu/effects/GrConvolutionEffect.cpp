@@ -14,7 +14,6 @@
 
 // For brevity
 typedef GrGLUniformManager::UniformHandle UniformHandle;
-static const UniformHandle kInvalidUniformHandle = GrGLUniformManager::kInvalidUniformHandle;
 
 class GrGLConvolutionEffect : public GrGLEffect {
 public:
@@ -50,9 +49,6 @@ private:
 GrGLConvolutionEffect::GrGLConvolutionEffect(const GrBackendEffectFactory& factory,
                                              const GrDrawEffect& drawEffect)
     : INHERITED(factory)
-    , fKernelUni(kInvalidUniformHandle)
-    , fImageIncrementUni(kInvalidUniformHandle)
-    , fBoundsUni(kInvalidUniformHandle)
     , fEffectMatrix(drawEffect.castEffect<GrConvolutionEffect>().coordsType()) {
     const GrConvolutionEffect& c = drawEffect.castEffect<GrConvolutionEffect>();
     fRadius = c.radius();
@@ -113,7 +109,7 @@ void GrGLConvolutionEffect::setData(const GrGLUniformManager& uman,
     const GrConvolutionEffect& conv = drawEffect.castEffect<GrConvolutionEffect>();
     GrTexture& texture = *conv.texture(0);
     // the code we generated was for a specific kernel radius
-    GrAssert(conv.radius() == fRadius);
+    SkASSERT(conv.radius() == fRadius);
     float imageIncrement[2] = { 0 };
     float ySign = texture.origin() != kTopLeft_GrSurfaceOrigin ? 1.0f : -1.0f;
     switch (conv.direction()) {
@@ -166,8 +162,8 @@ GrConvolutionEffect::GrConvolutionEffect(GrTexture* texture,
                                          bool useBounds,
                                          float bounds[2])
     : Gr1DKernelEffect(texture, direction, radius), fUseBounds(useBounds) {
-    GrAssert(radius <= kMaxKernelRadius);
-    GrAssert(NULL != kernel);
+    SkASSERT(radius <= kMaxKernelRadius);
+    SkASSERT(NULL != kernel);
     int width = this->width();
     for (int i = 0; i < width; i++) {
         fKernel[i] = kernel[i];
@@ -182,7 +178,7 @@ GrConvolutionEffect::GrConvolutionEffect(GrTexture* texture,
                                          bool useBounds,
                                          float bounds[2])
     : Gr1DKernelEffect(texture, direction, radius), fUseBounds(useBounds) {
-    GrAssert(radius <= kMaxKernelRadius);
+    SkASSERT(radius <= kMaxKernelRadius);
     int width = this->width();
 
     float sum = 0.0f;
@@ -231,12 +227,12 @@ GrEffectRef* GrConvolutionEffect::TestCreate(SkMWCRandom* random,
                                       GrEffectUnitTest::kAlphaTextureIdx;
     Direction dir = random->nextBool() ? kX_Direction : kY_Direction;
     int radius = random->nextRangeU(1, kMaxKernelRadius);
-    float kernel[kMaxKernelRadius];
-    for (int i = 0; i < kMaxKernelRadius; ++i) {
+    float kernel[kMaxKernelWidth];
+    for (size_t i = 0; i < SK_ARRAY_COUNT(kernel); ++i) {
         kernel[i] = random->nextSScalar1();
     }
     float bounds[2];
-    for (int i = 0; i < 2; ++i) {
+    for (size_t i = 0; i < SK_ARRAY_COUNT(bounds); ++i) {
         bounds[i] = random->nextF();
     }
 

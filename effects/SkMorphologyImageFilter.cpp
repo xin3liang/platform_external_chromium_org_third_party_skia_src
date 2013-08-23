@@ -312,7 +312,6 @@ private:
 GrGLMorphologyEffect::GrGLMorphologyEffect(const GrBackendEffectFactory& factory,
                                            const GrDrawEffect& drawEffect)
     : INHERITED(factory)
-    , fImageIncrementUni(GrGLUniformManager::kInvalidUniformHandle)
     , fEffectMatrix(drawEffect.castEffect<GrMorphologyEffect>().coordsType()) {
     const GrMorphologyEffect& m = drawEffect.castEffect<GrMorphologyEffect>();
     fRadius = m.radius();
@@ -377,7 +376,7 @@ void GrGLMorphologyEffect::setData(const GrGLUniformManager& uman,
     const Gr1DKernelEffect& kern = drawEffect.castEffect<Gr1DKernelEffect>();
     GrTexture& texture = *kern.texture(0);
     // the code we generated was for a specific kernel radius
-    GrAssert(kern.radius() == fRadius);
+    SkASSERT(kern.radius() == fRadius);
     float imageIncrement[2] = { 0 };
     switch (kern.direction()) {
         case Gr1DKernelEffect::kX_Direction:

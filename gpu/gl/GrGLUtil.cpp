@@ -93,7 +93,7 @@ bool get_gl_version_for_mesa(int mesaMajorVersion, int* major, int* minor) {
 
 GrGLBinding GrGLGetBindingInUseFromString(const char* versionString) {
     if (NULL == versionString) {
-        GrAssert(!"NULL GL version string.");
+        SkDEBUGFAIL("NULL GL version string.");
         return kNone_GrGLBinding;
     }
 
@@ -116,7 +116,7 @@ GrGLBinding GrGLGetBindingInUseFromString(const char* versionString) {
     // check for ES2
     n = sscanf(versionString, "OpenGL ES %d.%d", &major, &minor);
     if (2 == n) {
-        return kES2_GrGLBinding;
+        return kES_GrGLBinding;
     }
     return kNone_GrGLBinding;
 }
@@ -129,7 +129,7 @@ bool GrGLIsMesaFromVersionString(const char* versionString) {
 
 GrGLVersion GrGLGetVersionFromString(const char* versionString) {
     if (NULL == versionString) {
-        GrAssert(!"NULL GL version string.");
+        SkDEBUGFAIL("NULL GL version string.");
         return 0;
     }
 
@@ -168,7 +168,7 @@ GrGLVersion GrGLGetVersionFromString(const char* versionString) {
 
 GrGLSLVersion GrGLGetGLSLVersionFromString(const char* versionString) {
     if (NULL == versionString) {
-        GrAssert(!"NULL GLSL version string.");
+        SkDEBUGFAIL("NULL GLSL version string.");
         return 0;
     }
 
@@ -205,6 +205,9 @@ GrGLVendor GrGLGetVendorFromString(const char* vendorString) {
         }
         if (0 == strcmp(vendorString, "Intel")) {
             return kIntel_GrGLVendor;
+        }
+        if (0 == strcmp(vendorString, "Qualcomm")) {
+            return kQualcomm_GrGLVendor;
         }
     }
     return kOther_GrGLVendor;

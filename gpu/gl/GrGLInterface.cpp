@@ -90,6 +90,7 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
         NULL == fGetString ||
         NULL == fGetUniformLocation ||
         NULL == fLinkProgram ||
+        NULL == fLineWidth ||
         NULL == fPixelStorei ||
         NULL == fReadPixels ||
         NULL == fScissor ||
@@ -150,7 +151,7 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
     // these functions are part of ES2, we assume they are available
     // On the desktop we assume they are available if the extension
     // is present or GL version is high enough.
-    if (kES2_GrGLBinding == binding) {
+    if (kES_GrGLBinding == binding) {
         if (NULL == fStencilFuncSeparate ||
             NULL == fStencilMaskSeparate ||
             NULL == fStencilOpSeparate) {
@@ -273,8 +274,7 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
 
     // part of desktop GL, but not ES
     if (kDesktop_GrGLBinding == binding &&
-        (NULL == fLineWidth ||
-         NULL == fGetTexLevelParameteriv ||
+        (NULL == fGetTexLevelParameteriv ||
          NULL == fDrawBuffer ||
          NULL == fReadBuffer)) {
         return false;
@@ -290,7 +290,7 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
                 return false;
             }
         }
-    } else if (extensions.has("GL_EXT_texture_storage")) {
+    } else if (glVer >= GR_GL_VER(3,0) || extensions.has("GL_EXT_texture_storage")) {
         if (NULL == fTexStorage2D) {
             return false;
         }
@@ -378,7 +378,7 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
             }
         }
     } else {
-        if (extensions.has("GL_OES_vertex_array_object")) {
+        if (glVer >= GR_GL_VER(3,0) || extensions.has("GL_OES_vertex_array_object")) {
             if (NULL == fBindVertexArray ||
                 NULL == fDeleteVertexArrays ||
                 NULL == fGenVertexArrays) {

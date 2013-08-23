@@ -826,7 +826,6 @@ SK_DEFINE_FLATTENABLE_REGISTRAR_GROUP_END
 GrGLGradientEffect::GrGLGradientEffect(const GrBackendEffectFactory& factory)
     : INHERITED(factory)
     , fCachedYCoord(SK_ScalarMax)
-    , fFSYUni(GrGLUniformManager::kInvalidUniformHandle)
     , fEffectMatrix(kCoordsType) {
 }
 
@@ -910,7 +909,7 @@ GrGradientEffect::GrGradientEffect(GrContext* ctx,
     desc.fContext = ctx;
     desc.fConfig = SkBitmapConfig2GrPixelConfig(bitmap.config());
     fAtlas = GrTextureStripAtlas::GetAtlas(desc);
-    GrAssert(NULL != fAtlas);
+    SkASSERT(NULL != fAtlas);
 
     // We always filter the gradient table. Each table is one row of a texture, so always y-clamp.
     GrTextureParams params;

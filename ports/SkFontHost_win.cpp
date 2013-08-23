@@ -357,15 +357,6 @@ void SkLOGFONTFromTypeface(const SkTypeface* face, LOGFONT* lf) {
     }
 }
 
-static void GetLogFontByID(SkFontID fontID, LOGFONT* lf) {
-    LogFontTypeface* face = static_cast<LogFontTypeface*>(SkTypefaceCache::FindByID(fontID));
-    if (face) {
-        *lf = face->fLogFont;
-    } else {
-        sk_bzero(lf, sizeof(LOGFONT));
-    }
-}
-
 // Construct Glyph to Unicode table.
 // Unicode code points that require conjugate pairs in utf16 are not
 // supported.
@@ -2380,6 +2371,7 @@ SkTypeface* SkFontHost::CreateTypefaceFromStream(SkStream* stream) {
 
 #endif
 
-SkFontMgr* SkFontMgr::Factory() {
+extern SkFontMgr* SkFontMgr_New_GDI();
+SkFontMgr* SkFontMgr_New_GDI() {
     return SkNEW(SkFontMgrGDI);
 }

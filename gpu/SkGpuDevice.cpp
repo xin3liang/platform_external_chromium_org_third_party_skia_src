@@ -72,7 +72,7 @@ public:
                         GrTexture** texture)
         : fDevice(NULL)
         , fTexture(NULL) {
-        GrAssert(NULL != texture);
+        SkASSERT(NULL != texture);
         *texture = this->set(device, bitmap, params);
     }
 
@@ -149,7 +149,7 @@ static SkBitmap make_bitmap(GrContext* context, GrRenderTarget* renderTarget) {
 }
 
 SkGpuDevice* SkGpuDevice::Create(GrSurface* surface) {
-    GrAssert(NULL != surface);
+    SkASSERT(NULL != surface);
     if (NULL == surface->asRenderTarget() || NULL == surface->getContext()) {
         return NULL;
     }
@@ -181,7 +181,7 @@ void SkGpuDevice::initFromRenderTarget(GrContext* context,
     fRenderTarget = NULL;
     fNeedClear = false;
 
-    GrAssert(NULL != renderTarget);
+    SkASSERT(NULL != renderTarget);
     fRenderTarget = renderTarget;
     fRenderTarget->ref();
 
@@ -230,7 +230,7 @@ SkGpuDevice::SkGpuDevice(GrContext* context,
         fRenderTarget = texture->asRenderTarget();
         fRenderTarget->ref();
 
-        GrAssert(NULL != fRenderTarget);
+        SkASSERT(NULL != fRenderTarget);
 
         // wrap the bitmap with a pixelref to expose our texture
         SkGrPixelRef* pr = SkNEW_ARGS(SkGrPixelRef, (texture));
@@ -238,7 +238,7 @@ SkGpuDevice::SkGpuDevice(GrContext* context,
     } else {
         GrPrintf("--- failed to create gpu-offscreen [%d %d]\n",
                  width, height);
-        GrAssert(false);
+        SkASSERT(false);
     }
 }
 
@@ -398,7 +398,7 @@ static void check_bounds(const GrClipData& clipData,
         }
     }
 
-    GrAssert(devBound.contains(clipRegion.getBounds()));
+    SkASSERT(devBound.contains(clipRegion.getBounds()));
 }
 #endif
 
@@ -407,7 +407,7 @@ static void check_bounds(const GrClipData& clipData,
 // call this every draw call, to ensure that the context reflects our state,
 // and not the state from some other canvas/device
 void SkGpuDevice::prepareDraw(const SkDraw& draw, bool forceIdentity) {
-    GrAssert(NULL != fClipData.fClipStack);
+    SkASSERT(NULL != fClipData.fClipStack);
 
     fContext->setRenderTarget(fRenderTarget);
 
@@ -492,7 +492,7 @@ inline bool skPaint2GrPaintNoShader(SkGpuDevice* dev,
         grPaint->setColor(GrColorPackRGBA(alpha, alpha, alpha, alpha));
         // justAlpha is currently set to true only if there is a texture,
         // so constantColor should not also be true.
-        GrAssert(!constantColor);
+        SkASSERT(!constantColor);
     } else {
         grPaint->setColor(SkColor2GrColor(skPaint.getColor()));
     }
@@ -1082,14 +1082,42 @@ void SkGpuDevice::drawBitmap(const SkDraw& draw,
                              const SkMatrix& m,
                              const SkPaint& paint) {
     // We cannot call drawBitmapRect here since 'm' could be anything
-    this->drawBitmapCommon(draw, bitmap, NULL, m, paint);
+    this->drawBitmapCommon(draw, bitmap, NULL, m, paint,
+                           SkCanvas::kNone_DrawBitmapRectFlag);
+}
+
+// This method outsets 'iRect' by 1 all around and then clamps its extents to
+// 'clamp'. 'offset' is adjusted to remain positioned over the top-left corner
+// of 'iRect' for all possible outsets/clamps.
+static inline void clamped_unit_outset_with_offset(SkIRect* iRect, SkPoint* offset,
+                                                   const SkIRect& clamp) {
+    iRect->outset(1, 1);
+
+    if (iRect->fLeft < clamp.fLeft) {
+        iRect->fLeft = clamp.fLeft;
+    } else {
+        offset->fX -= SK_Scalar1;
+    }
+    if (iRect->fTop < clamp.fTop) {
+        iRect->fTop = clamp.fTop;
+    } else {
+        offset->fY -= SK_Scalar1;
+    }
+
+    if (iRect->fRight > clamp.fRight) {
+        iRect->fRight = clamp.fRight;
+    }
+    if (iRect->fBottom > clamp.fBottom) {
+        iRect->fBottom = clamp.fBottom;
+    }
 }
 
 void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
                                    const SkBitmap& bitmap,
                                    const SkRect* srcRectPtr,
                                    const SkMatrix& m,
-                                   const SkPaint& paint) {
+                                   const SkPaint& paint,
+                                   SkCanvas::DrawBitmapRectFlags flags) {
     CHECK_SHOULD_DRAW(draw, false);
 
     SkRect srcRect;
@@ -1108,13 +1136,24 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
         if (NULL != srcRectPtr) {
             SkIRect iSrc;
             srcRect.roundOut(&iSrc);
+
+            SkPoint offset = SkPoint::Make(SkIntToScalar(iSrc.fLeft),
+                                           SkIntToScalar(iSrc.fTop));
+
+            if (SkCanvas::kBleed_DrawBitmapRectFlag & flags) {
+                // In bleed mode we want to expand the src rect on all sides
+                // but stay within the bitmap bounds
+                SkIRect iClampRect = SkIRect::MakeWH(bitmap.width(), bitmap.height());
+                clamped_unit_outset_with_offset(&iSrc, &offset, iClampRect);
+            }
+
             if (!bitmap.extractSubset(&tmp, iSrc)) {
                 return;     // extraction failed
             }
             bitmapPtr = &tmp;
-            srcRect.offset(SkIntToScalar(-iSrc.fLeft), SkIntToScalar(-iSrc.fTop));
+            srcRect.offset(-offset.fX, -offset.fY);
             // The source rect has changed so update the matrix
-            newM.preTranslate(SkIntToScalar(iSrc.fLeft), SkIntToScalar(iSrc.fTop));
+            newM.preTranslate(offset.fX, offset.fY);
         }
 
         SkPaint paintWithTexture(paint);
@@ -1168,9 +1207,9 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
 
     if (!this->shouldTileBitmap(bitmap, params, srcRectPtr)) {
         // take the simple case
-        this->internalDrawBitmap(bitmap, srcRect, m, params, paint);
+        this->internalDrawBitmap(bitmap, srcRect, m, params, paint, flags);
     } else {
-        this->drawTiledBitmap(bitmap, srcRect, m, params, paint);
+        this->drawTiledBitmap(bitmap, srcRect, m, params, paint, flags);
     }
 }
 
@@ -1180,8 +1219,14 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
                                   const SkRect& srcRect,
                                   const SkMatrix& m,
                                   const GrTextureParams& params,
-                                  const SkPaint& paint) {
-    const int maxTextureSize = fContext->getMaxTextureSize();
+                                  const SkPaint& paint,
+                                  SkCanvas::DrawBitmapRectFlags flags) {
+    int maxTextureSize = fContext->getMaxTextureSize();
+    if (SkPaint::kNone_FilterLevel != paint.getFilterLevel()) {
+        // We may need a skosh more room if we have to bump out the tile
+        // by 1 pixel all around
+        maxTextureSize -= 2;
+    }
 
     int tileSize = determine_tile_size(bitmap, srcRect, maxTextureSize);
 
@@ -1222,14 +1267,33 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
             SkBitmap tmpB;
             SkIRect iTileR;
             tileR.roundOut(&iTileR);
+            SkPoint offset = SkPoint::Make(SkIntToScalar(iTileR.fLeft),
+                                           SkIntToScalar(iTileR.fTop));
+
+            if (SkPaint::kNone_FilterLevel != paint.getFilterLevel()) {
+                SkIRect iClampRect;
+
+                if (SkCanvas::kBleed_DrawBitmapRectFlag & flags) {
+                    // In bleed mode we want to always expand the tile on all edges
+                    // but stay within the bitmap bounds
+                    iClampRect = SkIRect::MakeWH(bitmap.width(), bitmap.height());
+                } else {
+                    // In texture-domain/clamp mode we only want to expand the
+                    // tile on edges interior to "srcRect" (i.e., we want to
+                    // not bleed across the original clamped edges)
+                    srcRect.roundOut(&iClampRect);
+                }
+
+                clamped_unit_outset_with_offset(&iTileR, &offset, iClampRect);
+            }
+
             if (bitmap.extractSubset(&tmpB, iTileR)) {
                 // now offset it to make it "local" to our tmp bitmap
-                tileR.offset(SkIntToScalar(-iTileR.fLeft), SkIntToScalar(-iTileR.fTop));
+                tileR.offset(-offset.fX, -offset.fY);
                 SkMatrix tmpM(m);
-                tmpM.preTranslate(SkIntToScalar(iTileR.fLeft),
-                                  SkIntToScalar(iTileR.fTop));
+                tmpM.preTranslate(offset.fX, offset.fY);
 
-                this->internalDrawBitmap(tmpB, tileR, tmpM, params, paint);
+                this->internalDrawBitmap(tmpB, tileR, tmpM, params, paint, flags);
             }
         }
     }
@@ -1256,7 +1320,7 @@ static bool may_color_bleed(const SkRect& srcRect,
                             const SkMatrix& m) {
     // Only gets called if has_aligned_samples returned false.
     // So we can assume that sampling is axis aligned but not texel aligned.
-    GrAssert(!has_aligned_samples(srcRect, transformedRect));
+    SkASSERT(!has_aligned_samples(srcRect, transformedRect));
     SkRect innerSrcRect(srcRect), innerTransformedRect,
         outerTransformedRect(transformedRect);
     innerSrcRect.inset(SK_ScalarHalf, SK_ScalarHalf);
@@ -1288,7 +1352,8 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
                                      const SkRect& srcRect,
                                      const SkMatrix& m,
                                      const GrTextureParams& params,
-                                     const SkPaint& paint) {
+                                     const SkPaint& paint,
+                                     SkCanvas::DrawBitmapRectFlags flags) {
     SkASSERT(bitmap.width() <= fContext->getMaxTextureSize() &&
              bitmap.height() <= fContext->getMaxTextureSize());
 
@@ -1308,7 +1373,8 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
                       SkScalarMul(srcRect.fBottom, hInv));
 
     bool needsTextureDomain = false;
-    if (params.filterMode() != GrTextureParams::kNone_FilterMode) {
+    if (!(flags & SkCanvas::kBleed_DrawBitmapRectFlag) &&
+        params.filterMode() != GrTextureParams::kNone_FilterMode) {
         // Need texture domain if drawing a sub rect.
         needsTextureDomain = srcRect.width() < bitmap.width() ||
                              srcRect.height() < bitmap.height();
@@ -1374,7 +1440,7 @@ static bool filter_texture(SkDevice* device, GrContext* context,
                            GrTexture* texture, SkImageFilter* filter,
                            int w, int h, const SkMatrix& ctm, SkBitmap* result,
                            SkIPoint* offset) {
-    GrAssert(filter);
+    SkASSERT(filter);
     SkDeviceImageFilterProxy proxy(device);
 
     if (filter->canFilterImageGPU()) {
@@ -1440,7 +1506,8 @@ void SkGpuDevice::drawSprite(const SkDraw& draw, const SkBitmap& bitmap,
 
 void SkGpuDevice::drawBitmapRect(const SkDraw& draw, const SkBitmap& bitmap,
                                  const SkRect* src, const SkRect& dst,
-                                 const SkPaint& paint) {
+                                 const SkPaint& paint,
+                                 SkCanvas::DrawBitmapRectFlags flags) {
     SkMatrix    matrix;
     SkRect      bitmapBounds, tmpSrc;
 
@@ -1465,7 +1532,7 @@ void SkGpuDevice::drawBitmapRect(const SkDraw& draw, const SkBitmap& bitmap,
         }
     }
 
-    this->drawBitmapCommon(draw, bitmap, &tmpSrc, matrix, paint);
+    this->drawBitmapCommon(draw, bitmap, &tmpSrc, matrix, paint, flags);
 }
 
 void SkGpuDevice::drawDevice(const SkDraw& draw, SkDevice* device,
@@ -1789,7 +1856,7 @@ SkGpuDevice::SkGpuDevice(GrContext* context,
                          bool needClear)
     : SkDevice(make_bitmap(context, texture->asRenderTarget())) {
 
-    GrAssert(texture && texture->asRenderTarget());
+    SkASSERT(texture && texture->asRenderTarget());
     // This constructor is called from onCreateCompatibleDevice. It has locked the RT in the texture
     // cache. We pass true for the third argument so that it will get unlocked.
     this->initFromRenderTarget(context, texture->asRenderTarget(), true);
