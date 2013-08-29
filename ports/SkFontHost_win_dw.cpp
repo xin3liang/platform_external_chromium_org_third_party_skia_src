@@ -920,12 +920,12 @@ void SkScalerContext_DW::generateFontMetrics(SkPaint::FontMetrics* mx,
 
     SkScalar upem = SkIntToScalar(dwfm.designUnitsPerEm);
     if (mx) {
-        my->fTop = -fRec.fTextSize * SkIntToScalar(dwfm.ascent) / upem;
-        my->fAscent = my->fTop;
-        my->fDescent = fRec.fTextSize * SkIntToScalar(dwfm.descent) / upem;
-        my->fBottom = my->fDescent;
-        my->fLeading = fRec.fTextSize * SkIntToScalar(dwfm.lineGap) / upem;
-        my->fXHeight = fRec.fTextSize * SkIntToScalar(dwfm.xHeight) / upem;
+        mx->fTop = -fRec.fTextSize * SkIntToScalar(dwfm.ascent) / upem;
+        mx->fAscent = mx->fTop;
+        mx->fDescent = fRec.fTextSize * SkIntToScalar(dwfm.descent) / upem;
+        mx->fBottom = mx->fDescent;
+        mx->fLeading = fRec.fTextSize * SkIntToScalar(dwfm.lineGap) / upem;
+        mx->fXHeight = fRec.fTextSize * SkIntToScalar(dwfm.xHeight) / upem;
     }
 
     if (my) {
@@ -1899,7 +1899,6 @@ static HRESULT GetGetUserDefaultLocaleNameProc(GetUserDefaultLocaleNameProc* pro
     return S_OK;
 }
 
-extern SkFontMgr* SkFontMgr_New_DirectWrite();
 SkFontMgr* SkFontMgr_New_DirectWrite() {
     IDWriteFactory* factory;
     HRNM(get_dwrite_factory(&factory), "Could not get factory.");

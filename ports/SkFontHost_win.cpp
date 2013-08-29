@@ -818,7 +818,7 @@ uint16_t SkScalerContext_GDI::generateCharToGlyph(SkUnichar utf32) {
     // TODO(ctguil): Support characters that generate more than one glyph.
     if (SkUTF16_FromUnichar(utf32, (uint16_t*)utf16) == 1) {
         // Type1 fonts fail with uniscribe API. Use GetGlyphIndices for plane 0.
-        
+
         /** Real documentation for GetGlyphIndiciesW:
          *
          *  When GGI_MARK_NONEXISTING_GLYPHS is not specified and a character does not map to a
@@ -2391,7 +2391,6 @@ SkTypeface* SkFontHost::CreateTypefaceFromStream(SkStream* stream) {
 
 #endif
 
-extern SkFontMgr* SkFontMgr_New_GDI();
 SkFontMgr* SkFontMgr_New_GDI() {
     return SkNEW(SkFontMgrGDI);
 }
