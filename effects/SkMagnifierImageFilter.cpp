@@ -127,7 +127,7 @@ void GrGLMagnifierEffect::emitCode(GrGLShaderBuilder* builder,
                                    const char* outputColor,
                                    const char* inputColor,
                                    const TextureSamplerArray& samplers) {
-    const char* coords;
+    SkString coords;
     fEffectMatrix.emitCodeMakeFSCoords2D(builder, key, &coords);
     fOffsetVar = builder->addUniform(
         GrGLShaderBuilder::kFragment_ShaderType |
@@ -142,10 +142,10 @@ void GrGLMagnifierEffect::emitCode(GrGLShaderBuilder* builder,
         GrGLShaderBuilder::kVertex_ShaderType,
         kVec2f_GrSLType, "uInset");
 
-    builder->fsCodeAppendf("\t\tvec2 coord = %s;\n", coords);
+    builder->fsCodeAppendf("\t\tvec2 coord = %s;\n", coords.c_str());
     builder->fsCodeAppendf("\t\tvec2 zoom_coord = %s + %s / %s;\n",
                            builder->getUniformCStr(fOffsetVar),
-                            coords,
+                           coords.c_str(),
                            builder->getUniformCStr(fZoomVar));
 
     builder->fsCodeAppend("\t\tvec2 delta = min(coord, vec2(1.0, 1.0) - coord);\n");
@@ -215,7 +215,7 @@ GrEffectRef* GrMagnifierEffect::TestCreate(SkMWCRandom* random,
                                  SkIntToScalar(width), SkIntToScalar(height)),
                 inset));
     GrEffectRef* effect;
-    filter->asNewEffect(&effect, textures[0], SkIPoint::Make(0, 0));
+    filter->asNewEffect(&effect, textures[0], SkMatrix::I());
     SkASSERT(NULL != effect);
     return effect;
 }
@@ -261,7 +261,7 @@ SkMagnifierImageFilter::SkMagnifierImageFilter(SkRect srcRect, SkScalar inset)
 }
 
 #if SK_SUPPORT_GPU
-bool SkMagnifierImageFilter::asNewEffect(GrEffectRef** effect, GrTexture* texture, const SkIPoint&) const {
+bool SkMagnifierImageFilter::asNewEffect(GrEffectRef** effect, GrTexture* texture, const SkMatrix&) const {
     if (effect) {
         *effect = GrMagnifierEffect::Create(texture,
                                             fSrcRect.x() / texture->width(),

@@ -161,12 +161,12 @@ SkGpuDevice* SkGpuDevice::Create(GrSurface* surface) {
 }
 
 SkGpuDevice::SkGpuDevice(GrContext* context, GrTexture* texture)
-: SkDevice(make_bitmap(context, texture->asRenderTarget())) {
+    : SkBitmapDevice(make_bitmap(context, texture->asRenderTarget())) {
     this->initFromRenderTarget(context, texture->asRenderTarget(), false);
 }
 
 SkGpuDevice::SkGpuDevice(GrContext* context, GrRenderTarget* renderTarget)
-: SkDevice(make_bitmap(context, renderTarget)) {
+    : SkBitmapDevice(make_bitmap(context, renderTarget)) {
     this->initFromRenderTarget(context, renderTarget, false);
 }
 
@@ -203,7 +203,7 @@ SkGpuDevice::SkGpuDevice(GrContext* context,
                          int width,
                          int height,
                          int sampleCount)
-    : SkDevice(config, width, height, false /*isOpaque*/) {
+    : SkBitmapDevice(config, width, height, false /*isOpaque*/) {
 
     fDrawProcs = NULL;
 
@@ -1436,7 +1436,7 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
     fContext->drawRectToRect(grPaint, dstRect, paintRect, &m);
 }
 
-static bool filter_texture(SkDevice* device, GrContext* context,
+static bool filter_texture(SkBaseDevice* device, GrContext* context,
                            GrTexture* texture, SkImageFilter* filter,
                            int w, int h, const SkMatrix& ctm, SkBitmap* result,
                            SkIPoint* offset) {
@@ -1476,7 +1476,9 @@ void SkGpuDevice::drawSprite(const SkDraw& draw, const SkBitmap& bitmap,
     SkBitmap filteredBitmap;
 
     if (NULL != filter) {
-        if (filter_texture(this, fContext, texture, filter, w, h, SkMatrix::I(), &filteredBitmap,
+        SkMatrix matrix(*draw.fMatrix);
+        matrix.postTranslate(SkIntToScalar(-left), SkIntToScalar(-top));
+        if (filter_texture(this, fContext, texture, filter, w, h, matrix, &filteredBitmap,
                            &offset)) {
             texture = (GrTexture*) filteredBitmap.getTexture();
             w = filteredBitmap.width();
@@ -1535,7 +1537,7 @@ void SkGpuDevice::drawBitmapRect(const SkDraw& draw, const SkBitmap& bitmap,
     this->drawBitmapCommon(draw, bitmap, &tmpSrc, matrix, paint, flags);
 }
 
-void SkGpuDevice::drawDevice(const SkDraw& draw, SkDevice* device,
+void SkGpuDevice::drawDevice(const SkDraw& draw, SkBaseDevice* device,
                              int x, int y, const SkPaint& paint) {
     // clear of the source device must occur before CHECK_SHOULD_DRAW
     SkGpuDevice* dev = static_cast<SkGpuDevice*>(device);
@@ -1563,7 +1565,9 @@ void SkGpuDevice::drawDevice(const SkDraw& draw, SkDevice* device,
 
     if (NULL != filter) {
         SkIPoint offset = SkIPoint::Make(0, 0);
-        if (filter_texture(this, fContext, devTex, filter, w, h, SkMatrix::I(), &filteredBitmap,
+        SkMatrix matrix(*draw.fMatrix);
+        matrix.postTranslate(SkIntToScalar(-x), SkIntToScalar(-y));
+        if (filter_texture(this, fContext, devTex, filter, w, h, matrix, &filteredBitmap,
                            &offset)) {
             devTex = filteredBitmap.getTexture();
             w = filteredBitmap.width();
@@ -1818,10 +1822,10 @@ void SkGpuDevice::flush() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-SkDevice* SkGpuDevice::onCreateCompatibleDevice(SkBitmap::Config config,
-                                                int width, int height,
-                                                bool isOpaque,
-                                                Usage usage) {
+SkBaseDevice* SkGpuDevice::onCreateCompatibleDevice(SkBitmap::Config config,
+                                                    int width, int height,
+                                                    bool isOpaque,
+                                                    Usage usage) {
     GrTextureDesc desc;
     desc.fConfig = fRenderTarget->config();
     desc.fFlags = kRenderTarget_GrTextureFlagBit;
@@ -1854,7 +1858,7 @@ SkDevice* SkGpuDevice::onCreateCompatibleDevice(SkBitmap::Config config,
 SkGpuDevice::SkGpuDevice(GrContext* context,
                          GrTexture* texture,
                          bool needClear)
-    : SkDevice(make_bitmap(context, texture->asRenderTarget())) {
+    : SkBitmapDevice(make_bitmap(context, texture->asRenderTarget())) {
 
     SkASSERT(texture && texture->asRenderTarget());
     // This constructor is called from onCreateCompatibleDevice. It has locked the RT in the texture
