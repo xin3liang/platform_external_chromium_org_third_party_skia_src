@@ -91,13 +91,16 @@ public:
                               const char* outputColor,
                               const char* inputColor,
                               const TextureSamplerArray& samplers) SK_OVERRIDE {
+            GrGLShaderBuilder::VertexBuilder* vertexBuilder = builder->getVertexBuilder();
+            SkASSERT(NULL != vertexBuilder);
+
             const CircleEdgeEffect& circleEffect = drawEffect.castEffect<CircleEdgeEffect>();
             const char *vsName, *fsName;
-            builder->addVarying(kVec4f_GrSLType, "CircleEdge", &vsName, &fsName);
+            vertexBuilder->addVarying(kVec4f_GrSLType, "CircleEdge", &vsName, &fsName);
 
             const SkString* attrName =
-                builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
-            builder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
+                vertexBuilder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+            vertexBuilder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
 
             builder->fsCodeAppendf("\tfloat d = length(%s.xy);\n", fsName);
             builder->fsCodeAppendf("\tfloat edgeAlpha = clamp(%s.z - d, 0.0, 1.0);\n", fsName);
@@ -202,20 +205,23 @@ public:
                               const char* outputColor,
                               const char* inputColor,
                               const TextureSamplerArray& samplers) SK_OVERRIDE {
+            GrGLShaderBuilder::VertexBuilder* vertexBuilder = builder->getVertexBuilder();
+            SkASSERT(NULL != vertexBuilder);
+
             const EllipseEdgeEffect& ellipseEffect = drawEffect.castEffect<EllipseEdgeEffect>();
 
             const char *vsOffsetName, *fsOffsetName;
             const char *vsRadiiName, *fsRadiiName;
 
-            builder->addVarying(kVec2f_GrSLType, "EllipseOffsets", &vsOffsetName, &fsOffsetName);
+            vertexBuilder->addVarying(kVec2f_GrSLType, "EllipseOffsets", &vsOffsetName, &fsOffsetName);
             const SkString* attr0Name =
-                builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
-            builder->vsCodeAppendf("\t%s = %s;\n", vsOffsetName, attr0Name->c_str());
+                vertexBuilder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+            vertexBuilder->vsCodeAppendf("\t%s = %s;\n", vsOffsetName, attr0Name->c_str());
 
-            builder->addVarying(kVec4f_GrSLType, "EllipseRadii", &vsRadiiName, &fsRadiiName);
+            vertexBuilder->addVarying(kVec4f_GrSLType, "EllipseRadii", &vsRadiiName, &fsRadiiName);
             const SkString* attr1Name =
-                builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[1]);
-            builder->vsCodeAppendf("\t%s = %s;\n", vsRadiiName, attr1Name->c_str());
+                vertexBuilder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[1]);
+            vertexBuilder->vsCodeAppendf("\t%s = %s;\n", vsRadiiName, attr1Name->c_str());
 
             // for outer curve
             builder->fsCodeAppendf("\tvec2 scaledOffset = %s*%s.xy;\n", fsOffsetName, fsRadiiName);
@@ -359,10 +365,6 @@ void GrOvalRenderer::drawCircle(GrDrawTarget* target,
     SkStrokeRec::Style style = stroke.getStyle();
     bool isStroked = (SkStrokeRec::kStroke_Style == style || SkStrokeRec::kHairline_Style == style);
 
-    GrEffectRef* effect = CircleEdgeEffect::Create(isStroked);
-    static const int kCircleEdgeAttrIndex = 1;
-    drawState->addCoverageEffect(effect, kCircleEdgeAttrIndex)->unref();
-
     SkScalar innerRadius = 0.0f;
     SkScalar outerRadius = radius;
     SkScalar halfWidth = 0;
@@ -376,9 +378,12 @@ void GrOvalRenderer::drawCircle(GrDrawTarget* target,
         outerRadius += halfWidth;
         if (isStroked) {
             innerRadius = radius - halfWidth;
-            isStroked = (innerRadius > 0);
         }
     }
+
+    GrEffectRef* effect = CircleEdgeEffect::Create(isStroked && innerRadius > 0);
+    static const int kCircleEdgeAttrIndex = 1;
+    drawState->addCoverageEffect(effect, kCircleEdgeAttrIndex)->unref();
 
     // The radii are outset for two reasons. First, it allows the shader to simply perform
     // clamp(distance-to-center - radius, 0, 1). Second, the outer radius is used to compute the
@@ -489,7 +494,6 @@ bool GrOvalRenderer::drawEllipse(GrDrawTarget* target,
         if (isStroked) {
             innerXRadius = xRadius - scaledStroke.fX;
             innerYRadius = yRadius - scaledStroke.fY;
-            isStroked = (innerXRadius > 0 && innerYRadius > 0);
         }
 
         xRadius += scaledStroke.fX;
@@ -512,7 +516,8 @@ bool GrOvalRenderer::drawEllipse(GrDrawTarget* target,
 
     EllipseVertex* verts = reinterpret_cast<EllipseVertex*>(geo.vertices());
 
-    GrEffectRef* effect = EllipseEdgeEffect::Create(isStroked);
+    GrEffectRef* effect = EllipseEdgeEffect::Create(isStroked &&
+                                                    innerXRadius > 0 && innerYRadius > 0);
 
     static const int kEllipseCenterAttrIndex = 1;
     static const int kEllipseEdgeAttrIndex = 2;
@@ -683,11 +688,12 @@ bool GrOvalRenderer::drawSimpleRRect(GrDrawTarget* target, GrContext* context, b
 
             if (isStroked) {
                 innerRadius = xRadius - halfWidth;
-                isStroked = (innerRadius > 0);
             }
             outerRadius += halfWidth;
             bounds.outset(halfWidth, halfWidth);
         }
+
+    isStroked = (isStroked && innerRadius > 0);
 
         GrEffectRef* effect = CircleEdgeEffect::Create(isStroked);
         static const int kCircleEdgeAttrIndex = 1;
@@ -776,13 +782,14 @@ bool GrOvalRenderer::drawSimpleRRect(GrDrawTarget* target, GrContext* context, b
             if (isStroked) {
                 innerXRadius = xRadius - scaledStroke.fX;
                 innerYRadius = yRadius - scaledStroke.fY;
-                isStroked = (innerXRadius > 0 && innerYRadius > 0);
             }
 
             xRadius += scaledStroke.fX;
             yRadius += scaledStroke.fY;
             bounds.outset(scaledStroke.fX, scaledStroke.fY);
         }
+
+    isStroked = (isStroked && innerXRadius > 0 && innerYRadius > 0);
 
         GrDrawTarget::AutoReleaseGeometry geo(target, 16, 0);
         if (!geo.succeeded()) {

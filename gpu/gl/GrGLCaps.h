@@ -221,6 +221,9 @@ public:
     /// maximum number of texture units accessible in the fragment shader.
     int maxFragmentTextureUnits() const { return fMaxFragmentTextureUnits; }
 
+    /// maximum number of fixed-function texture coords, or zero if no fixed-function.
+    int maxFixedFunctionTextureCoords() const { return fMaxFixedFunctionTextureCoords; }
+
     /// ES requires an extension to support RGBA8 in RenderBufferStorage
     bool rgba8RenderbufferSupport() const { return fRGBA8RenderbufferSupport; }
 
@@ -279,6 +282,8 @@ public:
 
     bool isCoreProfile() const { return fIsCoreProfile; }
 
+    bool fixedFunctionSupport() const { return fFixedFunctionSupport; }
+
     /// Is there support for discarding the frame buffer
     bool discardFBSupport() const { return fDiscardFBSupport; }
 
@@ -336,6 +341,7 @@ private:
     int fMaxFragmentUniformVectors;
     int fMaxVertexAttributes;
     int fMaxFragmentTextureUnits;
+    int fMaxFixedFunctionTextureCoords;
 
     MSFBOType fMSFBOType;
     CoverageAAType fCoverageAAType;
@@ -360,6 +366,7 @@ private:
     bool fVertexArrayObjectSupport : 1;
     bool fUseNonVBOVertexAndIndexDynamicData : 1;
     bool fIsCoreProfile : 1;
+    bool fFixedFunctionSupport : 1;
     bool fDiscardFBSupport : 1;
 
     typedef GrDrawTargetCaps INHERITED;

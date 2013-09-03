@@ -144,6 +144,13 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
 
     GrGLVersion glVer = GrGLGetVersion(this);
 
+    bool isCoreProfile = false;
+    if (kDesktop_GrGLBinding == binding && glVer >= GR_GL_VER(3,2)) {
+        GrGLint profileMask;
+        GR_GL_GetIntegerv(this, GR_GL_CONTEXT_PROFILE_MASK, &profileMask);
+        isCoreProfile = SkToBool(profileMask & GR_GL_CONTEXT_CORE_PROFILE_BIT);
+    }
+
     // Now check that baseline ES/Desktop fns not covered above are present
     // and that we have fn pointers for any advertised extensions that we will
     // try to use.
@@ -199,14 +206,19 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
                 return false;
             }
         }
-        // The below two blocks are checks for functions used with
-        // GL_NV_path_rendering. We're not enforcing that they be non-NULL
-        // because they aren't actually called at this time.
-        if (false &&
-            (NULL == fMatrixMode ||
-             NULL == fLoadIdentity ||
-             NULL == fLoadMatrixf)) {
-            return false;
+        if (!isCoreProfile) {
+            if (NULL == fClientActiveTexture ||
+                NULL == fDisableClientState ||
+                NULL == fEnableClientState ||
+                NULL == fLoadIdentity ||
+                NULL == fLoadMatrixf ||
+                NULL == fMatrixMode ||
+                NULL == fTexGenf ||
+                NULL == fTexGenfv ||
+                NULL == fTexGeni ||
+                NULL == fVertexPointer) {
+                return false;
+            }
         }
         if (false && extensions.has("GL_NV_path_rendering")) {
             if (NULL == fPathCommands ||
