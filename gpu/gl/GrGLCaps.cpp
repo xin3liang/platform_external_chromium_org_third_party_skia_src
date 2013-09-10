@@ -24,7 +24,6 @@ void GrGLCaps::reset() {
     fStencilFormats.reset();
     fStencilVerifiedColorConfigs.reset();
     fMSFBOType = kNone_MSFBOType;
-    fCoverageAAType = kNone_CoverageAAType;
     fFBFetchType = kNone_FBFetchType;
     fMaxFragmentUniformVectors = 0;
     fMaxVertexAttributes = 0;
@@ -65,8 +64,6 @@ GrGLCaps& GrGLCaps::operator = (const GrGLCaps& caps) {
     fMaxFragmentTextureUnits = caps.fMaxFragmentTextureUnits;
     fMaxFixedFunctionTextureCoords = caps.fMaxFixedFunctionTextureCoords;
     fMSFBOType = caps.fMSFBOType;
-    fCoverageAAType = caps.fCoverageAAType;
-    fMSAACoverageModes = caps.fMSAACoverageModes;
     fFBFetchType = caps.fFBFetchType;
     fRGBA8RenderbufferSupport = caps.fRGBA8RenderbufferSupport;
     fBGRAFormatSupport = caps.fBGRAFormatSupport;
@@ -368,35 +365,25 @@ bool GrGLCaps::readPixelsSupported(const GrGLInterface* intf,
     return (GrGLenum)otherFormat == format && (GrGLenum)otherType == type;
 }
 
-namespace {
-bool cov_mode_less(const GrGLCaps::MSAACoverageMode& left,
-                   const GrGLCaps::MSAACoverageMode& right) {
-    if (left.fCoverageSampleCnt < right.fCoverageSampleCnt) {
-        return true;
-    } else if (right.fCoverageSampleCnt < left.fCoverageSampleCnt) {
-        return false;
-    } else if (left.fColorSampleCnt < right.fColorSampleCnt) {
-        return true;
-    }
-    return false;
-}
-}
-
 void GrGLCaps::initFSAASupport(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
 
     fMSFBOType = kNone_MSFBOType;
     if (kDesktop_GrGLBinding != ctxInfo.binding()) {
-       if (ctxInfo.hasExtension("GL_CHROMIUM_framebuffer_multisample")) {
-           // chrome's extension is equivalent to the EXT msaa
-           // and fbo_blit extensions.
-           fMSFBOType = kDesktop_EXT_MSFBOType;
-       } else if (ctxInfo.hasExtension("GL_APPLE_framebuffer_multisample")) {
-           fMSFBOType = kES_Apple_MSFBOType;
-       } else if (ctxInfo.hasExtension("GL_EXT_multisampled_render_to_texture")) {
-           fMSFBOType = kES_EXT_MsToTexture_MSFBOType;
-       } else if (ctxInfo.hasExtension("GL_IMG_multisampled_render_to_texture")) {
-           fMSFBOType = kES_IMG_MsToTexture_MSFBOType;
-       }
+        // We prefer the EXT/IMG extension over ES3 MSAA because we've observed
+        // ES3 driver bugs on at least one device with a tiled GPU (N10).
+        if (ctxInfo.hasExtension("GL_EXT_multisampled_render_to_texture")) {
+            fMSFBOType = kES_EXT_MsToTexture_MSFBOType;
+        } else if (ctxInfo.hasExtension("GL_IMG_multisampled_render_to_texture")) {
+            fMSFBOType = kES_IMG_MsToTexture_MSFBOType;
+        } else if (!GR_GL_IGNORE_ES3_MSAA && ctxInfo.version() >= GR_GL_VER(3,0)) {
+            fMSFBOType = GrGLCaps::kES_3_0_MSFBOType;
+        } else if (ctxInfo.hasExtension("GL_CHROMIUM_framebuffer_multisample")) {
+            // chrome's extension is equivalent to the EXT msaa
+            // and fbo_blit extensions.
+            fMSFBOType = kDesktop_EXT_MSFBOType;
+        } else if (ctxInfo.hasExtension("GL_APPLE_framebuffer_multisample")) {
+            fMSFBOType = kES_Apple_MSFBOType;
+        }
     } else {
         if ((ctxInfo.version() >= GR_GL_VER(3,0)) ||
             ctxInfo.hasExtension("GL_ARB_framebuffer_object")) {
@@ -405,49 +392,6 @@ void GrGLCaps::initFSAASupport(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                    ctxInfo.hasExtension("GL_EXT_framebuffer_blit")) {
             fMSFBOType = GrGLCaps::kDesktop_EXT_MSFBOType;
         }
-        // TODO: We could populate fMSAACoverageModes using GetInternalformativ
-        // on GL 4.2+. It's format-specific, though. See also
-        // http://code.google.com/p/skia/issues/detail?id=470 about using actual
-        // rather than requested sample counts in cache key.
-        if (ctxInfo.hasExtension("GL_NV_framebuffer_multisample_coverage")) {
-            fCoverageAAType = kNVDesktop_CoverageAAType;
-            GrGLint count;
-            GR_GL_GetIntegerv(gli,
-                              GR_GL_MAX_MULTISAMPLE_COVERAGE_MODES,
-                              &count);
-            fMSAACoverageModes.setCount(count);
-            GR_GL_GetIntegerv(gli,
-                              GR_GL_MULTISAMPLE_COVERAGE_MODES,
-                              (int*)&fMSAACoverageModes[0]);
-            // The NV driver seems to return the modes already sorted but the
-            // spec doesn't require this. So we sort.
-            typedef SkTLessFunctionToFunctorAdaptor<MSAACoverageMode, cov_mode_less> SortFunctor;
-            SortFunctor sortFunctor;
-            SkTQSort<MSAACoverageMode, SortFunctor>(fMSAACoverageModes.begin(),
-                                                    fMSAACoverageModes.end() - 1,
-                                                    sortFunctor);
-        }
-    }
-}
-
-const GrGLCaps::MSAACoverageMode& GrGLCaps::getMSAACoverageMode(int desiredSampleCount) const {
-    static const MSAACoverageMode kNoneMode = {0, 0};
-    if (0 == fMSAACoverageModes.count()) {
-        return kNoneMode;
-    } else {
-        SkASSERT(kNone_CoverageAAType != fCoverageAAType);
-        int max = (fMSAACoverageModes.end() - 1)->fCoverageSampleCnt;
-        desiredSampleCount = GrMin(desiredSampleCount, max);
-        MSAACoverageMode desiredMode = {desiredSampleCount, 0};
-        int idx = SkTSearch<const MSAACoverageMode, cov_mode_less>(&fMSAACoverageModes[0],
-                                                                   fMSAACoverageModes.count(),
-                                                                   desiredMode,
-                                                                   sizeof(MSAACoverageMode));
-        if (idx < 0) {
-            idx = ~idx;
-        }
-        SkASSERT(idx >= 0 && idx < fMSAACoverageModes.count());
-        return fMSAACoverageModes[idx];
     }
 }
 
@@ -497,7 +441,8 @@ void GrGLCaps::initStencilFormats(const GrGLContextInfo& ctxInfo) {
 
         fStencilFormats.push_back() = gS8;
         //fStencilFormats.push_back() = gS16;
-        if (ctxInfo.hasExtension("GL_OES_packed_depth_stencil")) {
+        if (ctxInfo.version() >= GR_GL_VER(3,0) ||
+            ctxInfo.hasExtension("GL_OES_packed_depth_stencil")) {
             fStencilFormats.push_back() = gD24S8;
         }
         if (ctxInfo.hasExtension("GL_OES_stencil4")) {
@@ -569,6 +514,7 @@ void GrGLCaps::print() const {
         "None",
         "ARB",
         "EXT",
+        "ES 3.0",
         "Apple",
         "IMG MS To Texture",
         "EXT MS To Texture",
@@ -576,9 +522,10 @@ void GrGLCaps::print() const {
     GR_STATIC_ASSERT(0 == kNone_MSFBOType);
     GR_STATIC_ASSERT(1 == kDesktop_ARB_MSFBOType);
     GR_STATIC_ASSERT(2 == kDesktop_EXT_MSFBOType);
-    GR_STATIC_ASSERT(3 == kES_Apple_MSFBOType);
-    GR_STATIC_ASSERT(4 == kES_IMG_MsToTexture_MSFBOType);
-    GR_STATIC_ASSERT(5 == kES_EXT_MsToTexture_MSFBOType);
+    GR_STATIC_ASSERT(3 == kES_3_0_MSFBOType);
+    GR_STATIC_ASSERT(4 == kES_Apple_MSFBOType);
+    GR_STATIC_ASSERT(5 == kES_IMG_MsToTexture_MSFBOType);
+    GR_STATIC_ASSERT(6 == kES_EXT_MsToTexture_MSFBOType);
     GR_STATIC_ASSERT(GR_ARRAY_COUNT(kMSFBOExtStr) == kLast_MSFBOType + 1);
 
     static const char* kFBFetchTypeStr[] = {
