@@ -155,7 +155,7 @@ private:
 
 GR_DEFINE_EFFECT_TEST(CircleEdgeEffect);
 
-GrEffectRef* CircleEdgeEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* CircleEdgeEffect::TestCreate(SkRandom* random,
                                           GrContext* context,
                                           const GrDrawTargetCaps&,
                                           GrTexture* textures[]) {
@@ -293,7 +293,7 @@ private:
 
 GR_DEFINE_EFFECT_TEST(EllipseEdgeEffect);
 
-GrEffectRef* EllipseEdgeEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* EllipseEdgeEffect::TestCreate(SkRandom* random,
                                            GrContext* context,
                                            const GrDrawTargetCaps&,
                                            GrTexture* textures[]) {
@@ -454,7 +454,7 @@ private:
 
 GR_DEFINE_EFFECT_TEST(DIEllipseEdgeEffect);
 
-GrEffectRef* DIEllipseEdgeEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* DIEllipseEdgeEffect::TestCreate(SkRandom* random,
                                              GrContext* context,
                                              const GrDrawTargetCaps&,
                                              GrTexture* textures[]) {
@@ -464,7 +464,7 @@ GrEffectRef* DIEllipseEdgeEffect::TestCreate(SkMWCRandom* random,
 ///////////////////////////////////////////////////////////////////////////////
 
 void GrOvalRenderer::reset() {
-    GrSafeSetNull(fRRectIndexBuffer);
+    SkSafeSetNull(fRRectIndexBuffer);
 }
 
 bool GrOvalRenderer::drawOval(GrDrawTarget* target, const GrContext* context, bool useAA,
@@ -691,7 +691,8 @@ bool GrOvalRenderer::drawEllipse(GrDrawTarget* target,
                                                     innerXRadius > 0 && innerYRadius > 0);
 
     static const int kEllipseCenterAttrIndex = 1;
-    drawState->addCoverageEffect(effect, kEllipseCenterAttrIndex)->unref();
+    static const int kEllipseEdgeAttrIndex = 2;
+    drawState->addCoverageEffect(effect, kEllipseCenterAttrIndex, kEllipseEdgeAttrIndex)->unref();
 
     // Compute the reciprocals of the radii here to save time in the shader
     SkScalar xRadRecip = SkScalarInvert(xRadius);

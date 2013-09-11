@@ -6,7 +6,6 @@
  */
 
 #include "GrAARectRenderer.h"
-#include "GrRefCnt.h"
 #include "GrGpu.h"
 #include "gl/GrGLEffect.h"
 #include "GrTBackendEffectFactory.h"
@@ -118,7 +117,7 @@ private:
 
 GR_DEFINE_EFFECT_TEST(GrAlignedRectEffect);
 
-GrEffectRef* GrAlignedRectEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* GrAlignedRectEffect::TestCreate(SkRandom* random,
                                              GrContext* context,
                                              const GrDrawTargetCaps&,
                                              GrTexture* textures[]) {
@@ -257,7 +256,7 @@ private:
 
 GR_DEFINE_EFFECT_TEST(GrRectEffect);
 
-GrEffectRef* GrRectEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* GrRectEffect::TestCreate(SkRandom* random,
                                       GrContext* context,
                                       const GrDrawTargetCaps&,
                                       GrTexture* textures[]) {
@@ -295,8 +294,8 @@ static void set_inset_fan(GrPoint* pts, size_t stride,
 };
 
 void GrAARectRenderer::reset() {
-    GrSafeSetNull(fAAFillRectIndexBuffer);
-    GrSafeSetNull(fAAStrokeRectIndexBuffer);
+    SkSafeSetNull(fAAFillRectIndexBuffer);
+    SkSafeSetNull(fAAStrokeRectIndexBuffer);
 }
 
 static const uint16_t gFillAARectIdx[] = {
