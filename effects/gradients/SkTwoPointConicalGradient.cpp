@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2012 Google Inc.
  *
@@ -441,7 +440,7 @@ private:
 
 GR_DEFINE_EFFECT_TEST(GrConical2Gradient);
 
-GrEffectRef* GrConical2Gradient::TestCreate(SkMWCRandom* random,
+GrEffectRef* GrConical2Gradient::TestCreate(SkRandom* random,
                                             GrContext* context,
                                             const GrDrawTargetCaps&,
                                             GrTexture**) {
@@ -495,20 +494,22 @@ void GrGLConical2Gradient::emitCode(GrGLShaderBuilder* builder,
     GrSLType coordsVaryingType;
     this->setupMatrix(builder, key, &fsCoords, &vsCoordsVarying, &coordsVaryingType);
 
-    this->emitYCoordUniform(builder);
+    this->emitUniforms(builder, key);
     // 2 copies of uniform array, 1 for each of vertex & fragment shader,
     // to work around Xoom bug. Doesn't seem to cause performance decrease
     // in test apps, but need to keep an eye on it.
-    fVSParamUni = builder->addUniformArray(GrGLShaderBuilder::kVertex_ShaderType,
+    fVSParamUni = builder->addUniformArray(GrGLShaderBuilder::kVertex_Visibility,
                                            kFloat_GrSLType, "Conical2VSParams", 6);
-    fFSParamUni = builder->addUniformArray(GrGLShaderBuilder::kFragment_ShaderType,
+    fFSParamUni = builder->addUniformArray(GrGLShaderBuilder::kFragment_Visibility,
                                            kFloat_GrSLType, "Conical2FSParams", 6);
 
     // For radial gradients without perspective we can pass the linear
     // part of the quadratic as a varying.
-    if (kVec2f_GrSLType == coordsVaryingType) {
-        builder->addVarying(kFloat_GrSLType, "Conical2BCoeff",
-                            &fVSVaryingName, &fFSVaryingName);
+    GrGLShaderBuilder::VertexBuilder* vertexBuilder =
+        (kVec2f_GrSLType == coordsVaryingType) ? builder->getVertexBuilder() : NULL;
+    if (NULL != vertexBuilder) {
+        vertexBuilder->addVarying(kFloat_GrSLType, "Conical2BCoeff",
+                                     &fVSVaryingName, &fFSVaryingName);
     }
 
     // VS
@@ -522,11 +523,11 @@ void GrGLConical2Gradient::emitCode(GrGLShaderBuilder* builder,
 
         // For radial gradients without perspective we can pass the linear
         // part of the quadratic as a varying.
-        if (kVec2f_GrSLType == coordsVaryingType) {
+        if (NULL != vertexBuilder) {
             // r2Var = -2 * (r2Parm[2] * varCoord.x - r2Param[3] * r2Param[5])
-            builder->vsCodeAppendf("\t%s = -2.0 * (%s * %s.x + %s * %s);\n",
-                                   fVSVaryingName, p2.c_str(),
-                                   vsCoordsVarying.c_str(), p3.c_str(), p5.c_str());
+            vertexBuilder->vsCodeAppendf("\t%s = -2.0 * (%s * %s.x + %s * %s);\n",
+                                            fVSVaryingName, p2.c_str(),
+                                            vsCoordsVarying.c_str(), p3.c_str(), p5.c_str());
         }
     }
 
@@ -557,7 +558,7 @@ void GrGLConical2Gradient::emitCode(GrGLShaderBuilder* builder,
         // If we we're able to interpolate the linear component,
         // bVar is the varying; otherwise compute it
         SkString bVar;
-        if (kVec2f_GrSLType == coordsVaryingType) {
+        if (NULL != vertexBuilder) {
             bVar = fFSVaryingName;
         } else {
             bVar = "b";
@@ -615,7 +616,7 @@ void GrGLConical2Gradient::emitCode(GrGLShaderBuilder* builder,
                                    p5.c_str(), p3.c_str());
 
             builder->fsCodeAppend("\t\t");
-            this->emitColorLookup(builder, tName.c_str(), outputColor, inputColor, samplers[0]);
+            this->emitColor(builder, tName.c_str(), key, outputColor, inputColor, samplers);
 
             // otherwise, if r(t) for the larger root was <= 0, try the other root
             builder->fsCodeAppend("\t\t} else {\n");
@@ -627,7 +628,7 @@ void GrGLConical2Gradient::emitCode(GrGLShaderBuilder* builder,
                                    tName.c_str(), p5.c_str(), p3.c_str());
 
             builder->fsCodeAppend("\t\t\t");
-            this->emitColorLookup(builder, tName.c_str(), outputColor, inputColor, samplers[0]);
+            this->emitColor(builder, tName.c_str(), key, outputColor, inputColor, samplers);
 
             // end if (r(t) > 0) for smaller root
             builder->fsCodeAppend("\t\t\t}\n");
@@ -645,7 +646,7 @@ void GrGLConical2Gradient::emitCode(GrGLShaderBuilder* builder,
             builder->fsCodeAppendf("\tif (%s * %s + %s > 0.0) {\n", tName.c_str(),
                                    p5.c_str(), p3.c_str());
             builder->fsCodeAppend("\t");
-            this->emitColorLookup(builder, tName.c_str(), outputColor, inputColor, samplers[0]);
+            this->emitColor(builder, tName.c_str(), key, outputColor, inputColor, samplers);
             builder->fsCodeAppend("\t}\n");
         }
     }
@@ -691,10 +692,10 @@ void GrGLConical2Gradient::setData(const GrGLUniformManager& uman,
 GrGLEffect::EffectKey GrGLConical2Gradient::GenKey(const GrDrawEffect& drawEffect,
                                                    const GrGLCaps&) {
     enum {
-        kIsDegenerate = 1 << kMatrixKeyBitCnt,
+        kIsDegenerate = 1 << kBaseKeyBitCnt,
     };
 
-    EffectKey key = GenMatrixKey(drawEffect);
+    EffectKey key = GenBaseGradientKey(drawEffect);
     if (drawEffect.castEffect<GrConical2Gradient>().isDegenerate()) {
         key |= kIsDegenerate;
     }

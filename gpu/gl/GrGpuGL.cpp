@@ -148,7 +148,7 @@ GrGpuGL::GrGpuGL(const GrGLContext& ctx, GrContext* context)
         ctx.info().caps()->print();
     }
 
-    fProgramCache = SkNEW_ARGS(ProgramCache, (this->glContext()));
+    fProgramCache = SkNEW_ARGS(ProgramCache, (this));
 
     SkASSERT(this->glCaps().maxVertexAttributes() >= GrDrawState::kMaxVertexAttribCnt);
 
@@ -333,9 +333,9 @@ void GrGpuGL::onResetContext(uint32_t resetBits) {
         fHWAAState.invalidate();
     }
 
-    // invalid
+    fHWActiveTextureUnitIdx = -1; // invalid
+
     if (resetBits & kTextureBinding_GrGLBackendState) {
-        fHWActiveTextureUnitIdx = -1;
         for (int s = 0; s < fHWBoundTextures.count(); ++s) {
             fHWBoundTextures[s] = NULL;
         }
@@ -364,12 +364,19 @@ void GrGpuGL::onResetContext(uint32_t resetBits) {
         fHWBoundRenderTarget = NULL;
     }
 
-    if (resetBits & kPathStencil_GrGLBackendState) {
-        fHWPathStencilMatrixState.invalidate();
-        if (this->caps()->pathStencilingSupport()) {
-            // we don't use the model view matrix.
-            GL_CALL(MatrixMode(GR_GL_MODELVIEW));
-            GL_CALL(LoadIdentity());
+    if (resetBits & kFixedFunction_GrGLBackendState && this->glCaps().fixedFunctionSupport()) {
+
+        fHWProjectionMatrixState.invalidate();
+        // we don't use the model view matrix.
+        GL_CALL(MatrixMode(GR_GL_MODELVIEW));
+        GL_CALL(LoadIdentity());
+
+        for (int i = 0; i < this->glCaps().maxFixedFunctionTextureCoords(); ++i) {
+            GL_CALL(ActiveTexture(GR_GL_TEXTURE0 + i));
+            GL_CALL(Disable(GR_GL_TEXTURE_GEN_S));
+            GL_CALL(Disable(GR_GL_TEXTURE_GEN_T));
+            GL_CALL(Disable(GR_GL_TEXTURE_GEN_Q));
+            GL_CALL(Disable(GR_GL_TEXTURE_GEN_R));
         }
     }
 
@@ -751,36 +758,50 @@ bool GrGpuGL::uploadTexData(const GrGLTexture::Desc& desc,
     return succeeded;
 }
 
-namespace {
-bool renderbuffer_storage_msaa(GrGLContext& ctx,
-                               int sampleCount,
-                               GrGLenum format,
-                               int width, int height) {
+static bool renderbuffer_storage_msaa(GrGLContext& ctx,
+                                      int sampleCount,
+                                      GrGLenum format,
+                                      int width, int height) {
     CLEAR_ERROR_BEFORE_ALLOC(ctx.interface());
     SkASSERT(GrGLCaps::kNone_MSFBOType != ctx.info().caps()->msFBOType());
-    bool created = false;
-    if (GrGLCaps::kNVDesktop_CoverageAAType ==
-        ctx.info().caps()->coverageAAType()) {
-        const GrGLCaps::MSAACoverageMode& mode =
-            ctx.info().caps()->getMSAACoverageMode(sampleCount);
-        GL_ALLOC_CALL(ctx.interface(),
-                      RenderbufferStorageMultisampleCoverage(GR_GL_RENDERBUFFER,
-                                                        mode.fCoverageSampleCnt,
-                                                        mode.fColorSampleCnt,
-                                                        format,
-                                                        width, height));
-        created = (GR_GL_NO_ERROR == CHECK_ALLOC_ERROR(ctx.interface()));
-    }
-    if (!created) {
+#if GR_GL_IGNORE_ES3_MSAA
         GL_ALLOC_CALL(ctx.interface(),
                       RenderbufferStorageMultisample(GR_GL_RENDERBUFFER,
                                                      sampleCount,
                                                      format,
                                                      width, height));
-        created = (GR_GL_NO_ERROR == CHECK_ALLOC_ERROR(ctx.interface()));
+#else
+    switch (ctx.info().caps()->msFBOType()) {
+        case GrGLCaps::kDesktop_ARB_MSFBOType:
+        case GrGLCaps::kDesktop_EXT_MSFBOType:
+        case GrGLCaps::kES_3_0_MSFBOType:
+            GL_ALLOC_CALL(ctx.interface(),
+                            RenderbufferStorageMultisample(GR_GL_RENDERBUFFER,
+                                                            sampleCount,
+                                                            format,
+                                                            width, height));
+            break;
+        case GrGLCaps::kES_Apple_MSFBOType:
+            GL_ALLOC_CALL(ctx.interface(),
+                            RenderbufferStorageMultisampleES2APPLE(GR_GL_RENDERBUFFER,
+                                                                    sampleCount,
+                                                                    format,
+                                                                    width, height));
+            break;
+        case GrGLCaps::kES_EXT_MsToTexture_MSFBOType:
+        case GrGLCaps::kES_IMG_MsToTexture_MSFBOType:
+            GL_ALLOC_CALL(ctx.interface(),
+                            RenderbufferStorageMultisampleES2EXT(GR_GL_RENDERBUFFER,
+                                                                sampleCount,
+                                                                format,
+                                                                width, height));
+            break;
+        case GrGLCaps::kNone_MSFBOType:
+            GrCrash("Shouldn't be here if we don't support multisampled renderbuffers.");
+            break;
     }
-    return created;
-}
+#endif
+    return (GR_GL_NO_ERROR == CHECK_ALLOC_ERROR(ctx.interface()));;
 }
 
 bool GrGpuGL::createRenderTargetObjects(int width, int height,
@@ -2296,6 +2317,12 @@ inline bool can_blit_framebuffer(const GrSurface* dst,
     if (gpu->isConfigRenderable(dst->config()) &&
         gpu->isConfigRenderable(src->config()) &&
         gpu->glCaps().usesMSAARenderBuffers()) {
+        // ES3 doesn't allow framebuffer blits when the src has MSAA and the configs don't match
+        // or the rects are not the same (not just the same size but have the same edges).
+        if (GrGLCaps::kES_3_0_MSFBOType == gpu->glCaps().msFBOType() &&
+            (src->desc().fSampleCnt > 0 || src->config() != dst->config())) {
+           return false;
+        }
         if (NULL != wouldNeedTempFBO) {
             *wouldNeedTempFBO = NULL == dst->asRenderTarget() || NULL == src->asRenderTarget();
         }

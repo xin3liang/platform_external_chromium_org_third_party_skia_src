@@ -116,24 +116,6 @@ void SkBitmapProcState::possiblyScaleImage() {
         return;
     }
 
-    // see if our platform has any specialized convolution code.
-
-
-    // Set up a pointer to a local (instead of storing the structure in the
-    // proc state) to avoid introducing a header dependency; this makes
-    // recompiles a lot less painful.
-
-    SkConvolutionProcs simd;
-    fConvolutionProcs = &simd;
-
-    fConvolutionProcs->fExtraHorizontalReads = 0;
-    fConvolutionProcs->fConvolveVertically = NULL;
-    fConvolutionProcs->fConvolve4RowsHorizontally = NULL;
-    fConvolutionProcs->fConvolveHorizontally = NULL;
-    fConvolutionProcs->fApplySIMDPadding = NULL;
-
-    this->platformConvolutionProcs();
-
     // STEP 1: Highest quality direct scale?
 
     // Check to see if the transformation matrix is simple, and if we're
@@ -157,12 +139,16 @@ void SkBitmapProcState::possiblyScaleImage() {
 
             // All the criteria are met; let's make a new bitmap.
 
+            SkConvolutionProcs simd;
+            sk_bzero(&simd, sizeof(simd));
+            this->platformConvolutionProcs(&simd);
+
             if (!SkBitmapScaler::Resize(&fScaledBitmap,
                                         fOrigBitmap,
                                         SkBitmapScaler::RESIZE_BEST,
                                         dest_width,
                                         dest_height,
-                                        fConvolutionProcs)) {
+                                        simd)) {
                 // we failed to create fScaledBitmap, so just return and let
                 // the scanline proc handle it.
                 return;
@@ -179,8 +165,8 @@ void SkBitmapProcState::possiblyScaleImage() {
 
         // set the inv matrix type to translate-only;
 
-        fInvMatrix.setTranslate( 1/fInvMatrix.getScaleX() * fInvMatrix.getTranslateX(),
-                                 1/fInvMatrix.getScaleY() * fInvMatrix.getTranslateY() );
+        fInvMatrix.setTranslate(fInvMatrix.getTranslateX() / fInvMatrix.getScaleX(),
+                                fInvMatrix.getTranslateY() / fInvMatrix.getScaleY());
 
         // no need for any further filtering; we just did it!
 
@@ -295,16 +281,8 @@ bool SkBitmapProcState::chooseProcs(const SkMatrix& inv, const SkPaint& paint) {
         return false;
     }
 
-    bool trivialMatrix = (inv.getType() & ~SkMatrix::kTranslate_Mask) == 0;
-    bool clampClamp = SkShader::kClamp_TileMode == fTileModeX &&
-                       SkShader::kClamp_TileMode == fTileModeY;
-
-    fInvMatrix = inv;
-    if (!(clampClamp || trivialMatrix)) {
-        fInvMatrix.postIDiv(fOrigBitmap.width(), fOrigBitmap.height());
-    }
-
     fBitmap = &fOrigBitmap;
+    fInvMatrix = inv;
 
     // initialize our filter quality to the one requested by the caller.
     // We may downgrade it later if we determine that we either don't need
@@ -312,7 +290,6 @@ bool SkBitmapProcState::chooseProcs(const SkMatrix& inv, const SkPaint& paint) {
 
     fFilterLevel = paint.getFilterLevel();
 
-#ifndef SK_IGNORE_IMAGE_PRESCALE
     // possiblyScaleImage will look to see if it can rescale the image as a
     // preprocess; either by scaling up to the target size, or by selecting
     // a nearby mipmap level.  If it does, it will adjust the working
@@ -320,7 +297,14 @@ bool SkBitmapProcState::chooseProcs(const SkMatrix& inv, const SkPaint& paint) {
     // quality to avoid re-filtering an already perfectly scaled image.
 
     this->possiblyScaleImage();
-#endif
+
+    bool trivialMatrix = (fInvMatrix.getType() & ~SkMatrix::kTranslate_Mask) == 0;
+    bool clampClamp = SkShader::kClamp_TileMode == fTileModeX &&
+                      SkShader::kClamp_TileMode == fTileModeY;
+
+    if (!(clampClamp || trivialMatrix)) {
+        fInvMatrix.postIDiv(fOrigBitmap.width(), fOrigBitmap.height());
+    }
 
     // Now that all possible changes to the matrix have taken place, check
     // to see if we're really close to a no-scale matrix.  If so, explicitly

@@ -376,7 +376,7 @@ static void appendTextureLookup(GrGLShaderBuilder* builder,
             builder->fsCodeAppendf("clamp(%s, 0.0, 1.0) != %s ? vec4(0, 0, 0, 0) : ", coord, coord);
             break;
     }
-    builder->appendTextureLookup(GrGLShaderBuilder::kFragment_ShaderType, sampler, coord);
+    builder->fsAppendTextureLookup(sampler, coord);
 }
 
 void GrGLMatrixConvolutionEffect::emitCode(GrGLShaderBuilder* builder,
@@ -387,15 +387,15 @@ void GrGLMatrixConvolutionEffect::emitCode(GrGLShaderBuilder* builder,
                                            const TextureSamplerArray& samplers) {
     SkString coords;
     fEffectMatrix.emitCodeMakeFSCoords2D(builder, key, &coords);
-    fImageIncrementUni = builder->addUniform(GrGLShaderBuilder::kFragment_ShaderType,
+    fImageIncrementUni = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
                                              kVec2f_GrSLType, "ImageIncrement");
-    fKernelUni = builder->addUniformArray(GrGLShaderBuilder::kFragment_ShaderType,
+    fKernelUni = builder->addUniformArray(GrGLShaderBuilder::kFragment_Visibility,
                                              kFloat_GrSLType, "Kernel", fKernelSize.width() * fKernelSize.height());
-    fTargetUni = builder->addUniform(GrGLShaderBuilder::kFragment_ShaderType,
+    fTargetUni = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
                                              kVec2f_GrSLType, "Target");
-    fGainUni = builder->addUniform(GrGLShaderBuilder::kFragment_ShaderType,
+    fGainUni = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
                                    kFloat_GrSLType, "Gain");
-    fBiasUni = builder->addUniform(GrGLShaderBuilder::kFragment_ShaderType,
+    fBiasUni = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
                                    kFloat_GrSLType, "Bias");
 
     const char* target = builder->getUniformCStr(fTargetUni);
@@ -530,7 +530,7 @@ GR_DEFINE_EFFECT_TEST(GrMatrixConvolutionEffect);
 // Allows for a 5x5 kernel (or 25x1, for that matter).
 #define MAX_KERNEL_SIZE 25
 
-GrEffectRef* GrMatrixConvolutionEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* GrMatrixConvolutionEffect::TestCreate(SkRandom* random,
                                                    GrContext* context,
                                                    const GrDrawTargetCaps&,
                                                    GrTexture* textures[]) {

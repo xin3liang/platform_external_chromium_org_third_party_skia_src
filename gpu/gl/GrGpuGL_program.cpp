@@ -35,10 +35,10 @@ struct GrGpuGL::ProgramCache::ProgDescLess {
     }
 };
 
-GrGpuGL::ProgramCache::ProgramCache(const GrGLContext& gl)
+GrGpuGL::ProgramCache::ProgramCache(GrGpuGL* gpu)
     : fCount(0)
     , fCurrLRUStamp(0)
-    , fGL(gl)
+    , fGpu(gpu)
 #ifdef PROGRAM_CACHE_STATS
     , fTotalRequests(0)
     , fCacheMisses(0)
@@ -119,7 +119,7 @@ GrGLProgram* GrGpuGL::ProgramCache::getProgram(const GrGLProgramDesc& desc,
 #ifdef PROGRAM_CACHE_STATS
         ++fCacheMisses;
 #endif
-        GrGLProgram* program = GrGLProgram::Create(fGL, desc, colorStages, coverageStages);
+        GrGLProgram* program = GrGLProgram::Create(fGpu, desc, colorStages, coverageStages);
         if (NULL == program) {
             return NULL;
         }
@@ -209,49 +209,18 @@ void GrGpuGL::flushPathStencilMatrix() {
     size.set(rt->width(), rt->height());
     const SkMatrix& vm = this->getDrawState().getViewMatrix();
 
-    if (fHWPathStencilMatrixState.fRenderTargetOrigin != rt->origin() ||
-        !fHWPathStencilMatrixState.fViewMatrix.cheapEqualTo(viewMatrix) ||
-        fHWPathStencilMatrixState.fRenderTargetSize!= size) {
-        // rescale the coords from skia's "device" coords to GL's normalized coords,
-        // and perform a y-flip if required.
-        SkMatrix m;
-        if (kBottomLeft_GrSurfaceOrigin == rt->origin()) {
-            m.setScale(SkIntToScalar(2) / rt->width(), SkIntToScalar(-2) / rt->height());
-            m.postTranslate(-SK_Scalar1, SK_Scalar1);
-        } else {
-            m.setScale(SkIntToScalar(2) / rt->width(), SkIntToScalar(2) / rt->height());
-            m.postTranslate(-SK_Scalar1, -SK_Scalar1);
-        }
-        m.preConcat(vm);
+    if (fHWProjectionMatrixState.fRenderTargetOrigin != rt->origin() ||
+        !fHWProjectionMatrixState.fViewMatrix.cheapEqualTo(viewMatrix) ||
+        fHWProjectionMatrixState.fRenderTargetSize!= size) {
 
-        // GL wants a column-major 4x4.
-        GrGLfloat mv[]  = {
-            // col 0
-            SkScalarToFloat(m[SkMatrix::kMScaleX]),
-            SkScalarToFloat(m[SkMatrix::kMSkewY]),
-            0,
-            SkScalarToFloat(m[SkMatrix::kMPersp0]),
+        fHWProjectionMatrixState.fViewMatrix = vm;
+        fHWProjectionMatrixState.fRenderTargetSize = size;
+        fHWProjectionMatrixState.fRenderTargetOrigin = rt->origin();
 
-            // col 1
-            SkScalarToFloat(m[SkMatrix::kMSkewX]),
-            SkScalarToFloat(m[SkMatrix::kMScaleY]),
-            0,
-            SkScalarToFloat(m[SkMatrix::kMPersp1]),
-
-            // col 2
-            0, 0, 0, 0,
-
-            // col3
-            SkScalarToFloat(m[SkMatrix::kMTransX]),
-            SkScalarToFloat(m[SkMatrix::kMTransY]),
-            0.0f,
-            SkScalarToFloat(m[SkMatrix::kMPersp2])
-        };
+        GrGLfloat projectionMatrix[4 * 4];
+        fHWProjectionMatrixState.getGLMatrix<4>(projectionMatrix);
         GL_CALL(MatrixMode(GR_GL_PROJECTION));
-        GL_CALL(LoadMatrixf(mv));
-        fHWPathStencilMatrixState.fViewMatrix = vm;
-        fHWPathStencilMatrixState.fRenderTargetSize = size;
-        fHWPathStencilMatrixState.fRenderTargetOrigin = rt->origin();
+        GL_CALL(LoadMatrixf(projectionMatrix));
     }
 }
 
@@ -305,8 +274,7 @@ bool GrGpuGL::flushGraphicsState(DrawType type, const GrDeviceCoordTexture* dstC
         fCurrentProgram->overrideBlend(&srcCoeff, &dstCoeff);
         this->flushBlend(kDrawLines_DrawType == type, srcCoeff, dstCoeff);
 
-        fCurrentProgram->setData(this,
-                                 blendOpts,
+        fCurrentProgram->setData(blendOpts,
                                  colorStages.begin(),
                                  coverageStages.begin(),
                                  dstCopy,
@@ -403,5 +371,5 @@ void GrGpuGL::setupGeometry(const DrawInfo& info, size_t* indexOffsetInBytes) {
                          vertexOffsetInBytes + vertexAttrib->fOffset));
     }
 
-    attribState->disableUnusedAttribArrays(this, usedAttribArraysMask);
+    attribState->disableUnusedArrays(this, usedAttribArraysMask, false);
 }

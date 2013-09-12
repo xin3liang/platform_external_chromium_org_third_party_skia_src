@@ -144,6 +144,13 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
 
     GrGLVersion glVer = GrGLGetVersion(this);
 
+    bool isCoreProfile = false;
+    if (kDesktop_GrGLBinding == binding && glVer >= GR_GL_VER(3,2)) {
+        GrGLint profileMask;
+        GR_GL_GetIntegerv(this, GR_GL_CONTEXT_PROFILE_MASK, &profileMask);
+        isCoreProfile = SkToBool(profileMask & GR_GL_CONTEXT_CORE_PROFILE_BIT);
+    }
+
     // Now check that baseline ES/Desktop fns not covered above are present
     // and that we have fn pointers for any advertised extensions that we will
     // try to use.
@@ -199,14 +206,19 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
                 return false;
             }
         }
-        // The below two blocks are checks for functions used with
-        // GL_NV_path_rendering. We're not enforcing that they be non-NULL
-        // because they aren't actually called at this time.
-        if (false &&
-            (NULL == fMatrixMode ||
-             NULL == fLoadIdentity ||
-             NULL == fLoadMatrixf)) {
-            return false;
+        if (!isCoreProfile) {
+            if (NULL == fClientActiveTexture ||
+                NULL == fDisableClientState ||
+                NULL == fEnableClientState ||
+                NULL == fLoadIdentity ||
+                NULL == fLoadMatrixf ||
+                NULL == fMatrixMode ||
+                NULL == fTexGenf ||
+                NULL == fTexGenfv ||
+                NULL == fTexGeni ||
+                NULL == fVertexPointer) {
+                return false;
+            }
         }
         if (false && extensions.has("GL_NV_path_rendering")) {
             if (NULL == fPathCommands ||
@@ -324,25 +336,45 @@ bool GrGLInterface::validate(GrGLBinding binding) const {
             }
         }
     } else {
+#if GR_GL_IGNORE_ES3_MSAA
         if (extensions.has("GL_CHROMIUM_framebuffer_multisample")) {
+            if (NULL == fRenderbufferStorageMultisample ||
+                NULL == fBlitFramebuffer) {
+                return false;
+            }
+        } else if (extensions.has("GL_APPLE_framebuffer_multisample")) {
+            if (NULL == fRenderbufferStorageMultisample ||
+                NULL == fResolveMultisampleFramebuffer) {
+                return false;
+            }
+        } else if (extensions.has("GL_IMG_multisampled_render_to_texture") ||
+                   extensions.has("GL_EXT_multisampled_render_to_texture")) {
+            if (NULL == fRenderbufferStorageMultisample ||
+                NULL == fFramebufferTexture2DMultisample) {
+                return false;
+            }
+        }
+#else
+        if (glVer >= GR_GL_VER(3,0) || extensions.has("GL_CHROMIUM_framebuffer_multisample")) {
             if (NULL == fRenderbufferStorageMultisample ||
                 NULL == fBlitFramebuffer) {
                 return false;
             }
         }
         if (extensions.has("GL_APPLE_framebuffer_multisample")) {
-            if (NULL == fRenderbufferStorageMultisample ||
+            if (NULL == fRenderbufferStorageMultisampleES2APPLE ||
                 NULL == fResolveMultisampleFramebuffer) {
                 return false;
             }
         }
         if (extensions.has("GL_IMG_multisampled_render_to_texture") ||
             extensions.has("GL_EXT_multisampled_render_to_texture")) {
-            if (NULL == fRenderbufferStorageMultisample ||
+            if (NULL == fRenderbufferStorageMultisampleES2EXT ||
                 NULL == fFramebufferTexture2DMultisample) {
                 return false;
             }
         }
+#endif
     }
 
     // On ES buffer mapping is an extension. On Desktop

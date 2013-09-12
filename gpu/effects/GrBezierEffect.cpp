@@ -15,6 +15,8 @@ class GrGLConicEffect : public GrGLEffect {
 public:
     GrGLConicEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
 
+    virtual bool requiresVertexShader(const GrDrawEffect&) const SK_OVERRIDE { return true; }
+
     virtual void emitCode(GrGLShaderBuilder* builder,
                           const GrDrawEffect& drawEffect,
                           EffectKey key,
@@ -45,13 +47,16 @@ void GrGLConicEffect::emitCode(GrGLShaderBuilder* builder,
                                const char* outputColor,
                                const char* inputColor,
                                const TextureSamplerArray& samplers) {
+    GrGLShaderBuilder::VertexBuilder* vertexBuilder = builder->getVertexBuilder();
+    SkASSERT(NULL != vertexBuilder);
+
     const char *vsName, *fsName;
 
-    builder->addVarying(kVec4f_GrSLType, "ConicCoeffs",
-                        &vsName, &fsName);
+    vertexBuilder->addVarying(kVec4f_GrSLType, "ConicCoeffs",
+                              &vsName, &fsName);
     const SkString* attr0Name =
-        builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
-    builder->vsCodeAppendf("\t%s = %s;\n", vsName, attr0Name->c_str());
+        vertexBuilder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+    vertexBuilder->vsCodeAppendf("\t%s = %s;\n", vsName, attr0Name->c_str());
 
     builder->fsCodeAppend("\t\tfloat edgeAlpha;\n");
 
@@ -139,7 +144,7 @@ bool GrConicEffect::onIsEqual(const GrEffect& other) const {
 
 GR_DEFINE_EFFECT_TEST(GrConicEffect);
 
-GrEffectRef* GrConicEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* GrConicEffect::TestCreate(SkRandom* random,
                                              GrContext*,
                                              const GrDrawTargetCaps& caps,
                                              GrTexture*[]) {
@@ -154,6 +159,8 @@ GrEffectRef* GrConicEffect::TestCreate(SkMWCRandom* random,
 class GrGLQuadEffect : public GrGLEffect {
 public:
     GrGLQuadEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
+
+    virtual bool requiresVertexShader(const GrDrawEffect&) const SK_OVERRIDE { return true; }
 
     virtual void emitCode(GrGLShaderBuilder* builder,
                           const GrDrawEffect& drawEffect,
@@ -185,13 +192,16 @@ void GrGLQuadEffect::emitCode(GrGLShaderBuilder* builder,
                               const char* outputColor,
                               const char* inputColor,
                               const TextureSamplerArray& samplers) {
+    GrGLShaderBuilder::VertexBuilder* vertexBuilder = builder->getVertexBuilder();
+    SkASSERT(NULL != vertexBuilder);
+
     const char *vsName, *fsName;
 
     const SkString* attrName =
-        builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+        vertexBuilder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
     builder->fsCodeAppendf("\t\tfloat edgeAlpha;\n");
 
-    builder->addVarying(kVec4f_GrSLType, "HairQuadEdge", &vsName, &fsName);
+    vertexBuilder->addVarying(kVec4f_GrSLType, "HairQuadEdge", &vsName, &fsName);
 
     switch (fEdgeType) {
         case kHairAA_GrBezierEdgeType: {
@@ -238,7 +248,7 @@ void GrGLQuadEffect::emitCode(GrGLShaderBuilder* builder,
     GrGLSLModulatef<4>(&modulate, inputColor, "edgeAlpha");
     builder->fsCodeAppendf("\t%s = %s;\n", outputColor, modulate.c_str());
 
-    builder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
+    vertexBuilder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
 }
 
 GrGLEffect::EffectKey GrGLQuadEffect::GenKey(const GrDrawEffect& drawEffect, const GrGLCaps&) {
@@ -268,7 +278,7 @@ bool GrQuadEffect::onIsEqual(const GrEffect& other) const {
 
 GR_DEFINE_EFFECT_TEST(GrQuadEffect);
 
-GrEffectRef* GrQuadEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* GrQuadEffect::TestCreate(SkRandom* random,
                                              GrContext*,
                                              const GrDrawTargetCaps& caps,
                                              GrTexture*[]) {
@@ -283,6 +293,8 @@ GrEffectRef* GrQuadEffect::TestCreate(SkMWCRandom* random,
 class GrGLCubicEffect : public GrGLEffect {
 public:
     GrGLCubicEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
+
+    virtual bool requiresVertexShader(const GrDrawEffect&) const SK_OVERRIDE { return true; }
 
     virtual void emitCode(GrGLShaderBuilder* builder,
                           const GrDrawEffect& drawEffect,
@@ -314,13 +326,16 @@ void GrGLCubicEffect::emitCode(GrGLShaderBuilder* builder,
                                const char* outputColor,
                                const char* inputColor,
                                const TextureSamplerArray& samplers) {
+    GrGLShaderBuilder::VertexBuilder* vertexBuilder = builder->getVertexBuilder();
+    SkASSERT(NULL != vertexBuilder);
+
     const char *vsName, *fsName;
 
-    builder->addVarying(kVec4f_GrSLType, "CubicCoeffs",
-                        &vsName, &fsName);
+    vertexBuilder->addVarying(kVec4f_GrSLType, "CubicCoeffs",
+                              &vsName, &fsName);
     const SkString* attr0Name =
-        builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
-    builder->vsCodeAppendf("\t%s = %s;\n", vsName, attr0Name->c_str());
+        vertexBuilder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+    vertexBuilder->vsCodeAppendf("\t%s = %s;\n", vsName, attr0Name->c_str());
 
     builder->fsCodeAppend("\t\tfloat edgeAlpha;\n");
 
@@ -408,7 +423,7 @@ bool GrCubicEffect::onIsEqual(const GrEffect& other) const {
 
 GR_DEFINE_EFFECT_TEST(GrCubicEffect);
 
-GrEffectRef* GrCubicEffect::TestCreate(SkMWCRandom* random,
+GrEffectRef* GrCubicEffect::TestCreate(SkRandom* random,
                                              GrContext*,
                                              const GrDrawTargetCaps& caps,
                                              GrTexture*[]) {

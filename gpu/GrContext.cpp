@@ -12,6 +12,7 @@
 #include "effects/GrSingleTextureEffect.h"
 #include "effects/GrConfigConversionEffect.h"
 
+#include "GrAARectRenderer.h"
 #include "GrBufferAllocPool.h"
 #include "GrGpu.h"
 #include "GrDrawTargetCaps.h"
@@ -166,8 +167,8 @@ GrContext::~GrContext() {
     fOvalRenderer->unref();
 
     fGpu->unref();
-    GrSafeUnref(fPathRendererChain);
-    GrSafeUnref(fSoftwarePathRenderer);
+    SkSafeUnref(fPathRendererChain);
+    SkSafeUnref(fSoftwarePathRenderer);
     fDrawState->unref();
 
     --THREAD_INSTANCE_COUNT;
@@ -185,8 +186,8 @@ void GrContext::contextDestroyed() {
 
     // a path renderer may be holding onto resources that
     // are now unusable
-    GrSafeSetNull(fPathRendererChain);
-    GrSafeSetNull(fSoftwarePathRenderer);
+    SkSafeSetNull(fPathRendererChain);
+    SkSafeSetNull(fSoftwarePathRenderer);
 
     delete fDrawBuffer;
     fDrawBuffer = NULL;
@@ -220,8 +221,8 @@ void GrContext::freeGpuResources() {
     fTextureCache->purgeAllUnlocked();
     fFontCache->freeAll();
     // a path renderer may be holding onto resources
-    GrSafeSetNull(fPathRendererChain);
-    GrSafeSetNull(fSoftwarePathRenderer);
+    SkSafeSetNull(fPathRendererChain);
+    SkSafeSetNull(fSoftwarePathRenderer);
 }
 
 size_t GrContext::getGpuTextureCacheBytes() const {
@@ -1535,10 +1536,10 @@ bool GrContext::writeRenderTargetPixels(GrRenderTarget* target,
         // handle the unpremul step on the CPU if we couldn't create an effect to do it.
         if (NULL == effect) {
             SkCanvas::Config8888 srcConfig8888, dstConfig8888;
-            GR_DEBUGCODE(bool success = )
+            SkDEBUGCODE(bool success = )
             grconfig_to_config8888(srcConfig, true, &srcConfig8888);
             SkASSERT(success);
-            GR_DEBUGCODE(success = )
+            SkDEBUGCODE(success = )
             grconfig_to_config8888(srcConfig, false, &dstConfig8888);
             SkASSERT(success);
             const uint32_t* src = reinterpret_cast<const uint32_t*>(buffer);
