@@ -632,6 +632,16 @@ private:
     void init(const SkClipStack* clipStack, const SkRegion& clipRegion,
               const SkMatrix& matrix, const SkPaint& paint, bool hasText) {
         fDstFormXObject = NULL;
+        if (matrix.hasPerspective() ||
+                (paint.getShader() &&
+                 paint.getShader()->getLocalMatrix().hasPerspective())) {
+            // Just report that PDF does not supports perspective
+            // TODO(edisonn): update the shape when possible
+            // or dump in an image otherwise
+            NOT_IMPLEMENTED(true, false);
+            return;
+        }
+
         if (paint.getXfermode()) {
             paint.getXfermode()->asMode(&fXfermode);
         }
@@ -679,6 +689,11 @@ SkPDFDevice::SkPDFDevice(const SkISize& pageSize, const SkISize& contentSize,
       fLastMarginContentEntry(NULL),
       fClipStack(NULL),
       fEncoder(NULL) {
+    // just report that PDF does not supports perspective
+    // TODO(edisonn): update the shape when possible
+    // or dump in an image otherwise
+    NOT_IMPLEMENTED(initialTransform.hasPerspective(), true);
+
     // Skia generally uses the top left as the origin but PDF natively has the
     // origin at the bottom left. This matrix corrects for that.  But that only
     // needs to be done once, we don't do it when layering.
@@ -771,10 +786,8 @@ void SkPDFDevice::internalDrawPaint(const SkPaint& paint,
     }
     SkRect bbox = SkRect::MakeWH(SkIntToScalar(this->width()),
                                  SkIntToScalar(this->height()));
-    SkMatrix totalTransform = fInitialTransform;
-    totalTransform.preConcat(contentEntry->fState.fMatrix);
     SkMatrix inverse;
-    if (!totalTransform.invert(&inverse)) {
+    if (!contentEntry->fState.fMatrix.invert(&inverse)) {
         return;
     }
     inverse.mapRect(&bbox);
@@ -915,6 +928,7 @@ void SkPDFDevice::drawPath(const SkDraw& d, const SkPath& origPath,
             origPath.transform(*prePathMatrix, pathPtr);
         } else {
             if (!matrix.preConcat(*prePathMatrix)) {
+                // TODO(edisonn): report somehow why we failed?
                 return;
             }
         }
