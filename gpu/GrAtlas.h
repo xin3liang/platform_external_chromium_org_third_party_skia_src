@@ -23,7 +23,6 @@ class GrAtlas {
 public:
     int getPlotX() const { return fPlot.fX; }
     int getPlotY() const { return fPlot.fY; }
-    GrMaskFormat getMaskFormat() const { return fMaskFormat; }
 
     GrTexture* texture() const { return fTexture; }
 
@@ -43,7 +42,7 @@ public:
     void setDrawToken(GrDrawTarget::DrawToken draw) { fDrawToken = draw; }
 
 private:
-    GrAtlas(GrAtlasMgr*, int plotX, int plotY, GrMaskFormat format);
+    GrAtlas(GrAtlasMgr*, int plotX, int plotY, int bpp);
     ~GrAtlas(); // does not try to delete the fNext field
 
     // for recycling
@@ -55,7 +54,7 @@ private:
     GrRectanizer*           fRects;
     GrAtlasMgr*             fAtlasMgr;
     GrIPoint16              fPlot;
-    GrMaskFormat            fMaskFormat;
+    int                     fBytesPerPixel;
 
     friend class GrAtlasMgr;
 };
@@ -64,25 +63,24 @@ class GrPlotMgr;
 
 class GrAtlasMgr {
 public:
-    GrAtlasMgr(GrGpu*);
+    GrAtlasMgr(GrGpu*, GrPixelConfig);
     ~GrAtlasMgr();
 
-    GrAtlas* addToAtlas(GrAtlas**, int width, int height, const void*,
-                        GrMaskFormat, GrIPoint16*);
+    GrAtlas* addToAtlas(GrAtlas**, int width, int height, const void*, GrIPoint16*);
     void deleteAtlas(GrAtlas* atlas) { delete atlas; }
 
-    GrTexture* getTexture(GrMaskFormat format) const {
-        SkASSERT((unsigned)format < kCount_GrMaskFormats);
-        return fTexture[format];
+    GrTexture* getTexture() const {
+        return fTexture;
     }
 
     // to be called by ~GrAtlas()
-    void freePlot(GrMaskFormat format, int x, int y);
+    void freePlot(int x, int y);
 
 private:
-    GrGpu*      fGpu;
-    GrTexture*  fTexture[kCount_GrMaskFormats];
-    GrPlotMgr*  fPlotMgr[kCount_GrMaskFormats];
+    GrGpu*        fGpu;
+    GrPixelConfig fPixelConfig;
+    GrTexture*    fTexture;
+    GrPlotMgr*    fPlotMgr;
 };
 
 #endif
