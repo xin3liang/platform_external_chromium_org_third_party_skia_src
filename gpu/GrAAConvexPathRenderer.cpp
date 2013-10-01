@@ -21,6 +21,8 @@
 #include "gl/GrGLEffect.h"
 #include "gl/GrGLSL.h"
 
+#include "effects/GrVertexEffect.h"
+
 GrAAConvexPathRenderer::GrAAConvexPathRenderer() {
 }
 
@@ -497,7 +499,7 @@ static void create_vertices(const SegmentArray&  segments,
  * Requires shader derivative instruction support.
  */
 
-class QuadEdgeEffect : public GrEffect {
+class QuadEdgeEffect : public GrVertexEffect {
 public:
 
     static GrEffectRef* Create() {
@@ -523,8 +525,6 @@ public:
     public:
         GLEffect(const GrBackendEffectFactory& factory, const GrDrawEffect&)
             : INHERITED (factory) {}
-
-        virtual bool requiresVertexShader(const GrDrawEffect&) const SK_OVERRIDE { return true; }
 
         virtual void emitCode(GrGLShaderBuilder* builder,
                               const GrDrawEffect& drawEffect,
@@ -588,7 +588,7 @@ private:
 
     GR_DECLARE_EFFECT_TEST;
 
-    typedef GrEffect INHERITED;
+    typedef GrVertexEffect INHERITED;
 };
 
 GR_DEFINE_EFFECT_TEST(QuadEdgeEffect);

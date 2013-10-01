@@ -15,8 +15,6 @@ class GrGLConicEffect : public GrGLEffect {
 public:
     GrGLConicEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
 
-    virtual bool requiresVertexShader(const GrDrawEffect&) const SK_OVERRIDE { return true; }
-
     virtual void emitCode(GrGLShaderBuilder* builder,
                           const GrDrawEffect& drawEffect,
                           EffectKey key,
@@ -130,7 +128,7 @@ const GrBackendEffectFactory& GrConicEffect::getFactory() const {
     return GrTBackendEffectFactory<GrConicEffect>::getInstance();
 }
 
-GrConicEffect::GrConicEffect(GrBezierEdgeType edgeType) : GrEffect() {
+GrConicEffect::GrConicEffect(GrBezierEdgeType edgeType) : GrVertexEffect() {
     this->addVertexAttrib(kVec4f_GrSLType);
     fEdgeType = edgeType;
 }
@@ -159,8 +157,6 @@ GrEffectRef* GrConicEffect::TestCreate(SkRandom* random,
 class GrGLQuadEffect : public GrGLEffect {
 public:
     GrGLQuadEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
-
-    virtual bool requiresVertexShader(const GrDrawEffect&) const SK_OVERRIDE { return true; }
 
     virtual void emitCode(GrGLShaderBuilder* builder,
                           const GrDrawEffect& drawEffect,
@@ -264,7 +260,7 @@ const GrBackendEffectFactory& GrQuadEffect::getFactory() const {
     return GrTBackendEffectFactory<GrQuadEffect>::getInstance();
 }
 
-GrQuadEffect::GrQuadEffect(GrBezierEdgeType edgeType) : GrEffect() {
+GrQuadEffect::GrQuadEffect(GrBezierEdgeType edgeType) : GrVertexEffect() {
     this->addVertexAttrib(kVec4f_GrSLType);
     fEdgeType = edgeType;
 }
@@ -293,8 +289,6 @@ GrEffectRef* GrQuadEffect::TestCreate(SkRandom* random,
 class GrGLCubicEffect : public GrGLEffect {
 public:
     GrGLCubicEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
-
-    virtual bool requiresVertexShader(const GrDrawEffect&) const SK_OVERRIDE { return true; }
 
     virtual void emitCode(GrGLShaderBuilder* builder,
                           const GrDrawEffect& drawEffect,
@@ -409,7 +403,7 @@ const GrBackendEffectFactory& GrCubicEffect::getFactory() const {
     return GrTBackendEffectFactory<GrCubicEffect>::getInstance();
 }
 
-GrCubicEffect::GrCubicEffect(GrBezierEdgeType edgeType) : GrEffect() {
+GrCubicEffect::GrCubicEffect(GrBezierEdgeType edgeType) : GrVertexEffect() {
     this->addVertexAttrib(kVec4f_GrSLType);
     fEdgeType = edgeType;
 }
