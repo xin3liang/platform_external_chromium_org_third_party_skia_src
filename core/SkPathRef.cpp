@@ -29,7 +29,7 @@ SkPathRef::Editor::Editor(SkAutoTUnref<SkPathRef>* pathRef,
 }
 
 SkPoint* SkPathRef::Editor::growForConic(SkScalar w) {
-    fPathRef->validate();
+    SkDEBUGCODE(fPathRef->validate();)
     SkPoint* pts = fPathRef->growForVerb(SkPath::kConic_Verb);
     *fPathRef->fConicWeights.append() = w;
     return pts;
@@ -39,12 +39,12 @@ SkPoint* SkPathRef::Editor::growForConic(SkScalar w) {
 void SkPathRef::CreateTransformedCopy(SkAutoTUnref<SkPathRef>* dst,
                                       const SkPathRef& src,
                                       const SkMatrix& matrix) {
-    src.validate();
+    SkDEBUGCODE(src.validate();)
     if (matrix.isIdentity()) {
         if (*dst != &src) {
             src.ref();
             dst->reset(const_cast<SkPathRef*>(&src));
-            (*dst)->validate();
+            SkDEBUGCODE((*dst)->validate();)
         }
         return;
     }
@@ -87,7 +87,7 @@ void SkPathRef::CreateTransformedCopy(SkAutoTUnref<SkPathRef>* dst,
         (*dst)->fBoundsIsDirty = true;
     }
 
-    (*dst)->validate();
+    SkDEBUGCODE((*dst)->validate();)
 }
 
 SkPathRef* SkPathRef::CreateFromBuffer(SkRBuffer* buffer
@@ -127,14 +127,14 @@ SkPathRef* SkPathRef::CreateFromBuffer(SkRBuffer* buffer
 
 void SkPathRef::Rewind(SkAutoTUnref<SkPathRef>* pathRef) {
     if ((*pathRef)->unique()) {
-        (*pathRef)->validate();
+        SkDEBUGCODE((*pathRef)->validate();)
         (*pathRef)->fBoundsIsDirty = true;  // this also invalidates fIsFinite
         (*pathRef)->fVerbCnt = 0;
         (*pathRef)->fPointCnt = 0;
         (*pathRef)->fFreeSpace = (*pathRef)->currSize();
         (*pathRef)->fGenerationID = 0;
         (*pathRef)->fConicWeights.rewind();
-        (*pathRef)->validate();
+        SkDEBUGCODE((*pathRef)->validate();)
     } else {
         int oldVCnt = (*pathRef)->countVerbs();
         int oldPCnt = (*pathRef)->countPoints();
@@ -144,8 +144,8 @@ void SkPathRef::Rewind(SkAutoTUnref<SkPathRef>* pathRef) {
 }
 
 bool SkPathRef::operator== (const SkPathRef& ref) const {
-    this->validate();
-    ref.validate();
+    SkDEBUGCODE(this->validate();)
+    SkDEBUGCODE(ref.validate();)
     bool genIDMatch = fGenerationID && fGenerationID == ref.fGenerationID;
 #ifdef SK_RELEASE
     if (genIDMatch) {
@@ -184,7 +184,7 @@ bool SkPathRef::operator== (const SkPathRef& ref) const {
 }
 
 void SkPathRef::writeToBuffer(SkWBuffer* buffer) {
-    this->validate();
+    SkDEBUGCODE(this->validate();)
     SkDEBUGCODE(size_t beforePos = buffer->pos();)
 
     // Call getBounds() to ensure (as a side-effect) that fBounds
@@ -219,7 +219,7 @@ uint32_t SkPathRef::writeSize() {
 void SkPathRef::copy(const SkPathRef& ref,
                      int additionalReserveVerbs,
                      int additionalReservePoints) {
-    this->validate();
+    SkDEBUGCODE(this->validate();)
     this->resetToSize(ref.fVerbCnt, ref.fPointCnt, ref.fConicWeights.count(),
                         additionalReserveVerbs, additionalReservePoints);
     memcpy(this->verbsMemWritable(), ref.verbsMemBegin(), ref.fVerbCnt * sizeof(uint8_t));
@@ -233,43 +233,11 @@ void SkPathRef::copy(const SkPathRef& ref,
         fBounds = ref.fBounds;
         fIsFinite = ref.fIsFinite;
     }
-    this->validate();
-}
-
-void SkPathRef::resetToSize(int verbCount, int pointCount, int conicCount,
-                            int reserveVerbs, int reservePoints) {
-    this->validate();
-    fBoundsIsDirty = true;      // this also invalidates fIsFinite
-    fGenerationID = 0;
-
-    size_t newSize = sizeof(uint8_t) * verbCount + sizeof(SkPoint) * pointCount;
-    size_t newReserve = sizeof(uint8_t) * reserveVerbs + sizeof(SkPoint) * reservePoints;
-    size_t minSize = newSize + newReserve;
-
-    ptrdiff_t sizeDelta = this->currSize() - minSize;
-
-    if (sizeDelta < 0 || static_cast<size_t>(sizeDelta) >= 3 * minSize) {
-        sk_free(fPoints);
-        fPoints = NULL;
-        fVerbs = NULL;
-        fFreeSpace = 0;
-        fVerbCnt = 0;
-        fPointCnt = 0;
-        this->makeSpace(minSize);
-        fVerbCnt = verbCount;
-        fPointCnt = pointCount;
-        fFreeSpace -= newSize;
-    } else {
-        fPointCnt = pointCount;
-        fVerbCnt = verbCount;
-        fFreeSpace = this->currSize() - minSize;
-    }
-    fConicWeights.setCount(conicCount);
-    this->validate();
+    SkDEBUGCODE(this->validate();)
 }
 
 SkPoint* SkPathRef::growForVerb(int /* SkPath::Verb*/ verb) {
-    this->validate();
+    SkDEBUGCODE(this->validate();)
     int pCnt;
     switch (verb) {
         case SkPath::kMove_Verb:
@@ -304,39 +272,8 @@ SkPoint* SkPathRef::growForVerb(int /* SkPath::Verb*/ verb) {
     fPointCnt += pCnt;
     fFreeSpace -= space;
     fBoundsIsDirty = true;  // this also invalidates fIsFinite
-    this->validate();
+    SkDEBUGCODE(this->validate();)
     return ret;
-}
-
-void SkPathRef::makeSpace(size_t size) {
-    this->validate();
-    ptrdiff_t growSize = size - fFreeSpace;
-    if (growSize <= 0) {
-        return;
-    }
-    size_t oldSize = this->currSize();
-    // round to next multiple of 8 bytes
-    growSize = (growSize + 7) & ~static_cast<size_t>(7);
-    // we always at least double the allocation
-    if (static_cast<size_t>(growSize) < oldSize) {
-        growSize = oldSize;
-    }
-    if (growSize < kMinSize) {
-        growSize = kMinSize;
-    }
-    size_t newSize = oldSize + growSize;
-    // Note that realloc could memcpy more than we need. It seems to be a win anyway. TODO:
-    // encapsulate this.
-    fPoints = reinterpret_cast<SkPoint*>(sk_realloc_throw(fPoints, newSize));
-    size_t oldVerbSize = fVerbCnt * sizeof(uint8_t);
-    void* newVerbsDst = reinterpret_cast<void*>(
-                            reinterpret_cast<intptr_t>(fPoints) + newSize - oldVerbSize);
-    void* oldVerbsSrc = reinterpret_cast<void*>(
-                            reinterpret_cast<intptr_t>(fPoints) + oldSize - oldVerbSize);
-    memmove(newVerbsDst, oldVerbsSrc, oldVerbSize);
-    fVerbs = reinterpret_cast<uint8_t*>(reinterpret_cast<intptr_t>(fPoints) + newSize);
-    fFreeSpace += growSize;
-    this->validate();
 }
 
 int32_t SkPathRef::genID() const {
@@ -356,7 +293,9 @@ int32_t SkPathRef::genID() const {
     return fGenerationID;
 }
 
+#ifdef SK_DEBUG
 void SkPathRef::validate() const {
+    this->INHERITED::validate();
     SkASSERT(static_cast<ptrdiff_t>(fFreeSpace) >= 0);
     SkASSERT(reinterpret_cast<intptr_t>(fVerbs) - reinterpret_cast<intptr_t>(fPoints) >= 0);
     SkASSERT((NULL == fPoints) == (NULL == fVerbs));
@@ -381,3 +320,4 @@ void SkPathRef::validate() const {
     }
 #endif
 }
+#endif
