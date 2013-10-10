@@ -252,6 +252,9 @@ bool GrGpuGL::flushGraphicsState(DrawType type, const GrDeviceCoordTexture* dstC
             SkDEBUGFAIL("Failed to create program!");
             return false;
         }
+
+        SkASSERT(kDrawPath_DrawType != type || !fCurrentProgram->hasVertexShader());
+
         fCurrentProgram.get()->ref();
 
         GrGLuint programID = fCurrentProgram->programID();
