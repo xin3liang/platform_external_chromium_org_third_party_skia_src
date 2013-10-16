@@ -106,7 +106,7 @@ public:
      *
      * @return    The vertex buffer if successful, otherwise NULL.
      */
-    GrVertexBuffer* createVertexBuffer(uint32_t size, bool dynamic);
+    GrVertexBuffer* createVertexBuffer(size_t size, bool dynamic);
 
     /**
      * Creates an index buffer.
@@ -118,7 +118,7 @@ public:
      *
      * @return The index buffer if successful, otherwise NULL.
      */
-    GrIndexBuffer* createIndexBuffer(uint32_t size, bool dynamic);
+    GrIndexBuffer* createIndexBuffer(size_t size, bool dynamic);
 
     /**
      * Creates a path object that can be stenciled using stencilPath(). It is
@@ -291,14 +291,6 @@ public:
     }
 
     /**
-     * Can the provided configuration act as a color render target?
-     */
-    bool isConfigRenderable(GrPixelConfig config) const {
-        SkASSERT(kGrPixelConfigCnt > config);
-        return fConfigRenderSupport[config];
-    }
-
-    /**
      * These methods are called by the clip manager's setupClipping function
      * which (called as part of GrGpu's implementation of onDraw and
      * onStencilPath member functions.) The GrGpu subclass should flush the
@@ -401,10 +393,6 @@ protected:
     // The final stencil settings to use as determined by the clip manager.
     GrStencilSettings fStencilSettings;
 
-    // Derived classes need access to this so they can fill it out in their
-    // constructors
-    bool    fConfigRenderSupport[kGrPixelConfigCnt];
-
     // Helpers for setting up geometry state
     void finalizeReservedVertices();
     void finalizeReservedIndices();
@@ -433,8 +421,8 @@ private:
                                        size_t rowBytes) = 0;
     virtual GrTexture* onWrapBackendTexture(const GrBackendTextureDesc&) = 0;
     virtual GrRenderTarget* onWrapBackendRenderTarget(const GrBackendRenderTargetDesc&) = 0;
-    virtual GrVertexBuffer* onCreateVertexBuffer(uint32_t size, bool dynamic) = 0;
-    virtual GrIndexBuffer* onCreateIndexBuffer(uint32_t size, bool dynamic) = 0;
+    virtual GrVertexBuffer* onCreateVertexBuffer(size_t size, bool dynamic) = 0;
+    virtual GrIndexBuffer* onCreateIndexBuffer(size_t size, bool dynamic) = 0;
     virtual GrPath* onCreatePath(const SkPath& path, const SkStrokeRec&) = 0;
 
     // overridden by backend-specific derived class to perform the clear and

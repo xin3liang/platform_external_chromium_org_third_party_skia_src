@@ -6,9 +6,27 @@
  * found in the LICENSE file.
  */
 
+#include "SkTypes.h"
 
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
+// Workaround for:
+// http://connect.microsoft.com/VisualStudio/feedback/details/621653/
+// http://crbug.com/225822
+// In VS2010 both intsafe.h and stdint.h define the following without guards.
+// SkTypes brought in windows.h and stdint.h and the following defines are
+// not used by this file. However, they may be re-introduced by wincodec.h.
+#undef INT8_MIN
+#undef INT16_MIN
+#undef INT32_MIN
+#undef INT64_MIN
+#undef INT8_MAX
+#undef UINT8_MAX
+#undef INT16_MAX
+#undef UINT16_MAX
+#undef INT32_MAX
+#undef UINT32_MAX
+#undef INT64_MAX
+#undef UINT64_MAX
+
 #include <wincodec.h>
 #include "SkAutoCoInitialize.h"
 #include "SkImageDecoder.h"
@@ -213,7 +231,7 @@ bool SkImageDecoder_WIC::decodeStream(SkStream* stream, SkBitmap* bm, WICModes w
     if (SUCCEEDED(hr)) {
         SkAutoLockPixels alp(*bm);
         bm->eraseColor(SK_ColorTRANSPARENT);
-        const UINT stride = bm->rowBytes();
+        const UINT stride = (UINT) bm->rowBytes();
         hr = piBitmapSourceConverted->CopyPixels(
             NULL,                             //Get all the pixels
             stride,
@@ -396,7 +414,7 @@ bool SkImageEncoder_WIC::onEncode(SkWStream* stream
     //Write the pixels into the frame.
     if (SUCCEEDED(hr)) {
         SkAutoLockPixels alp(*bitmap);
-        const UINT stride = bitmap->rowBytes();
+        const UINT stride = (UINT) bitmap->rowBytes();
         hr = piBitmapFrameEncode->WritePixels(
             height
             , stride

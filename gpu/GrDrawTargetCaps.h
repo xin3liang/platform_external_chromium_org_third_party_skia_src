@@ -7,6 +7,7 @@
  */
 
 #include "SkRefCnt.h"
+#include "GrTypes.h"
 
 #ifndef GrDrawTargetCaps_DEFINED
 #define GrDrawTargetCaps_DEFINED
@@ -43,6 +44,11 @@ public:
     // Will be 0 if MSAA is not supported
     int maxSampleCount() const { return fMaxSampleCount; }
 
+    bool isConfigRenderable(GrPixelConfig config, bool withMSAA) const {
+        SkASSERT(kGrPixelConfigCnt > config);
+        return fConfigRenderSupport[config][withMSAA];
+    }
+
 protected:
     bool f8BitPaletteSupport        : 1;
     bool fNPOTTextureTileSupport    : 1;
@@ -60,6 +66,9 @@ protected:
     int fMaxRenderTargetSize;
     int fMaxTextureSize;
     int fMaxSampleCount;
+
+    // The first entry for each config is without msaa and the second is with.
+    bool fConfigRenderSupport[kGrPixelConfigCnt][2];
 
     typedef SkRefCnt INHERITED;
 };

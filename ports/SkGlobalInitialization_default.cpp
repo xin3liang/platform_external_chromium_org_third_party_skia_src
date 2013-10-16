@@ -27,13 +27,11 @@
 #include "SkColorFilterImageFilter.h"
 #include "SkColorMatrixFilter.h"
 #include "SkColorShader.h"
-#include "SkColorTable.h"
 #include "SkComposeImageFilter.h"
 #include "SkComposeShader.h"
 #include "SkCornerPathEffect.h"
 #include "SkDashPathEffect.h"
 #include "SkData.h"
-#include "SkDataSet.h"
 #include "SkDiscretePathEffect.h"
 #include "SkDisplacementMapEffect.h"
 #include "SkDropShadowImageFilter.h"
@@ -47,7 +45,6 @@
 #include "SkLerpXfermode.h"
 #include "SkLightingImageFilter.h"
 #include "SkLumaColorFilter.h"
-#include "SkLumaXfermode.h"
 #include "SkMagnifierImageFilter.h"
 #include "SkMatrixConvolutionImageFilter.h"
 #include "SkMergeImageFilter.h"
@@ -64,7 +61,6 @@
 
 void SkFlattenable::InitializeFlattenables() {
 
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkAnnotation)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkAvoidXfermode)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkBicubicImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkBitmapProcShader)
@@ -73,13 +69,10 @@ void SkFlattenable::InitializeFlattenables() {
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkBlurImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkColorMatrixFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkColorShader)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkColorTable)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkComposePathEffect)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkComposeShader)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkCornerPathEffect)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDashPathEffect)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkData)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDataSet)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDilateImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDiscretePathEffect)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDisplacementMapEffect)
@@ -118,7 +111,6 @@ void SkFlattenable::InitializeFlattenables() {
     SkGradientShader::InitializeFlattenables();
     SkImages::InitializeFlattenables();
     SkLightingImageFilter::InitializeFlattenables();
-    SkLumaMaskXfermode::InitializeFlattenables();
     SkTableColorFilter::InitializeFlattenables();
     SkXfermode::InitializeFlattenables();
 }

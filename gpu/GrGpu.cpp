@@ -47,10 +47,6 @@ GrGpu::GrGpu(GrContext* context)
     poolState.fPoolIndexBuffer = (GrIndexBuffer*)DEBUG_INVAL_BUFFER;
     poolState.fPoolStartIndex = DEBUG_INVAL_START_IDX;
 #endif
-
-    for (int i = 0; i < kGrPixelConfigCnt; ++i) {
-        fConfigRenderSupport[i] = false;
-    };
 }
 
 GrGpu::~GrGpu() {
@@ -115,6 +111,10 @@ void GrGpu::unimpl(const char msg[]) {
 GrTexture* GrGpu::createTexture(const GrTextureDesc& desc,
                                 const void* srcData, size_t rowBytes) {
     if (kUnknown_GrPixelConfig == desc.fConfig) {
+        return NULL;
+    }
+    if ((desc.fFlags & kRenderTarget_GrTextureFlagBit) &&
+        !this->caps()->isConfigRenderable(desc.fConfig, desc.fSampleCnt > 0)) {
         return NULL;
     }
 
@@ -187,12 +187,12 @@ GrRenderTarget* GrGpu::wrapBackendRenderTarget(const GrBackendRenderTargetDesc& 
     return this->onWrapBackendRenderTarget(desc);
 }
 
-GrVertexBuffer* GrGpu::createVertexBuffer(uint32_t size, bool dynamic) {
+GrVertexBuffer* GrGpu::createVertexBuffer(size_t size, bool dynamic) {
     this->handleDirtyContext();
     return this->onCreateVertexBuffer(size, dynamic);
 }
 
-GrIndexBuffer* GrGpu::createIndexBuffer(uint32_t size, bool dynamic) {
+GrIndexBuffer* GrGpu::createIndexBuffer(size_t size, bool dynamic) {
     this->handleDirtyContext();
     return this->onCreateIndexBuffer(size, dynamic);
 }

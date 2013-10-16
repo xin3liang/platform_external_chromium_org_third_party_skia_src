@@ -372,38 +372,6 @@ void SkGpuDevice::onDetachFromCanvas() {
     fClipData.fClipStack = NULL;
 }
 
-#ifdef SK_DEBUG
-static void check_bounds(const GrClipData& clipData,
-                         const SkRegion& clipRegion,
-                         int renderTargetWidth,
-                         int renderTargetHeight) {
-
-    SkIRect devBound;
-
-    devBound.setLTRB(0, 0, renderTargetWidth, renderTargetHeight);
-
-    SkClipStack::BoundsType boundType;
-    SkRect canvTemp;
-
-    clipData.fClipStack->getBounds(&canvTemp, &boundType);
-    if (SkClipStack::kNormal_BoundsType == boundType) {
-        SkIRect devTemp;
-
-        canvTemp.roundOut(&devTemp);
-
-        devTemp.offset(-clipData.fOrigin.fX, -clipData.fOrigin.fY);
-
-        if (!devBound.intersect(devTemp)) {
-            devBound.setEmpty();
-        }
-    }
-
-    SkASSERT(devBound.contains(clipRegion.getBounds()));
-}
-#endif
-
-///////////////////////////////////////////////////////////////////////////////
-
 // call this every draw call, to ensure that the context reflects our state,
 // and not the state from some other canvas/device
 void SkGpuDevice::prepareDraw(const SkDraw& draw, bool forceIdentity) {
@@ -419,10 +387,6 @@ void SkGpuDevice::prepareDraw(const SkDraw& draw, bool forceIdentity) {
         fContext->setMatrix(*draw.fMatrix);
     }
     fClipData.fOrigin = this->getOrigin();
-
-#ifdef SK_DEBUG
-    check_bounds(fClipData, *draw.fClip, fRenderTarget->width(), fRenderTarget->height());
-#endif
 
     fContext->setClip(&fClipData);
 
@@ -847,7 +811,7 @@ bool create_mask_GPU(GrContext* context,
     // We actually only need A8, but it often isn't supported as a
     // render target so default to RGBA_8888
     desc.fConfig = kRGBA_8888_GrPixelConfig;
-    if (context->isConfigRenderable(kAlpha_8_GrPixelConfig)) {
+    if (context->isConfigRenderable(kAlpha_8_GrPixelConfig, false)) {
         desc.fConfig = kAlpha_8_GrPixelConfig;
     }
 
