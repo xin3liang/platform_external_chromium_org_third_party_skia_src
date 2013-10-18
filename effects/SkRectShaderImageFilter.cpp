@@ -14,20 +14,11 @@
 
 SkRectShaderImageFilter* SkRectShaderImageFilter::Create(SkShader* s, const SkRect& rect) {
     SkASSERT(s);
-#ifdef SK_CROP_RECT_IS_INT
-    SkIRect cropRect;
-    if (rect.width() == 0 || rect.height() == 0) {
-        cropRect = SkIRect::MakeLargest();
-    } else {
-        rect.roundOut(&cropRect);
-    }
-#else
     uint32_t flags = CropRect::kHasAll_CropEdge;
     if (rect.width() == 0 || rect.height() == 0) {
         flags = 0x0;
     }
     CropRect cropRect(rect, flags);
-#endif
     return SkNEW_ARGS(SkRectShaderImageFilter, (s, &cropRect));
 }
 
@@ -45,7 +36,7 @@ SkRectShaderImageFilter::SkRectShaderImageFilter(SkShader* s, const CropRect* cr
 
 SkRectShaderImageFilter::SkRectShaderImageFilter(SkFlattenableReadBuffer& buffer)
   : INHERITED(buffer) {
-    fShader = buffer.readFlattenableT<SkShader>();
+    fShader = buffer.readShader();
 }
 
 void SkRectShaderImageFilter::flatten(SkFlattenableWriteBuffer& buffer) const {
