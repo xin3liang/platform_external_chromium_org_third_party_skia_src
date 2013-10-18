@@ -33,6 +33,22 @@
 #include "SkTypefacePriv.h"
 #include "SkTSet.h"
 
+#ifdef SK_BUILD_FOR_ANDROID
+#include "SkTypeface_android.h"
+
+struct TypefaceFallbackData {
+    SkTypeface* typeface;
+    int lowerBounds;
+    int upperBounds;
+
+    bool operator==(const TypefaceFallbackData& b) const {
+        return typeface == b.typeface &&
+               lowerBounds == b.lowerBounds &&
+               upperBounds == b.upperBounds;
+    }
+};
+#endif
+
 // Utility functions
 
 static void emit_pdf_color(SkColor color, SkWStream* result) {
@@ -957,16 +973,16 @@ void SkPDFDevice::drawPath(const SkDraw& d, const SkPath& origPath,
     }
 
 #ifdef SK_PDF_USE_PATHOPS
-    if (handleInversePath(d, origPath, paint, pathIsMutable)) {
+    if (handleInversePath(d, origPath, paint, pathIsMutable, prePathMatrix)) {
         return;
     }
 #endif
 
-    if (handleRectAnnotation(pathPtr->getBounds(), *d.fMatrix, paint)) {
+    if (handleRectAnnotation(pathPtr->getBounds(), matrix, paint)) {
         return;
     }
 
-    ScopedContentEntry content(this, d, paint);
+    ScopedContentEntry content(this, d.fClipStack, *d.fClip, matrix, paint);
     if (!content.entry()) {
         return;
     }
@@ -1114,6 +1130,112 @@ void SkPDFDevice::drawPosText(const SkDraw& d, const void* text, size_t len,
     if (!content.entry()) {
         return;
     }
+
+#ifdef SK_BUILD_FOR_ANDROID
+    /*
+     * In the case that we have enabled fallback fonts on Android we need to
+     * take the following steps to ensure that the PDF draws all characters,
+     * regardless of their underlying font file, correctly.
+     *
+     * 1. Convert input into GlyphID encoding if it currently is not
+     * 2. Iterate over the glyphIDs and identify the actual typeface that each
+     *    glyph resolves to
+     * 3. Iterate over those typefaces and recursively call this function with
+     *    only the glyphs (and their positions) that the typeface is capable of
+     *    resolving.
+     */
+    if (paint.getPaintOptionsAndroid().isUsingFontFallbacks()) {
+        uint16_t* glyphIDs = NULL;
+        SkGlyphStorage tmpStorage(0);
+        size_t numGlyphs = 0;
+
+        // convert to glyphIDs
+        if (paint.getTextEncoding() == SkPaint::kGlyphID_TextEncoding) {
+            numGlyphs = len / 2;
+            glyphIDs = reinterpret_cast<uint16_t*>(const_cast<void*>(text));
+        } else {
+            numGlyphs = paint.textToGlyphs(text, len, NULL);
+            tmpStorage.reset(numGlyphs);
+            paint.textToGlyphs(text, len, tmpStorage.get());
+            glyphIDs = tmpStorage.get();
+        }
+
+        // if no typeface is provided in the paint get the default
+        SkAutoTUnref<SkTypeface> origFace(SkSafeRef(paint.getTypeface()));
+        if (NULL == origFace.get()) {
+            origFace.reset(SkTypeface::RefDefault());
+        }
+        const uint16_t origGlyphCount = origFace->countGlyphs();
+
+        // keep a list of the already visited typefaces and some data about them
+        SkTDArray<TypefaceFallbackData> visitedTypefaces;
+
+        // find all the typefaces needed to resolve this run of text
+        bool usesOriginalTypeface = false;
+        for (uint16_t x = 0; x < numGlyphs; ++x) {
+            // optimization that checks to see if original typeface can resolve the glyph
+            if (glyphIDs[x] < origGlyphCount) {
+                usesOriginalTypeface = true;
+                continue;
+            }
+
+            // find the fallback typeface that supports this glyph
+            TypefaceFallbackData data;
+            data.typeface = SkGetTypefaceForGlyphID(glyphIDs[x], origFace.get(),
+                                                    paint.getPaintOptionsAndroid(),
+                                                    &data.lowerBounds, &data.upperBounds);
+            // add the typeface and its data if we don't have it
+            if (data.typeface && !visitedTypefaces.contains(data)) {
+                visitedTypefaces.push(data);
+            }
+        }
+
+        // if the original font was used then add it to the list as well
+        if (usesOriginalTypeface) {
+            TypefaceFallbackData* data = visitedTypefaces.push();
+            data->typeface = origFace.get();
+            data->lowerBounds = 0;
+            data->upperBounds = origGlyphCount;
+        }
+
+        // keep a scratch glyph and pos storage
+        SkAutoTMalloc<SkScalar> posStorage(len * scalarsPerPos);
+        SkScalar* tmpPos = posStorage.get();
+        SkGlyphStorage glyphStorage(numGlyphs);
+        uint16_t* tmpGlyphIDs = glyphStorage.get();
+
+        // loop through all the valid typefaces, trim the glyphs to only those
+        // resolved by the typeface, and then draw that run of glyphs
+        for (int x = 0; x < visitedTypefaces.count(); ++x) {
+            const TypefaceFallbackData& data = visitedTypefaces[x];
+
+            int tmpGlyphCount = 0;
+            for (uint16_t y = 0; y < numGlyphs; ++y) {
+                if (glyphIDs[y] >= data.lowerBounds && glyphIDs[y] < data.upperBounds) {
+                    tmpGlyphIDs[tmpGlyphCount] = glyphIDs[y] - data.lowerBounds;
+                    memcpy(&(tmpPos[tmpGlyphCount * scalarsPerPos]),
+                           &(pos[y * scalarsPerPos]),
+                           scalarsPerPos * sizeof(SkScalar));
+                    tmpGlyphCount++;
+                }
+            }
+
+            // recursively call this function with the right typeface
+            SkPaint tmpPaint = paint;
+            tmpPaint.setTypeface(data.typeface);
+            tmpPaint.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
+
+            // turn off fallback chaining
+            SkPaintOptionsAndroid paintOpts = tmpPaint.getPaintOptionsAndroid();
+            paintOpts.setUseFontFallbacks(false);
+            tmpPaint.setPaintOptionsAndroid(paintOpts);
+
+            this->drawPosText(d, tmpGlyphIDs, tmpGlyphCount * 2, tmpPos, constY,
+                              scalarsPerPos, tmpPaint);
+        }
+        return;
+    }
+#endif
 
     SkGlyphStorage storage(0);
     uint16_t* glyphIDs = NULL;
@@ -1363,7 +1485,8 @@ SkData* SkPDFDevice::copyContentToData() const {
  * in the first place.
  */
 bool SkPDFDevice::handleInversePath(const SkDraw& d, const SkPath& origPath,
-                                    const SkPaint& paint, bool pathIsMutable) {
+                                    const SkPaint& paint, bool pathIsMutable,
+                                    const SkMatrix* prePathMatrix) {
     if (!origPath.isInverseFillType()) {
         return false;
     }
@@ -1397,7 +1520,11 @@ bool SkPDFDevice::handleInversePath(const SkDraw& d, const SkPath& origPath,
     // (clip bounds are given in device space).
     SkRect bounds;
     SkMatrix transformInverse;
-    if (!d.fMatrix->invert(&transformInverse)) {
+    SkMatrix totalMatrix = *d.fMatrix;
+    if (prePathMatrix) {
+        totalMatrix.preConcat(*prePathMatrix);
+    }
+    if (!totalMatrix.invert(&transformInverse)) {
         return false;
     }
     bounds.set(d.fClip->getBounds());
@@ -1412,7 +1539,7 @@ bool SkPDFDevice::handleInversePath(const SkDraw& d, const SkPath& origPath,
         return false;
     }
 
-    drawPath(d, modifiedPath, noInversePaint, NULL, true);
+    drawPath(d, modifiedPath, noInversePaint, prePathMatrix, true);
     return true;
 }
 #endif
@@ -1907,6 +2034,7 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& matrix,
                                      const SkBitmap& bitmap,
                                      const SkIRect* srcRect,
                                      const SkPaint& paint) {
+    // TODO(edisonn): Perspective matrix support implemented here
     SkMatrix scaled;
     // Adjust for origin flip.
     scaled.setScale(SK_Scalar1, -SK_Scalar1);

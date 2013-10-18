@@ -20,6 +20,9 @@
 
 #include "gl/GrGLEffect.h"
 #include "gl/GrGLSL.h"
+#include "gl/GrGLVertexEffect.h"
+
+#include "effects/GrVertexEffect.h"
 
 GrAAConvexPathRenderer::GrAAConvexPathRenderer() {
 }
@@ -497,7 +500,7 @@ static void create_vertices(const SegmentArray&  segments,
  * Requires shader derivative instruction support.
  */
 
-class QuadEdgeEffect : public GrEffect {
+class QuadEdgeEffect : public GrVertexEffect {
 public:
 
     static GrEffectRef* Create() {
@@ -519,30 +522,26 @@ public:
         return GrTBackendEffectFactory<QuadEdgeEffect>::getInstance();
     }
 
-    class GLEffect : public GrGLEffect {
+    class GLEffect : public GrGLVertexEffect {
     public:
         GLEffect(const GrBackendEffectFactory& factory, const GrDrawEffect&)
             : INHERITED (factory) {}
 
-        virtual bool requiresVertexShader(const GrDrawEffect&) const SK_OVERRIDE { return true; }
-
-        virtual void emitCode(GrGLShaderBuilder* builder,
+        virtual void emitCode(GrGLFullShaderBuilder* builder,
                               const GrDrawEffect& drawEffect,
                               EffectKey key,
                               const char* outputColor,
                               const char* inputColor,
+                              const TransformedCoordsArray&,
                               const TextureSamplerArray& samplers) SK_OVERRIDE {
-            GrGLShaderBuilder::VertexBuilder* vertexBuilder = builder->getVertexBuilder();
-            SkASSERT(NULL != vertexBuilder);
-
             const char *vsName, *fsName;
             const SkString* attrName =
-                vertexBuilder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+                builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
             builder->fsCodeAppendf("\t\tfloat edgeAlpha;\n");
 
             SkAssertResult(builder->enableFeature(
                                               GrGLShaderBuilder::kStandardDerivatives_GLSLFeature));
-            vertexBuilder->addVarying(kVec4f_GrSLType, "QuadEdge", &vsName, &fsName);
+            builder->addVarying(kVec4f_GrSLType, "QuadEdge", &vsName, &fsName);
 
             // keep the derivative instructions outside the conditional
             builder->fsCodeAppendf("\t\tvec2 duvdx = dFdx(%s.xy);\n", fsName);
@@ -560,11 +559,11 @@ public:
             builder->fsCodeAppendf("\t\t\tedgeAlpha = "
                                    "clamp(0.5 - edgeAlpha / length(gF), 0.0, 1.0);\n\t\t}\n");
 
-            SkString modulate;
-            GrGLSLModulatef<4>(&modulate, inputColor, "edgeAlpha");
-            builder->fsCodeAppendf("\t%s = %s;\n", outputColor, modulate.c_str());
 
-            vertexBuilder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
+            builder->fsCodeAppendf("\t%s = %s;\n", outputColor,
+                                   (GrGLSLExpr<4>(inputColor) * GrGLSLExpr<1>("edgeAlpha")).c_str());
+
+            builder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
         }
 
         static inline EffectKey GenKey(const GrDrawEffect& drawEffect, const GrGLCaps&) {
@@ -574,7 +573,7 @@ public:
         virtual void setData(const GrGLUniformManager&, const GrDrawEffect&) SK_OVERRIDE {}
 
     private:
-        typedef GrGLEffect INHERITED;
+        typedef GrGLVertexEffect INHERITED;
     };
 
 private:
@@ -588,7 +587,7 @@ private:
 
     GR_DECLARE_EFFECT_TEST;
 
-    typedef GrEffect INHERITED;
+    typedef GrVertexEffect INHERITED;
 };
 
 GR_DEFINE_EFFECT_TEST(QuadEdgeEffect);

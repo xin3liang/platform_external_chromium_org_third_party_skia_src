@@ -16,9 +16,14 @@
 #include "GrTextStrike.h"
 #include "GrTextStrike_impl.h"
 #include "SkPath.h"
+#include "SkRTConf.h"
 #include "SkStrokeRec.h"
+#include "effects/GrCustomCoordsTextureEffect.h"
 
 static const int kGlyphCoordsAttributeIndex = 1;
+
+SK_CONF_DECLARE(bool, c_DumpFontCache, "gpu.dumpFontCache", false,
+                "Dump the contents of the font cache before every purge.");
 
 void GrTextContext::flushGlyphs() {
     if (NULL == fDrawTarget) {
@@ -37,7 +42,7 @@ void GrTextContext::flushGlyphs() {
 
         // This effect could be stored with one of the cache objects (atlas?)
         drawState->addCoverageEffect(
-                                GrSimpleTextureEffect::CreateWithCustomCoords(fCurrTexture, params),
+                                GrCustomCoordsTextureEffect::Create(fCurrTexture, params),
                                 kGlyphCoordsAttributeIndex)->unref();
 
         if (!GrPixelConfigIsAlphaOnly(fCurrTexture->config())) {
@@ -139,7 +144,7 @@ void GrTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
     GrFixed height = glyph->fBounds.height();
 
     // check if we clipped out
-    if (true || NULL == glyph->fAtlas) {
+    if (true || NULL == glyph->fPlot) {
         int x = vx >> 16;
         int y = vy >> 16;
         if (fClipRect.quickReject(x, y, x + width, y + height)) {
@@ -148,16 +153,21 @@ void GrTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
         }
     }
 
-    GrDrawTarget::DrawToken drawToken = fDrawTarget->getCurrentDrawToken();
-    if (NULL == glyph->fAtlas) {
-        if (fStrike->getGlyphAtlas(glyph, scaler, drawToken)) {
+    if (NULL == glyph->fPlot) {
+        if (fStrike->getGlyphAtlas(glyph, scaler)) {
             goto HAS_ATLAS;
         }
 
-        // try to clear out an unused atlas before we flush
-        fContext->getFontCache()->freeAtlasExceptFor(fStrike);
-        if (fStrike->getGlyphAtlas(glyph, scaler, drawToken)) {
+        // try to clear out an unused plot before we flush
+        fContext->getFontCache()->freePlotExceptFor(fStrike);
+        if (fStrike->getGlyphAtlas(glyph, scaler)) {
             goto HAS_ATLAS;
+        }
+
+        if (c_DumpFontCache) {
+#ifdef SK_DEVELOPER
+            fContext->getFontCache()->dump();
+#endif
         }
 
         // before we purge the cache, we must flush any accumulated draws
@@ -167,7 +177,7 @@ void GrTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
         // try to purge
         fContext->getFontCache()->purgeExceptFor(fStrike);
         // need to use new flush count here
-        if (fStrike->getGlyphAtlas(glyph, scaler, drawToken)) {
+        if (fStrike->getGlyphAtlas(glyph, scaler)) {
             goto HAS_ATLAS;
         }
 
@@ -193,13 +203,15 @@ void GrTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
     }
 
 HAS_ATLAS:
-    SkASSERT(glyph->fAtlas);
+    SkASSERT(glyph->fPlot);
+    GrDrawTarget::DrawToken drawToken = fDrawTarget->getCurrentDrawToken();
+    glyph->fPlot->setDrawToken(drawToken);
 
     // now promote them to fixed (TODO: Rethink using fixed pt).
     width = SkIntToFixed(width);
     height = SkIntToFixed(height);
 
-    GrTexture* texture = glyph->fAtlas->texture();
+    GrTexture* texture = glyph->fPlot->texture();
     SkASSERT(texture);
 
     if (fCurrTexture != texture || fCurrVertex + 4 > fMaxVertices) {

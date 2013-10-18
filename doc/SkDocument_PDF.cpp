@@ -7,12 +7,14 @@
 
 #include "SkDocument.h"
 #include "SkPDFDocument.h"
-#include "SkPDFDevice.h"
+#include "SkPDFDeviceFlattener.h"
 
 class SkDocument_PDF : public SkDocument {
 public:
-    SkDocument_PDF(SkWStream* stream, void (*doneProc)(SkWStream*))
-            : SkDocument(stream, doneProc) {
+    SkDocument_PDF(SkWStream* stream, void (*doneProc)(SkWStream*),
+                   SkPicture::EncodeBitmap encoder)
+            : SkDocument(stream, doneProc)
+            , fEncoder(encoder) {
         fDoc = SkNEW(SkPDFDocument);
         fCanvas = NULL;
         fDevice = NULL;
@@ -25,19 +27,17 @@ public:
 
 protected:
     virtual SkCanvas* onBeginPage(SkScalar width, SkScalar height,
-                                  const SkRect& content) SK_OVERRIDE {
+                                  const SkRect& trimBox) SK_OVERRIDE {
         SkASSERT(NULL == fCanvas);
         SkASSERT(NULL == fDevice);
 
-        SkISize pageS, contentS;
-        SkMatrix matrix;
+        SkSize mediaBoxSize;
+        mediaBoxSize.set(width, height);
 
-        pageS.set(SkScalarRoundToInt(width), SkScalarRoundToInt(height));
-        contentS.set(SkScalarRoundToInt(content.width()),
-                     SkScalarRoundToInt(content.height()));
-        matrix.setTranslate(content.fLeft, content.fTop);
-
-        fDevice = SkNEW_ARGS(SkPDFDevice, (pageS, contentS, matrix));
+        fDevice = SkNEW_ARGS(SkPDFDeviceFlattener, (mediaBoxSize, &trimBox));
+        if (fEncoder) {
+            fDevice->setDCTEncoder(fEncoder);
+        }
         fCanvas = SkNEW_ARGS(SkCanvas, (fDevice));
         return fCanvas;
     }
@@ -56,36 +56,44 @@ protected:
         fDevice = NULL;
     }
 
-    virtual void onClose(SkWStream* stream) SK_OVERRIDE {
+    virtual bool onClose(SkWStream* stream) SK_OVERRIDE {
         SkASSERT(NULL == fCanvas);
         SkASSERT(NULL == fDevice);
 
-        fDoc->emitPDF(stream);
+        bool success = fDoc->emitPDF(stream);
+        SkDELETE(fDoc);
+        fDoc = NULL;
+        return success;
+    }
+
+    virtual void onAbort() SK_OVERRIDE {
         SkDELETE(fDoc);
         fDoc = NULL;
     }
 
 private:
     SkPDFDocument*  fDoc;
-    SkPDFDevice*    fDevice;
+    SkPDFDeviceFlattener* fDevice;
     SkCanvas*       fCanvas;
+    SkPicture::EncodeBitmap fEncoder;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 
-SkDocument* SkDocument::CreatePDF(SkWStream* stream, void (*done)(SkWStream*)) {
-    return stream ? SkNEW_ARGS(SkDocument_PDF, (stream, done)) : NULL;
+SkDocument* SkDocument::CreatePDF(SkWStream* stream, void (*done)(SkWStream*),
+                                  SkPicture::EncodeBitmap enc) {
+    return stream ? SkNEW_ARGS(SkDocument_PDF, (stream, done, enc)) : NULL;
 }
 
 static void delete_wstream(SkWStream* stream) {
     SkDELETE(stream);
 }
 
-SkDocument* SkDocument::CreatePDF(const char path[]) {
+SkDocument* SkDocument::CreatePDF(const char path[], SkPicture::EncodeBitmap enc) {
     SkFILEWStream* stream = SkNEW_ARGS(SkFILEWStream, (path));
     if (!stream->isValid()) {
         SkDELETE(stream);
         return NULL;
     }
-    return SkNEW_ARGS(SkDocument_PDF, (stream, delete_wstream));
+    return SkNEW_ARGS(SkDocument_PDF, (stream, delete_wstream, enc));
 }

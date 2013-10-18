@@ -106,7 +106,7 @@ public:
      *
      * @return    The vertex buffer if successful, otherwise NULL.
      */
-    GrVertexBuffer* createVertexBuffer(uint32_t size, bool dynamic);
+    GrVertexBuffer* createVertexBuffer(size_t size, bool dynamic);
 
     /**
      * Creates an index buffer.
@@ -118,13 +118,13 @@ public:
      *
      * @return The index buffer if successful, otherwise NULL.
      */
-    GrIndexBuffer* createIndexBuffer(uint32_t size, bool dynamic);
+    GrIndexBuffer* createIndexBuffer(size_t size, bool dynamic);
 
     /**
      * Creates a path object that can be stenciled using stencilPath(). It is
      * only legal to call this if the caps report support for path stenciling.
      */
-    GrPath* createPath(const SkPath& path);
+    GrPath* createPath(const SkPath& path, const SkStrokeRec& stroke);
 
     /**
      * Returns an index buffer that can be used to render quads.
@@ -291,14 +291,6 @@ public:
     }
 
     /**
-     * Can the provided configuration act as a color render target?
-     */
-    bool isConfigRenderable(GrPixelConfig config) const {
-        SkASSERT(kGrPixelConfigCnt > config);
-        return fConfigRenderSupport[config];
-    }
-
-    /**
      * These methods are called by the clip manager's setupClipping function
      * which (called as part of GrGpu's implementation of onDraw and
      * onStencilPath member functions.) The GrGpu subclass should flush the
@@ -335,12 +327,15 @@ public:
                                                  // clipping.
     };
 
+    void getPathStencilSettingsForFillType(SkPath::FillType fill, GrStencilSettings* outStencilSettings);
+
 protected:
     enum DrawType {
         kDrawPoints_DrawType,
         kDrawLines_DrawType,
         kDrawTriangles_DrawType,
         kStencilPath_DrawType,
+        kDrawPath_DrawType,
     };
 
     DrawType PrimTypeToDrawType(GrPrimitiveType type) {
@@ -398,10 +393,6 @@ protected:
     // The final stencil settings to use as determined by the clip manager.
     GrStencilSettings fStencilSettings;
 
-    // Derived classes need access to this so they can fill it out in their
-    // constructors
-    bool    fConfigRenderSupport[kGrPixelConfigCnt];
-
     // Helpers for setting up geometry state
     void finalizeReservedVertices();
     void finalizeReservedIndices();
@@ -430,9 +421,9 @@ private:
                                        size_t rowBytes) = 0;
     virtual GrTexture* onWrapBackendTexture(const GrBackendTextureDesc&) = 0;
     virtual GrRenderTarget* onWrapBackendRenderTarget(const GrBackendRenderTargetDesc&) = 0;
-    virtual GrVertexBuffer* onCreateVertexBuffer(uint32_t size, bool dynamic) = 0;
-    virtual GrIndexBuffer* onCreateIndexBuffer(uint32_t size, bool dynamic) = 0;
-    virtual GrPath* onCreatePath(const SkPath& path) = 0;
+    virtual GrVertexBuffer* onCreateVertexBuffer(size_t size, bool dynamic) = 0;
+    virtual GrIndexBuffer* onCreateIndexBuffer(size_t size, bool dynamic) = 0;
+    virtual GrPath* onCreatePath(const SkPath& path, const SkStrokeRec&) = 0;
 
     // overridden by backend-specific derived class to perform the clear and
     // clearRect. NULL rect means clear whole target.
@@ -440,15 +431,10 @@ private:
 
     // overridden by backend-specific derived class to perform the draw call.
     virtual void onGpuDraw(const DrawInfo&) = 0;
-    // when GrDrawTarget::stencilPath is called the draw state's current stencil
-    // settings are ignored. Instead the GrGpu decides the stencil rules
-    // necessary to stencil the path. These are still subject to filtering by
-    // the clip mask manager.
-    virtual void setStencilPathSettings(const GrPath&,
-                                        SkPath::FillType,
-                                        GrStencilSettings* settings) = 0;
+
     // overridden by backend-specific derived class to perform the path stenciling.
     virtual void onGpuStencilPath(const GrPath*, SkPath::FillType) = 0;
+    virtual void onGpuDrawPath(const GrPath*, SkPath::FillType) = 0;
 
     // overridden by backend-specific derived class to perform flush
     virtual void onForceRenderTargetFlush() = 0;
@@ -491,8 +477,9 @@ private:
 
     // GrDrawTarget overrides
     virtual void onDraw(const DrawInfo&) SK_OVERRIDE;
-    virtual void onStencilPath(const GrPath* path, const SkStrokeRec& stroke,
-                               SkPath::FillType) SK_OVERRIDE;
+    virtual void onStencilPath(const GrPath*, SkPath::FillType) SK_OVERRIDE;
+    virtual void onDrawPath(const GrPath*, SkPath::FillType,
+                            const GrDeviceCoordTexture* dstCopy) SK_OVERRIDE;
 
     // readies the pools to provide vertex/index data.
     void prepareVertexPool();

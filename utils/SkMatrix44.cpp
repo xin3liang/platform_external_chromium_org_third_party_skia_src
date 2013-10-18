@@ -406,18 +406,6 @@ void SkMatrix44::setConcat(const SkMatrix44& a, const SkMatrix44& b) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static inline SkMScalar det2x2(double m00, double m01, double m10, double m11) {
-    return SkDoubleToMScalar(m00 * m11 - m10 * m01);
-}
-
-static inline double det3x3(double m00, double m01, double m02,
-                            double m10, double m11, double m12,
-                            double m20, double m21, double m22) {
-    return  m00 * det2x2(m11, m12, m21, m22) -
-    m10 * det2x2(m01, m02, m21, m22) +
-    m20 * det2x2(m01, m02, m11, m12);
-}
-
 /** We always perform the calculation in doubles, to avoid prematurely losing
     precision along the way. This relies on the compiler automatically
     promoting our SkMScalar values to double (if needed).
@@ -465,13 +453,6 @@ double SkMatrix44::determinant() const {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-
-static inline double dabs(double x) {
-    if (x < 0) {
-        x = -x;
-    }
-    return x;
-}
 
 bool SkMatrix44::invert(SkMatrix44* inverse) const {
     if (this->isIdentity()) {
@@ -902,8 +883,6 @@ void SkMatrix44::dump() const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-// TODO: make this support src' perspective elements
-//
 static void initFromMatrix(SkMScalar dst[4][4], const SkMatrix& src) {
     dst[0][0] = SkScalarToMScalar(src[SkMatrix::kMScaleX]);
     dst[1][0] = SkScalarToMScalar(src[SkMatrix::kMSkewX]);
@@ -917,10 +896,10 @@ static void initFromMatrix(SkMScalar dst[4][4], const SkMatrix& src) {
     dst[1][2] = 0;
     dst[2][2] = 1;
     dst[3][2] = 0;
-    dst[0][3] = 0;
-    dst[1][3] = 0;
+    dst[0][3] = SkScalarToMScalar(src[SkMatrix::kMPersp0]);
+    dst[1][3] = SkScalarToMScalar(src[SkMatrix::kMPersp1]);
     dst[2][3] = 0;
-    dst[3][3] = 1;
+    dst[3][3] = SkScalarToMScalar(src[SkMatrix::kMPersp2]);
 }
 
 SkMatrix44::SkMatrix44(const SkMatrix& src) {
@@ -938,11 +917,8 @@ SkMatrix44& SkMatrix44::operator=(const SkMatrix& src) {
     return *this;
 }
 
-// TODO: make this support our perspective elements
-//
 SkMatrix44::operator SkMatrix() const {
     SkMatrix dst;
-    dst.reset();    // setup our perspective correctly for identity
 
     dst[SkMatrix::kMScaleX]  = SkMScalarToScalar(fMat[0][0]);
     dst[SkMatrix::kMSkewX]  = SkMScalarToScalar(fMat[1][0]);
@@ -951,6 +927,10 @@ SkMatrix44::operator SkMatrix() const {
     dst[SkMatrix::kMSkewY]  = SkMScalarToScalar(fMat[0][1]);
     dst[SkMatrix::kMScaleY] = SkMScalarToScalar(fMat[1][1]);
     dst[SkMatrix::kMTransY] = SkMScalarToScalar(fMat[3][1]);
+
+    dst[SkMatrix::kMPersp0] = SkMScalarToScalar(fMat[0][3]);
+    dst[SkMatrix::kMPersp1] = SkMScalarToScalar(fMat[1][3]);
+    dst[SkMatrix::kMPersp2] = SkMScalarToScalar(fMat[3][3]);
 
     return dst;
 }

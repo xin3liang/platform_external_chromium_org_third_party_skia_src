@@ -14,6 +14,7 @@
 #include "SkFontDescriptor.h"
 #include "SkFontHost.h"
 #include "SkGlyph.h"
+#include "SkHRESULT.h"
 #include "SkMaskGamma.h"
 #include "SkOTTable_maxp.h"
 #include "SkOTTable_name.h"
@@ -663,17 +664,25 @@ SkScalerContext_GDI::SkScalerContext_GDI(SkTypeface* rawTypeface,
     SkMatrix GA(G);
     GA.preConcat(A);
 
-    // textSize is the actual device size we want (as opposed to the size the user requested).
+    // realTextSize is the actual device size we want (as opposed to the size the user requested).
+    // gdiTextSide is the size we request from GDI.
     // If the scale is negative, this means the matrix will do the flip anyway.
-    SkScalar textSize = SkScalarAbs(SkScalarRoundToScalar(GA.get(SkMatrix::kMScaleY)));
-    if (textSize == 0) {
-        textSize = SK_Scalar1;
+    SkScalar realTextSize = SkScalarAbs(GA.get(SkMatrix::kMScaleY));
+    SkScalar gdiTextSize = SkScalarRoundToScalar(realTextSize);
+    if (gdiTextSize == 0) {
+        gdiTextSize = SK_Scalar1;
     }
+
+    // When not hinting, remove only the gdiTextSize scale which will be applied by GDI.
+    // When GDI hinting, remove the entire Y scale to prevent 'subpixel' metrics.
+    SkScalar scale = (fRec.getHinting() == SkPaint::kNo_Hinting ||
+                      fRec.getHinting() == SkPaint::kSlight_Hinting)
+                   ? SkScalarInvert(gdiTextSize)
+                   : SkScalarInvert(realTextSize);
 
     // sA is the total matrix A without the textSize (so GDI knows the text size separately).
     // When this matrix is used with GetGlyphOutline, no further processing is needed.
     SkMatrix sA(A);
-    SkScalar scale = SkScalarInvert(textSize);
     sA.preScale(scale, scale); //remove text size
 
     // GsA is the non-rotational part of A without the text height scale.
@@ -692,7 +701,7 @@ SkScalerContext_GDI::SkScalerContext_GDI(SkTypeface* rawTypeface,
                   G.get(SkMatrix::kMPersp0), G.get(SkMatrix::kMPersp1), G.get(SkMatrix::kMPersp2));
 
     LOGFONT lf = typeface->fLogFont;
-    lf.lfHeight = -SkScalarTruncToInt(textSize);
+    lf.lfHeight = -SkScalarTruncToInt(gdiTextSize);
     lf.lfQuality = compute_quality(fRec);
     fFont = CreateFontIndirect(&lf);
     if (!fFont) {
@@ -742,7 +751,7 @@ SkScalerContext_GDI::SkScalerContext_GDI(SkTypeface* rawTypeface,
             this->forceGenerateImageFromPath();
         }
 
-        // Create a hires font if we need linear metrics.
+        // Create a hires matrix if we need linear metrics.
         if (this->isSubpixel()) {
             OUTLINETEXTMETRIC otm;
             UINT success = GetOutlineTextMetrics(fDDC, sizeof(otm), &otm);
@@ -751,17 +760,17 @@ SkScalerContext_GDI::SkScalerContext_GDI(SkTypeface* rawTypeface,
                 success = GetOutlineTextMetrics(fDDC, sizeof(otm), &otm);
             }
             if (0 != success) {
-                SkScalar scale = SkIntToScalar(otm.otmEMSquare);
+                SkScalar upem = SkIntToScalar(otm.otmEMSquare);
 
-                SkScalar textScale = scale / textSize;
-                fHighResMat22.eM11 = float2FIXED(textScale);
+                SkScalar gdiTextSizeToEMScale = upem / gdiTextSize;
+                fHighResMat22.eM11 = float2FIXED(gdiTextSizeToEMScale);
                 fHighResMat22.eM12 = float2FIXED(0);
                 fHighResMat22.eM21 = float2FIXED(0);
-                fHighResMat22.eM22 = float2FIXED(textScale);
+                fHighResMat22.eM22 = float2FIXED(gdiTextSizeToEMScale);
 
-                SkScalar invScale = SkScalarInvert(scale);
+                SkScalar removeEMScale = SkScalarInvert(upem);
                 fHiResMatrix = A;
-                fHiResMatrix.preScale(invScale, invScale);
+                fHiResMatrix.preScale(removeEMScale, removeEMScale);
             }
         }
 
@@ -841,18 +850,29 @@ uint16_t SkScalerContext_GDI::generateCharToGlyph(SkUnichar utf32) {
         }
     } else {
         // Use uniscribe to detemine glyph index for non-BMP characters.
-        // Need to add extra item to SCRIPT_ITEM to work around a bug in older
-        // windows versions. https://bugzilla.mozilla.org/show_bug.cgi?id=366643
-        SCRIPT_ITEM si[2 + 1];
-        int items;
-        SkAssertResult(
-            SUCCEEDED(ScriptItemize(utf16, 2, 2, NULL, NULL, si, &items)));
+        static const int numWCHAR = 2;
+        static const int maxItems = 2;
+        // MSDN states that this can be NULL, but some things don't work then.
+        SCRIPT_CONTROL sc = { 0 };
+        // Add extra item to SCRIPT_ITEM to work around a bug (now documented).
+        // https://bugzilla.mozilla.org/show_bug.cgi?id=366643
+        SCRIPT_ITEM si[maxItems + 1];
+        int numItems;
+        HRZM(ScriptItemize(utf16, numWCHAR, maxItems, &sc, NULL, si, &numItems),
+             "Could not itemize character.");
 
-        WORD log[2];
-        SCRIPT_VISATTR vsa;
-        int glyphs;
-        SkAssertResult(SUCCEEDED(ScriptShape(
-            fDDC, &fSC, utf16, 2, 1, &si[0].a, &index, log, &vsa, &glyphs)));
+        // Sometimes ScriptShape cannot find a glyph for a non-BMP and returns 2 space glyphs.
+        static const int maxGlyphs = 2;
+        SCRIPT_VISATTR vsa[maxGlyphs];
+        WORD outGlyphs[maxGlyphs];
+        WORD logClust[numWCHAR];
+        int numGlyphs;
+        HRZM(ScriptShape(fDDC, &fSC, utf16, numWCHAR, maxGlyphs, &si[0].a,
+                         outGlyphs, logClust, vsa, &numGlyphs),
+             "Could not shape character.");
+        if (1 == numGlyphs) {
+            index = outGlyphs[0];
+        }
     }
     return index;
 }
@@ -2134,10 +2154,10 @@ size_t LogFontTypeface::onGetTableData(SkFontTableTag tag, size_t offset,
     if (NULL == data) {
         length = 0;
     }
-    DWORD bufferSize = GetFontData(hdc, tag, offset, data, length);
+    DWORD bufferSize = GetFontData(hdc, tag, (DWORD) offset, data, (DWORD) length);
     if (bufferSize == GDI_ERROR) {
         call_ensure_accessible(lf);
-        bufferSize = GetFontData(hdc, tag, offset, data, length);
+        bufferSize = GetFontData(hdc, tag, (DWORD) offset, data, (DWORD) length);
     }
 
     SelectObject(hdc, savefont);
