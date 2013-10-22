@@ -630,7 +630,7 @@ bool attach_shader(const GrGLInterface* gli,
     }
 
     const GrGLchar* sourceStr = shaderSrc.c_str();
-    int sourceLength = shaderSrc.size();
+    GrGLint sourceLength = static_cast<GrGLint>(shaderSrc.size());
     GR_GL_CALL(gli, ShaderSource(shaderId, 1, &sourceStr, &sourceLength));
 
     GrGLint compiled = GR_GL_INIT_ZERO;
@@ -941,6 +941,13 @@ GrGLFragmentOnlyShaderBuilder::GrGLFragmentOnlyShaderBuilder(GrGpuGL* gpu,
     SkASSERT(gpu->glCaps().pathRenderingSupport());
     SkASSERT(GrGLProgramDesc::kAttribute_ColorInput != desc.getHeader().fColorInput);
     SkASSERT(GrGLProgramDesc::kAttribute_ColorInput != desc.getHeader().fCoverageInput);
+}
+
+int GrGLFragmentOnlyShaderBuilder::addTexCoordSets(int count) {
+    int firstFreeCoordSet = fNumTexCoordSets;
+    fNumTexCoordSets += count;
+    SkASSERT(gpu()->glCaps().maxFixedFunctionTextureCoords() >= fNumTexCoordSets);
+    return firstFreeCoordSet;
 }
 
 GrGLProgramEffects* GrGLFragmentOnlyShaderBuilder::createAndEmitEffects(

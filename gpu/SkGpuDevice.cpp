@@ -11,7 +11,7 @@
 #include "effects/GrSimpleTextureEffect.h"
 
 #include "GrContext.h"
-#include "GrTextContext.h"
+#include "GrBitmapTextContext.h"
 
 #include "SkGrTexturePixelRef.h"
 
@@ -137,14 +137,17 @@ static SkBitmap::Config grConfig2skConfig(GrPixelConfig config, bool* isOpaque) 
     }
 }
 
+/*
+ * GrRenderTarget does not know its opaqueness, only its config, so we have
+ * to make conservative guesses when we return an "equivalent" bitmap.
+ */
 static SkBitmap make_bitmap(GrContext* context, GrRenderTarget* renderTarget) {
-    GrPixelConfig config = renderTarget->config();
-
     bool isOpaque;
+    SkBitmap::Config config = grConfig2skConfig(renderTarget->config(), &isOpaque);
+
     SkBitmap bitmap;
-    bitmap.setConfig(grConfig2skConfig(config, &isOpaque),
-                     renderTarget->width(), renderTarget->height());
-    bitmap.setIsOpaque(isOpaque);
+    bitmap.setConfig(config, renderTarget->width(), renderTarget->height(), 0,
+                     isOpaque ? kOpaque_SkAlphaType : kPremul_SkAlphaType);
     return bitmap;
 }
 
@@ -951,7 +954,16 @@ void SkGpuDevice::drawPath(const SkDraw& draw, const SkPath& origSrcPath,
                 GrTexture* filtered;
 
                 if (paint.getMaskFilter()->filterMaskGPU(mask.texture(), maskRect, &filtered, true)) {
+                    // filterMaskGPU gives us ownership of a ref to the result
                     SkAutoTUnref<GrTexture> atu(filtered);
+
+                    // If the scratch texture that we used as the filter src also holds the filter
+                    // result then we must detach so that this texture isn't recycled for a later
+                    // draw.
+                    if (filtered == mask.texture()) {
+                        mask.detach();
+                        filtered->unref(); // detach transfers GrAutoScratchTexture's ref to us.
+                    }
 
                     if (draw_mask(fContext, maskRect, &grPaint, filtered)) {
                         // This path is completely drawn
@@ -1734,7 +1746,7 @@ void SkGpuDevice::drawText(const SkDraw& draw, const void* text,
         if (!skPaint2GrPaintShader(this, paint, true, &grPaint)) {
             return;
         }
-        GrTextContext context(fContext, grPaint);
+        GrBitmapTextContext context(fContext, grPaint);
         myDraw.fProcs = this->initDrawForText(&context);
         this->INHERITED::drawText(myDraw, text, byteLength, x, y, paint);
     }
@@ -1757,7 +1769,7 @@ void SkGpuDevice::drawPosText(const SkDraw& draw, const void* text,
         if (!skPaint2GrPaintShader(this, paint, true, &grPaint)) {
             return;
         }
-        GrTextContext context(fContext, grPaint);
+        GrBitmapTextContext context(fContext, grPaint);
         myDraw.fProcs = this->initDrawForText(&context);
         this->INHERITED::drawPosText(myDraw, text, byteLength, pos, constY,
                                      scalarsPerPos, paint);

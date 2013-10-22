@@ -15,12 +15,8 @@
 #include "SkStrokeRec.h"
 #include "SkTemplates.h"
 
-static const GrGLuint GR_MAX_GLUINT = ~0U;
-static const GrGLint  GR_INVAL_GLINT = ~0;
-
 #define GL_CALL(X) GR_GL_CALL(this->glInterface(), X)
 #define GL_CALL_RET(RET, X) GR_GL_CALL_RET(this->glInterface(), RET, X)
-
 
 #define SKIP_CACHE_CHECK    true
 
@@ -1167,7 +1163,7 @@ GrVertexBuffer* GrGpuGL::onCreateVertexBuffer(size_t size, bool dynamic) {
             // make sure driver can allocate memory for this buffer
             GL_ALLOC_CALL(this->glInterface(),
                           BufferData(GR_GL_ARRAY_BUFFER,
-                                     desc.fSizeInBytes,
+                                     (GrGLsizeiptr) desc.fSizeInBytes,
                                      NULL,   // data ptr
                                      desc.fDynamic ? GR_GL_DYNAMIC_DRAW : GR_GL_STATIC_DRAW));
             if (CHECK_ALLOC_ERROR(this->glInterface()) != GR_GL_NO_ERROR) {
@@ -1200,7 +1196,7 @@ GrIndexBuffer* GrGpuGL::onCreateIndexBuffer(size_t size, bool dynamic) {
             // make sure driver can allocate memory for this buffer
             GL_ALLOC_CALL(this->glInterface(),
                           BufferData(GR_GL_ELEMENT_ARRAY_BUFFER,
-                                     desc.fSizeInBytes,
+                                     (GrGLsizeiptr) desc.fSizeInBytes,
                                      NULL,  // data ptr
                                      desc.fDynamic ? GR_GL_DYNAMIC_DRAW : GR_GL_STATIC_DRAW));
             if (CHECK_ALLOC_ERROR(this->glInterface()) != GR_GL_NO_ERROR) {
@@ -1448,7 +1444,8 @@ bool GrGpuGL::onReadPixels(GrRenderTarget* target,
     if (rowBytes != tightRowBytes) {
         if (this->glCaps().packRowLengthSupport()) {
             SkASSERT(!(rowBytes % sizeof(GrColor)));
-            GL_CALL(PixelStorei(GR_GL_PACK_ROW_LENGTH, rowBytes / sizeof(GrColor)));
+            GL_CALL(PixelStorei(GR_GL_PACK_ROW_LENGTH,
+                                static_cast<GrGLint>(rowBytes / sizeof(GrColor))));
             readDstRowBytes = rowBytes;
         } else {
             scratch.reset(tightRowBytes * height);
@@ -2107,6 +2104,7 @@ void GrGpuGL::enableTexGen(int unitIdx,
     SkASSERT(this->glCaps().fixedFunctionSupport());
     SkASSERT(this->caps()->pathRenderingSupport());
     SkASSERT(components >= kS_TexGenComponents && components <= kSTR_TexGenComponents);
+    SkASSERT(this->glCaps().maxFixedFunctionTextureCoords() >= unitIdx);
 
     if (GR_GL_OBJECT_LINEAR == fHWTexGenSettings[unitIdx].fMode &&
         components == fHWTexGenSettings[unitIdx].fNumComponents &&
@@ -2179,6 +2177,7 @@ void GrGpuGL::enableTexGen(int unitIdx, TexGenComponents components, const SkMat
 void GrGpuGL::disableUnusedTexGen(int numUsedTexCoordSets) {
 
     SkASSERT(this->glCaps().fixedFunctionSupport());
+    SkASSERT(this->glCaps().maxFixedFunctionTextureCoords() >= numUsedTexCoordSets);
 
     for (int i = numUsedTexCoordSets; i < fHWActiveTexGenSets; i++) {
         if (0 == fHWTexGenSettings[i].fNumComponents) {
