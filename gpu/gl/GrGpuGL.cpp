@@ -15,12 +15,8 @@
 #include "SkStrokeRec.h"
 #include "SkTemplates.h"
 
-static const GrGLuint GR_MAX_GLUINT = ~0U;
-static const GrGLint  GR_INVAL_GLINT = ~0;
-
 #define GL_CALL(X) GR_GL_CALL(this->glInterface(), X)
 #define GL_CALL_RET(RET, X) GR_GL_CALL_RET(this->glInterface(), RET, X)
-
 
 #define SKIP_CACHE_CHECK    true
 
@@ -2108,6 +2104,7 @@ void GrGpuGL::enableTexGen(int unitIdx,
     SkASSERT(this->glCaps().fixedFunctionSupport());
     SkASSERT(this->caps()->pathRenderingSupport());
     SkASSERT(components >= kS_TexGenComponents && components <= kSTR_TexGenComponents);
+    SkASSERT(this->glCaps().maxFixedFunctionTextureCoords() >= unitIdx);
 
     if (GR_GL_OBJECT_LINEAR == fHWTexGenSettings[unitIdx].fMode &&
         components == fHWTexGenSettings[unitIdx].fNumComponents &&
@@ -2180,6 +2177,7 @@ void GrGpuGL::enableTexGen(int unitIdx, TexGenComponents components, const SkMat
 void GrGpuGL::disableUnusedTexGen(int numUsedTexCoordSets) {
 
     SkASSERT(this->glCaps().fixedFunctionSupport());
+    SkASSERT(this->glCaps().maxFixedFunctionTextureCoords() >= numUsedTexCoordSets);
 
     for (int i = numUsedTexCoordSets; i < fHWActiveTexGenSets; i++) {
         if (0 == fHWTexGenSettings[i].fNumComponents) {

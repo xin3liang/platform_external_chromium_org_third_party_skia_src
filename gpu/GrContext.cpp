@@ -157,15 +157,15 @@ int GrContext::GetThreadInstanceCount() {
 }
 
 GrContext::~GrContext() {
-    for (int i = 0; i < fCleanUpData.count(); ++i) {
-        (*fCleanUpData[i].fFunc)(this, fCleanUpData[i].fInfo);
-    }
-
     if (NULL == fGpu) {
         return;
     }
 
     this->flush();
+
+    for (int i = 0; i < fCleanUpData.count(); ++i) {
+        (*fCleanUpData[i].fFunc)(this, fCleanUpData[i].fInfo);
+    }
 
     // Since the gpu can hold scratch textures, give it a chance to let go
     // of them before freeing the texture cache
@@ -1689,16 +1689,6 @@ GrPathRenderer* GrContext::getPathRenderer(const SkPath& path,
 ////////////////////////////////////////////////////////////////////////////////
 bool GrContext::isConfigRenderable(GrPixelConfig config, bool withMSAA) const {
     return fGpu->caps()->isConfigRenderable(config, withMSAA);
-}
-
-static inline intptr_t setOrClear(intptr_t bits, int shift, intptr_t pred) {
-    intptr_t mask = 1 << shift;
-    if (pred) {
-        bits |= mask;
-    } else {
-        bits &= ~mask;
-    }
-    return bits;
 }
 
 void GrContext::setupDrawBuffer() {
