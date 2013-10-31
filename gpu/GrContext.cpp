@@ -54,8 +54,8 @@ SK_CONF_DECLARE(bool, c_Defer, "gpu.deferContext", true,
     #define GR_DEBUG_PARTIAL_COVERAGE_CHECK 0
 #endif
 
-static const size_t MAX_TEXTURE_CACHE_COUNT = 2048;
-static const size_t MAX_TEXTURE_CACHE_BYTES = GR_DEFAULT_TEXTURE_CACHE_MB_LIMIT * 1024 * 1024;
+static const size_t MAX_RESOURCE_CACHE_COUNT = GR_DEFAULT_RESOURCE_CACHE_COUNT_LIMIT;
+static const size_t MAX_RESOURCE_CACHE_BYTES = GR_DEFAULT_RESOURCE_CACHE_MB_LIMIT * 1024 * 1024;
 
 static const size_t DRAW_BUFFER_VBPOOL_BUFFER_SIZE = 1 << 15;
 static const int DRAW_BUFFER_VBPOOL_PREALLOC_BUFFERS = 4;
@@ -134,8 +134,8 @@ bool GrContext::init(GrBackend backend, GrBackendContext backendContext) {
     fGpu->setDrawState(fDrawState);
 
     fTextureCache = SkNEW_ARGS(GrResourceCache,
-                               (MAX_TEXTURE_CACHE_COUNT,
-                                MAX_TEXTURE_CACHE_BYTES));
+                               (MAX_RESOURCE_CACHE_COUNT,
+                                MAX_RESOURCE_CACHE_BYTES));
     fTextureCache->setOverbudgetCallback(OverbudgetCB, this);
 
     fFontCache = SkNEW_ARGS(GrFontCache, (fGpu));
@@ -447,9 +447,9 @@ GrTexture* GrContext::lockAndRefScratchTexture(const GrTextureDesc& inDesc, Scra
              !(inDesc.fFlags & kRenderTarget_GrTextureFlagBit) ||
              (inDesc.fConfig != kAlpha_8_GrPixelConfig));
 
-    if (!fGpu->caps()->reuseScratchTextures()) {
-        // If we're never recycling scratch textures we can
-        // always make them the right size
+    if (!fGpu->caps()->reuseScratchTextures() &&
+        !(inDesc.fFlags & kRenderTarget_GrTextureFlagBit)) {
+        // If we're never recycling this texture we can always make it the right size
         return create_scratch_texture(fGpu, fTextureCache, inDesc);
     }
 
@@ -514,7 +514,7 @@ void GrContext::addExistingTextureToCache(GrTexture* texture) {
     // for the creation ref. Assert refcnt == 1.
     SkASSERT(texture->unique());
 
-    if (fGpu->caps()->reuseScratchTextures()) {
+    if (fGpu->caps()->reuseScratchTextures() || NULL != texture->asRenderTarget()) {
         // Since this texture came from an AutoScratchTexture it should
         // still be in the exclusive pile. Recycle it.
         fTextureCache->makeNonExclusive(texture->getCacheEntry());
@@ -542,18 +542,18 @@ void GrContext::unlockScratchTexture(GrTexture* texture) {
     // while it was locked (to avoid two callers simultaneously getting
     // the same texture).
     if (texture->getCacheEntry()->key().isScratch()) {
-        if (fGpu->caps()->reuseScratchTextures()) {
+        if (fGpu->caps()->reuseScratchTextures() || NULL != texture->asRenderTarget()) {
             fTextureCache->makeNonExclusive(texture->getCacheEntry());
             this->purgeCache();
         } else if (texture->unique() && texture->getDeferredRefCount() <= 0) {
-            // Only the cache now knows about this texture. Since we're never 
-            // reusing scratch textures (in this code path) it would just be 
+            // Only the cache now knows about this texture. Since we're never
+            // reusing scratch textures (in this code path) it would just be
             // wasting time sitting in the cache.
             fTextureCache->makeNonExclusive(texture->getCacheEntry());
             fTextureCache->deleteResource(texture->getCacheEntry());
         } else {
             // In this case (fRefCnt > 1 || defRefCnt > 0) but we don't really
-            // want to readd it to the cache (since it will never be reused). 
+            // want to readd it to the cache (since it will never be reused).
             // Instead, give up the cache's ref and leave the decision up to
             // addExistingTextureToCache once its ref count reaches 0. For
             // this to work we need to leave it in the exclusive list.
