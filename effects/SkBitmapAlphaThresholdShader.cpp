@@ -9,7 +9,7 @@
 
 class BATShader : public SkShader {
 public:
-    SK_DECLARE_INST_COUNT(SkThresholdShader);
+    SK_DECLARE_INST_COUNT(BATShader);
 
     BATShader(const SkBitmap& bitmap, SkRegion region, U8CPU);
     BATShader(SkFlattenableReadBuffer& buffer) : INHERITED(buffer) {
@@ -33,6 +33,8 @@ private:
 
     typedef SkShader INHERITED;
 };
+
+SK_DEFINE_INST_COUNT(BATShader)
 
 SkShader* SkBitmapAlphaThresholdShader::Create(const SkBitmap& bitmap,
                                                const SkRegion& region,
@@ -150,7 +152,7 @@ public:
                                     "\t\t}\n");
 
             builder->fsCodeAppendf("color = %s = %s;\n", outputColor,
-                                   (GrGLSLExpr<4>(inputColor) * GrGLSLExpr<4>("color")).c_str());
+                                   (GrGLSLExpr4(inputColor) * GrGLSLExpr4("color")).c_str());
         }
 
         virtual void setData(const GrGLUniformManager& uman, const GrDrawEffect& e) SK_OVERRIDE {

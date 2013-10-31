@@ -28,20 +28,20 @@
 #include "SkTypeface.h"
 #include "SkXfermode.h"
 
-static SkEffectType paintflat_to_effecttype(PaintFlats pf) {
+static SkFlattenable::Type paintflat_to_flattype(PaintFlats pf) {
     static const uint8_t gEffectTypesInPaintFlatsOrder[] = {
-        kColorFilter_SkEffectType,
-        kDrawLooper_SkEffectType,
-        kImageFilter_SkEffectType,
-        kMaskFilter_SkEffectType,
-        kPathEffect_SkEffectType,
-        kRasterizer_SkEffectType,
-        kShader_SkEffectType,
-        kXfermode_SkEffectType,
+        SkFlattenable::kSkColorFilter_Type,
+        SkFlattenable::kSkDrawLooper_Type,
+        SkFlattenable::kSkImageFilter_Type,
+        SkFlattenable::kSkMaskFilter_Type,
+        SkFlattenable::kSkPathEffect_Type,
+        SkFlattenable::kSkRasterizer_Type,
+        SkFlattenable::kSkShader_Type,
+        SkFlattenable::kSkXfermode_Type,
     };
 
     SkASSERT((size_t)pf < SK_ARRAY_COUNT(gEffectTypesInPaintFlatsOrder));
-    return (SkEffectType)gEffectTypesInPaintFlatsOrder[pf];
+    return (SkFlattenable::Type)gEffectTypesInPaintFlatsOrder[pf];
 }
 
 static void set_paintflat(SkPaint* paint, SkFlattenable* obj, unsigned paintFlat) {
@@ -122,7 +122,7 @@ public:
 
     void defFlattenable(PaintFlats pf, int index) {
         index--;
-        SkFlattenable* obj = fReader->readFlattenable(paintflat_to_effecttype(pf));
+        SkFlattenable* obj = fReader->readFlattenable(paintflat_to_flattype(pf));
         if (fFlatArray.count() == index) {
             *fFlatArray.append() = obj;
         } else {
@@ -691,13 +691,11 @@ static void annotation_rp(SkCanvas*, SkReader32* reader, uint32_t op32,
                           SkGPipeState* state) {
     SkPaint* p = state->editPaint();
 
-    if (SkToBool(PaintOp_unpackData(op32))) {
-        const size_t size = reader->readU32();
-        SkAutoMalloc storage(size);
-
-        reader->read(storage.get(), size);
-        SkOrderedReadBuffer buffer(storage.get(), size);
+    const size_t size = DrawOp_unpackData(op32);
+    if (size > 0) {
+        SkOrderedReadBuffer buffer(reader->skip(size), size);
         p->setAnnotation(SkNEW_ARGS(SkAnnotation, (buffer)))->unref();
+        SkASSERT(buffer.offset() == size);
     } else {
         p->setAnnotation(NULL);
     }

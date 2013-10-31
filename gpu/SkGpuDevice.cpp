@@ -436,7 +436,7 @@ inline bool skPaint2GrPaintNoShader(SkGpuDevice* dev,
 
     SkXfermode* mode = skPaint.getXfermode();
     GrEffectRef* xferEffect = NULL;
-    if (SkXfermode::AsNewEffectOrCoeff(mode, dev->context(), &xferEffect, &sm, &dm)) {
+    if (SkXfermode::AsNewEffectOrCoeff(mode, &xferEffect, &sm, &dm)) {
         if (NULL != xferEffect) {
             grPaint->addColorEffect(xferEffect)->unref();
             sm = SkXfermode::kOne_Coeff;
@@ -475,13 +475,6 @@ inline bool skPaint2GrPaintNoShader(SkGpuDevice* dev,
             SkAutoTUnref<GrEffectRef> effect(colorFilter->asNewEffect(dev->context()));
             if (NULL != effect.get()) {
                 grPaint->addColorEffect(effect);
-            } else {
-                // TODO: rewrite this using asNewEffect()
-                SkColor color;
-                SkXfermode::Mode filterMode;
-                if (colorFilter->asColorMode(&color, &filterMode)) {
-                    grPaint->setXfermodeColorFilter(filterMode, SkColor2GrColor(color));
-                }
             }
         }
     }
@@ -985,68 +978,82 @@ void SkGpuDevice::drawPath(const SkDraw& draw, const SkPath& origSrcPath,
     fContext->drawPath(grPaint, *pathPtr, stroke);
 }
 
-namespace {
+static const int kBmpSmallTileSize = 1 << 10;
 
-inline int get_tile_count(int l, int t, int r, int b, int tileSize)  {
-    int tilesX = (r / tileSize) - (l / tileSize) + 1;
-    int tilesY = (b / tileSize) - (t / tileSize) + 1;
+static inline int get_tile_count(const SkIRect& srcRect, int tileSize)  {
+    int tilesX = (srcRect.fRight / tileSize) - (srcRect.fLeft / tileSize) + 1;
+    int tilesY = (srcRect.fBottom / tileSize) - (srcRect.fTop / tileSize) + 1;
     return tilesX * tilesY;
 }
 
-inline int determine_tile_size(const SkBitmap& bitmap,
-                               const SkRect& src,
-                               int maxTextureSize) {
-    static const int kSmallTileSize = 1 << 10;
-    if (maxTextureSize <= kSmallTileSize) {
-        return maxTextureSize;
+static int determine_tile_size(const SkBitmap& bitmap, const SkIRect& src, int maxTileSize) {
+    if (maxTileSize <= kBmpSmallTileSize) {
+        return maxTileSize;
     }
 
-    size_t maxTexTotalTileSize;
-    size_t smallTotalTileSize;
+    size_t maxTileTotalTileSize = get_tile_count(src, maxTileSize);
+    size_t smallTotalTileSize = get_tile_count(src, kBmpSmallTileSize);
 
-    SkIRect iSrc;
-    src.roundOut(&iSrc);
+    maxTileTotalTileSize *= maxTileSize * maxTileSize;
+    smallTotalTileSize *= kBmpSmallTileSize * kBmpSmallTileSize;
 
-    maxTexTotalTileSize = get_tile_count(iSrc.fLeft,
-                                         iSrc.fTop,
-                                         iSrc.fRight,
-                                         iSrc.fBottom,
-                                         maxTextureSize);
-    smallTotalTileSize = get_tile_count(iSrc.fLeft,
-                                        iSrc.fTop,
-                                        iSrc.fRight,
-                                        iSrc.fBottom,
-                                        kSmallTileSize);
-
-    maxTexTotalTileSize *= maxTextureSize * maxTextureSize;
-    smallTotalTileSize *= kSmallTileSize * kSmallTileSize;
-
-    if (maxTexTotalTileSize > 2 * smallTotalTileSize) {
-        return kSmallTileSize;
+    if (maxTileTotalTileSize > 2 * smallTotalTileSize) {
+        return kBmpSmallTileSize;
     } else {
-        return maxTextureSize;
+        return maxTileSize;
     }
 }
+
+// Given a bitmap, an optional src rect, and a context with a clip and matrix determine what
+// pixels from the bitmap are necessary.
+static void determine_clipped_src_rect(const GrContext* context,
+                                       const SkBitmap& bitmap,
+                                       const SkRect* srcRectPtr,
+                                       SkIRect* clippedSrcIRect) {
+    const GrClipData* clip = context->getClip();
+    clip->getConservativeBounds(context->getRenderTarget(), clippedSrcIRect, NULL);
+    SkMatrix inv;
+    if (!context->getMatrix().invert(&inv)) {
+        clippedSrcIRect->setEmpty();
+        return;
+    }
+    SkRect clippedSrcRect = SkRect::MakeFromIRect(*clippedSrcIRect);
+    inv.mapRect(&clippedSrcRect);
+    if (NULL != srcRectPtr) {
+        if (!clippedSrcRect.intersect(*srcRectPtr)) {
+            clippedSrcIRect->setEmpty();
+            return;
+        }
+    }
+    clippedSrcRect.roundOut(clippedSrcIRect);
+    SkIRect bmpBounds = SkIRect::MakeWH(bitmap.width(), bitmap.height());
+    if (!clippedSrcIRect->intersect(bmpBounds)) {
+        clippedSrcIRect->setEmpty();
+    }
 }
 
 bool SkGpuDevice::shouldTileBitmap(const SkBitmap& bitmap,
                                    const GrTextureParams& params,
-                                   const SkRect* srcRectPtr) const {
+                                   const SkRect* srcRectPtr,
+                                   int maxTileSize,
+                                   int* tileSize,
+                                   SkIRect* clippedSrcRect) const {
     // if bitmap is explictly texture backed then just use the texture
     if (NULL != bitmap.getTexture()) {
         return false;
     }
-    // if it's larger than the max texture size, then we have no choice but
-    // tiling
-    const int maxTextureSize = fContext->getMaxTextureSize();
-    if (bitmap.width() > maxTextureSize ||
-        bitmap.height() > maxTextureSize) {
+
+    // if it's larger than the max tile size, then we have no choice but tiling.
+    if (bitmap.width() > maxTileSize || bitmap.height() > maxTileSize) {
+        determine_clipped_src_rect(fContext, bitmap, srcRectPtr, clippedSrcRect);
+        *tileSize = determine_tile_size(bitmap, *clippedSrcRect, maxTileSize);
         return true;
     }
-    // if we are going to have to draw the whole thing, then don't tile
-    if (NULL == srcRectPtr) {
+
+    if (bitmap.width() * bitmap.height() < 4 * kBmpSmallTileSize * kBmpSmallTileSize) {
         return false;
     }
+
     // if the entire texture is already in our cache then no reason to tile it
     if (GrIsBitmapInCache(fContext, bitmap, &params)) {
         return false;
@@ -1066,13 +1073,13 @@ bool SkGpuDevice::shouldTileBitmap(const SkBitmap& bitmap,
         return false;
     }
 
-    SkScalar fracUsed = SkScalarMul(srcRectPtr->width() / bitmap.width(),
-                                    srcRectPtr->height() / bitmap.height());
-    if (fracUsed <= SK_ScalarHalf) {
-        return true;
-    } else {
-        return false;
-    }
+    // Figure out how much of the src we will need based on the src rect and clipping.
+    determine_clipped_src_rect(fContext, bitmap, srcRectPtr, clippedSrcRect);
+    *tileSize = kBmpSmallTileSize; // already know whole bitmap fits in one max sized tile.
+    size_t usedTileBytes = get_tile_count(*clippedSrcRect, kBmpSmallTileSize) *
+                           kBmpSmallTileSize * kBmpSmallTileSize;
+
+    return usedTileBytes < 2 * bmpSize;
 }
 
 void SkGpuDevice::drawBitmap(const SkDraw& draw,
@@ -1171,6 +1178,8 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
         return;
     }
 
+    fContext->concatMatrix(m);
+
     GrTextureParams params;
     SkPaint::FilterLevel paintFilterLevel = paint.getFilterLevel();
     GrTextureParams::FilterMode textureFilterMode;
@@ -1200,11 +1209,21 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
 
     params.setFilterMode(textureFilterMode);
 
-    if (!this->shouldTileBitmap(bitmap, params, srcRectPtr)) {
-        // take the simple case
-        this->internalDrawBitmap(bitmap, srcRect, m, params, paint, flags);
+    int maxTileSize = fContext->getMaxTextureSize();
+    if (SkPaint::kNone_FilterLevel != paint.getFilterLevel()) {
+        // We may need a skosh more room if we have to bump out the tile
+        // by 1 pixel all around
+        maxTileSize -= 2;
+    }
+    int tileSize;
+
+    SkIRect clippedSrcRect;
+    if (this->shouldTileBitmap(bitmap, params, srcRectPtr, maxTileSize, &tileSize,
+                               &clippedSrcRect)) {
+        this->drawTiledBitmap(bitmap, srcRect, clippedSrcRect, params, paint, flags, tileSize);
     } else {
-        this->drawTiledBitmap(bitmap, srcRect, m, params, paint, flags);
+        // take the simple case
+        this->internalDrawBitmap(bitmap, srcRect, params, paint, flags);
     }
 }
 
@@ -1212,34 +1231,12 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
 // been determined to be too large to fit in VRAM
 void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
                                   const SkRect& srcRect,
-                                  const SkMatrix& m,
+                                  const SkIRect& clippedSrcIRect,
                                   const GrTextureParams& params,
                                   const SkPaint& paint,
-                                  SkCanvas::DrawBitmapRectFlags flags) {
-    int maxTextureSize = fContext->getMaxTextureSize();
-    if (SkPaint::kNone_FilterLevel != paint.getFilterLevel()) {
-        // We may need a skosh more room if we have to bump out the tile
-        // by 1 pixel all around
-        maxTextureSize -= 2;
-    }
-
-    int tileSize = determine_tile_size(bitmap, srcRect, maxTextureSize);
-
-    // compute clip bounds in local coordinates
-    SkRect clipRect;
-    {
-        const GrRenderTarget* rt = fContext->getRenderTarget();
-        clipRect.setWH(SkIntToScalar(rt->width()), SkIntToScalar(rt->height()));
-        if (!fContext->getClip()->fClipStack->intersectRectWithClip(&clipRect)) {
-            return;
-        }
-        SkMatrix matrix, inverse;
-        matrix.setConcat(fContext->getMatrix(), m);
-        if (!matrix.invert(&inverse)) {
-            return;
-        }
-        inverse.mapRect(&clipRect);
-    }
+                                  SkCanvas::DrawBitmapRectFlags flags,
+                                  int tileSize) {
+    SkRect clippedSrcRect = SkRect::MakeFromIRect(clippedSrcIRect);
 
     int nx = bitmap.width() / tileSize;
     int ny = bitmap.height() / tileSize;
@@ -1251,7 +1248,7 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
                       SkIntToScalar((x + 1) * tileSize),
                       SkIntToScalar((y + 1) * tileSize));
 
-            if (!SkRect::Intersects(tileR, clipRect)) {
+            if (!SkRect::Intersects(tileR, clippedSrcRect)) {
                 continue;
             }
 
@@ -1285,10 +1282,11 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
             if (bitmap.extractSubset(&tmpB, iTileR)) {
                 // now offset it to make it "local" to our tmp bitmap
                 tileR.offset(-offset.fX, -offset.fY);
-                SkMatrix tmpM(m);
-                tmpM.preTranslate(offset.fX, offset.fY);
-
-                this->internalDrawBitmap(tmpB, tileR, tmpM, params, paint, flags);
+                SkMatrix tmpM;
+                tmpM.setTranslate(offset.fX, offset.fY);
+                GrContext::AutoMatrix am;
+                am.setPreConcat(fContext, tmpM);
+                this->internalDrawBitmap(tmpB, tileR, params, paint, flags);
             }
         }
     }
@@ -1345,7 +1343,6 @@ static bool may_color_bleed(const SkRect& srcRect,
  */
 void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
                                      const SkRect& srcRect,
-                                     const SkMatrix& m,
                                      const GrTextureParams& params,
                                      const SkPaint& paint,
                                      SkCanvas::DrawBitmapRectFlags flags) {
@@ -1360,8 +1357,8 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
 
     SkRect dstRect(srcRect);
     SkRect paintRect;
-    SkScalar wInv = SkScalarInvert(SkIntToScalar(bitmap.width()));
-    SkScalar hInv = SkScalarInvert(SkIntToScalar(bitmap.height()));
+    SkScalar wInv = SkScalarInvert(SkIntToScalar(texture->width()));
+    SkScalar hInv = SkScalarInvert(SkIntToScalar(texture->height()));
     paintRect.setLTRB(SkScalarMul(srcRect.fLeft,   wInv),
                       SkScalarMul(srcRect.fTop,    hInv),
                       SkScalarMul(srcRect.fRight,  wInv),
@@ -1373,19 +1370,18 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
         // Need texture domain if drawing a sub rect.
         needsTextureDomain = srcRect.width() < bitmap.width() ||
                              srcRect.height() < bitmap.height();
-        if (needsTextureDomain && m.rectStaysRect() && fContext->getMatrix().rectStaysRect()) {
+        if (needsTextureDomain && fContext->getMatrix().rectStaysRect()) {
+            const SkMatrix& matrix = fContext->getMatrix();
             // sampling is axis-aligned
             SkRect transformedRect;
-            SkMatrix srcToDeviceMatrix(m);
-            srcToDeviceMatrix.postConcat(fContext->getMatrix());
-            srcToDeviceMatrix.mapRect(&transformedRect, srcRect);
+            matrix.mapRect(&transformedRect, srcRect);
 
             if (has_aligned_samples(srcRect, transformedRect)) {
                 // We could also turn off filtering here (but we already did a cache lookup with
                 // params).
                 needsTextureDomain = false;
             } else {
-                needsTextureDomain = may_color_bleed(srcRect, transformedRect, m);
+                needsTextureDomain = may_color_bleed(srcRect, transformedRect, matrix);
             }
         }
     }
@@ -1396,14 +1392,14 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
         // Use a constrained texture domain to avoid color bleeding
         SkScalar left, top, right, bottom;
         if (srcRect.width() > SK_Scalar1) {
-            SkScalar border = SK_ScalarHalf / bitmap.width();
+            SkScalar border = SK_ScalarHalf / texture->width();
             left = paintRect.left() + border;
             right = paintRect.right() - border;
         } else {
             left = right = SkScalarHalf(paintRect.left() + paintRect.right());
         }
         if (srcRect.height() > SK_Scalar1) {
-            SkScalar border = SK_ScalarHalf / bitmap.height();
+            SkScalar border = SK_ScalarHalf / texture->height();
             top = paintRect.top() + border;
             bottom = paintRect.bottom() - border;
         } else {
@@ -1428,7 +1424,7 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
         return;
     }
 
-    fContext->drawRectToRect(grPaint, dstRect, paintRect, &m);
+    fContext->drawRectToRect(grPaint, dstRect, paintRect, NULL);
 }
 
 static bool filter_texture(SkBaseDevice* device, GrContext* context,
@@ -1746,7 +1742,8 @@ void SkGpuDevice::drawText(const SkDraw& draw, const void* text,
         if (!skPaint2GrPaintShader(this, paint, true, &grPaint)) {
             return;
         }
-        GrBitmapTextContext context(fContext, grPaint);
+
+        GrBitmapTextContext context(fContext, grPaint, paint.getColor());
         myDraw.fProcs = this->initDrawForText(&context);
         this->INHERITED::drawText(myDraw, text, byteLength, x, y, paint);
     }
@@ -1769,7 +1766,7 @@ void SkGpuDevice::drawPosText(const SkDraw& draw, const void* text,
         if (!skPaint2GrPaintShader(this, paint, true, &grPaint)) {
             return;
         }
-        GrBitmapTextContext context(fContext, grPaint);
+        GrBitmapTextContext context(fContext, grPaint, paint.getColor());
         myDraw.fProcs = this->initDrawForText(&context);
         this->INHERITED::drawPosText(myDraw, text, byteLength, pos, constY,
                                      scalarsPerPos, paint);

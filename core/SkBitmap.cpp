@@ -19,6 +19,7 @@
 #include "SkThread.h"
 #include "SkUnPreMultiply.h"
 #include "SkUtils.h"
+#include "SkValidationUtils.h"
 #include "SkPackBits.h"
 #include <new>
 
@@ -268,7 +269,7 @@ void SkBitmap::getBounds(SkIRect* bounds) const {
 ///////////////////////////////////////////////////////////////////////////////
 
 static bool validate_alphaType(SkBitmap::Config config, SkAlphaType alphaType,
-                               SkAlphaType* canonical) {
+                               SkAlphaType* canonical = NULL) {
     switch (config) {
         case SkBitmap::kNo_Config:
             alphaType = kIgnore_SkAlphaType;
@@ -1056,7 +1057,8 @@ bool SkBitmap::copyTo(SkBitmap* dst, Config dstConfig, Allocator* alloc) const {
                 if (tmpSrc.config() == dstConfig && NULL == alloc) {
                     dst->swap(tmpSrc);
                     if (dst->pixelRef() && this->config() == dstConfig) {
-                        dst->pixelRef()->fGenerationID = fPixelRef->getGenerationID();
+                        // TODO(scroggo): fix issue 1742
+                        dst->pixelRef()->cloneGenID(*fPixelRef);
                     }
                     return true;
                 }
@@ -1096,8 +1098,9 @@ bool SkBitmap::copyTo(SkBitmap* dst, Config dstConfig, Allocator* alloc) const {
         if (tmpDst.getSize() == src->getSize()) {
             memcpy(tmpDst.getPixels(), src->getPixels(), src->getSafeSize());
             SkPixelRef* pixelRef = tmpDst.pixelRef();
-            if (pixelRef != NULL) {
-                pixelRef->fGenerationID = this->getGenerationID();
+            if (NULL != pixelRef && NULL != fPixelRef) {
+                // TODO(scroggo): fix issue 1742
+                pixelRef->cloneGenID(*fPixelRef);
             }
         } else {
             const char* srcP = reinterpret_cast<const char*>(src->getPixels());
@@ -1151,7 +1154,8 @@ bool SkBitmap::deepCopyTo(SkBitmap* dst, Config dstConfig) const {
         if (pixelRef) {
             uint32_t rowBytes;
             if (dstConfig == fConfig) {
-                pixelRef->fGenerationID = fPixelRef->getGenerationID();
+                // TODO(scroggo): fix issue 1742
+                pixelRef->cloneGenID(*fPixelRef);
                 // Use the same rowBytes as the original.
                 rowBytes = fRowBytes;
             } else {
@@ -1604,10 +1608,12 @@ void SkBitmap::unflatten(SkFlattenableReadBuffer& buffer) {
     int width = buffer.readInt();
     int height = buffer.readInt();
     int rowBytes = buffer.readInt();
-    int config = buffer.readInt();
-    int alphaType = buffer.readInt();
+    Config config = (Config)buffer.readInt();
+    SkAlphaType alphaType = (SkAlphaType)buffer.readInt();
+    buffer.validate((width >= 0) && (height >= 0) && (rowBytes >= 0) &&
+                    SkIsValidConfig(config) && validate_alphaType(config, alphaType));
 
-    this->setConfig((Config)config, width, height, rowBytes, (SkAlphaType)alphaType);
+    this->setConfig(config, width, height, rowBytes, alphaType);
 
     int reftype = buffer.readInt();
     switch (reftype) {
@@ -1620,6 +1626,7 @@ void SkBitmap::unflatten(SkFlattenableReadBuffer& buffer) {
         case SERIALIZE_PIXELTYPE_NONE:
             break;
         default:
+            buffer.validate(false);
             SkDEBUGFAIL("unrecognized pixeltype in serialized data");
             sk_throw();
     }
