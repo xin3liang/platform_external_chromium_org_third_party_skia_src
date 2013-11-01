@@ -501,7 +501,7 @@ void apply_morphology_pass(GrContext* context,
                                                     direction,
                                                     radius,
                                                     morphType))->unref();
-    context->drawRectToRect(paint, SkRect::MakeFromIRect(dstRect), SkRect::MakeFromIRect(srcRect));
+    context->drawRectToRect(paint, SkRect::Make(dstRect), SkRect::Make(srcRect));
 }
 
 bool apply_morphology(const SkBitmap& input,
@@ -538,7 +538,7 @@ bool apply_morphology(const SkBitmap& input,
                                               dstRect.width(), radius.fHeight);
         context->clear(&clearRect, GrMorphologyEffect::kErode_MorphologyType == morphType ?
                                    SK_ColorWHITE :
-                                   SK_ColorTRANSPARENT);
+                                   SK_ColorTRANSPARENT, false);
         src.reset(ast.detach());
         srcRect = dstRect;
     }

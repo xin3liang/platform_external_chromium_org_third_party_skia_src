@@ -48,6 +48,7 @@ void GrGLCaps::reset() {
     fIsCoreProfile = false;
     fFixedFunctionSupport = false;
     fDiscardFBSupport = false;
+    fFullClearIsFree = false;
 }
 
 GrGLCaps::GrGLCaps(const GrGLCaps& caps) : GrDrawTargetCaps() {
@@ -84,6 +85,7 @@ GrGLCaps& GrGLCaps::operator = (const GrGLCaps& caps) {
     fIsCoreProfile = caps.fIsCoreProfile;
     fFixedFunctionSupport = caps.fFixedFunctionSupport;
     fDiscardFBSupport = caps.fDiscardFBSupport;
+    fFullClearIsFree = caps.fFullClearIsFree;
 
     return *this;
 }
@@ -224,6 +226,10 @@ void GrGLCaps::init(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
 
     fDiscardFBSupport = ctxInfo.hasExtension("GL_EXT_discard_framebuffer");
 
+    if (kARM_GrGLVendor == ctxInfo.vendor() || kImagination_GrGLVendor == ctxInfo.vendor()) {
+        fFullClearIsFree = true;
+    }
+
     if (kDesktop_GrGLBinding == binding) {
         fVertexArrayObjectSupport = version >= GR_GL_VER(3, 0) ||
                                     ctxInfo.hasExtension("GL_ARB_vertex_array_object");
@@ -306,16 +312,7 @@ void GrGLCaps::init(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli) {
                             ctxInfo.hasExtension("GL_NV_path_rendering");
 
     fDstReadInShaderSupport = kNone_FBFetchType != fFBFetchType;
-
-#if 0
-    // This has to be temporarily disabled. On Android it causes the texture
-    // usage to become front loaded and the OS kills the process. It can
-    // be re-enabled once the more dynamic (ref-driven) cache clearing
-    // system is in place.
     fReuseScratchTextures = kARM_GrGLVendor != ctxInfo.vendor();
-#else
-    fReuseScratchTextures = true;
-#endif
 
     // Enable supported shader-related caps
     if (kDesktop_GrGLBinding == binding) {
@@ -657,4 +654,5 @@ void GrGLCaps::print() const {
     GrPrintf("Use non-VBO for dynamic data: %s\n",
              (fUseNonVBOVertexAndIndexDynamicData ? "YES" : "NO"));
     GrPrintf("Discard FrameBuffer support: %s\n", (fDiscardFBSupport ? "YES" : "NO"));
+    GrPrintf("Full screen clear is free: %s\n", (fFullClearIsFree ? "YES" : "NO"));
 }
