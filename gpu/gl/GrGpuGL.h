@@ -31,6 +31,8 @@ public:
     GrGpuGL(const GrGLContext& ctx, GrContext* context);
     virtual ~GrGpuGL();
 
+    const GrGLContext& glContext() const { return fGLContext; }
+
     const GrGLInterface* glInterface() const { return fGLContext.interface(); }
     const GrGLContextInfo& ctxInfo() const { return fGLContext.info(); }
     GrGLBinding glBinding() const { return fGLContext.info().binding(); }
@@ -49,7 +51,7 @@ public:
     };
     void enableTexGen(int unitIdx, TexGenComponents, const GrGLfloat* coefficients);
     void enableTexGen(int unitIdx, TexGenComponents, const SkMatrix& matrix);
-    void disableUnusedTexGen(int numUsedTexCoordSets);
+    void flushTexGenSettings(int numUsedTexCoordSets);
     bool shouldUseFixedFunctionTexturing() const {
         return this->glCaps().fixedFunctionSupport() &&
                this->glCaps().pathRenderingSupport();
@@ -133,7 +135,7 @@ private:
         GrStencilBuffer* sb,
         GrRenderTarget* rt) SK_OVERRIDE;
 
-    virtual void onClear(const SkIRect* rect, GrColor color) SK_OVERRIDE;
+    virtual void onClear(const SkIRect* rect, GrColor color, bool canIgnoreRect) SK_OVERRIDE;
 
     virtual void onForceRenderTargetFlush() SK_OVERRIDE;
 
@@ -176,8 +178,6 @@ private:
     void flushBlend(bool isLines, GrBlendCoeff srcCoeff, GrBlendCoeff dstCoeff);
 
     bool hasExtension(const char* ext) const { return fGLContext.info().hasExtension(ext); }
-
-    const GrGLContext& glContext() const { return fGLContext; }
 
     static bool BlendCoeffReferencesConstant(GrBlendCoeff coeff);
 
