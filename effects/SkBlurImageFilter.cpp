@@ -10,6 +10,7 @@
 #include "SkColorPriv.h"
 #include "SkFlattenableBuffers.h"
 #include "SkGpuBlurUtils.h"
+#include "SkBlurImage_opts.h"
 #if SK_SUPPORT_GPU
 #include "GrContext.h"
 #include "SkImageFilterUtils.h"
@@ -71,10 +72,8 @@ static void boxBlur(const SkPMColor* src, int srcStride, SkPMColor* dst, int ker
     int dstStrideX = dstDirection == kX ? 1 : height;
     int srcStrideY = srcDirection == kX ? srcStride : 1;
     int dstStrideY = dstDirection == kX ? width : 1;
-#ifndef SK_DISABLE_BLUR_DIVISION_OPTIMIZATION
     uint32_t scale = (1 << 24) / kernelSize;
     uint32_t half = 1 << 23;
-#endif
     for (int y = 0; y < height; ++y) {
         int sumA = 0, sumR = 0, sumG = 0, sumB = 0;
         const SkPMColor* p = src;
@@ -89,17 +88,10 @@ static void boxBlur(const SkPMColor* src, int srcStride, SkPMColor* dst, int ker
         const SkPMColor* sptr = src;
         SkColor* dptr = dst;
         for (int x = 0; x < width; ++x) {
-#ifndef SK_DISABLE_BLUR_DIVISION_OPTIMIZATION
             *dptr = SkPackARGB32((sumA * scale + half) >> 24,
                                  (sumR * scale + half) >> 24,
                                  (sumG * scale + half) >> 24,
                                  (sumB * scale + half) >> 24);
-#else
-            *dptr = SkPackARGB32(sumA / kernelSize,
-                                 sumR / kernelSize,
-                                 sumG / kernelSize,
-                                 sumB / kernelSize);
-#endif
             if (x >= leftOffset) {
                 SkColor l = *(sptr - leftOffset * srcStrideX);
                 sumA -= SkGetPackedA32(l);
@@ -123,26 +115,6 @@ static void boxBlur(const SkPMColor* src, int srcStride, SkPMColor* dst, int ker
         src += srcStrideY;
         dst += dstStrideY;
     }
-}
-
-static void boxBlurX(const SkPMColor* src, int srcStride, SkPMColor* dst, int kernelSize,
-                     int leftOffset, int rightOffset, int width, int height)
-{
-    boxBlur<kX, kX>(src, srcStride, dst, kernelSize, leftOffset, rightOffset, width, height);
-}
-
-#ifndef SK_DISABLE_BLUR_DIVISION_OPTIMIZATION
-static void boxBlurXY(const SkPMColor* src, int srcStride, SkPMColor* dst, int kernelSize,
-                              int leftOffset, int rightOffset, int width, int height)
-{
-    boxBlur<kX, kY>(src, srcStride, dst, kernelSize, leftOffset, rightOffset, width, height);
-}
-#endif
-
-static void boxBlurY(const SkPMColor* src, int srcStride, SkPMColor* dst, int kernelSize,
-                     int topOffset, int bottomOffset, int width, int height)
-{
-    boxBlur<kY, kY>(src, srcStride, dst, kernelSize, topOffset, bottomOffset, width, height);
 }
 
 static void getBox3Params(SkScalar s, int *kernelSize, int* kernelSize3, int *lowOffset,
@@ -212,30 +184,29 @@ bool SkBlurImageFilter::onFilterImage(Proxy* proxy,
     SkPMColor* d = dst->getAddr32(0, 0);
     int w = dstBounds.width(), h = dstBounds.height();
     int sw = src.rowBytesAsPixels();
+    SkBoxBlurProc boxBlurX, boxBlurY, boxBlurXY, boxBlurYX;
+    if (!SkBoxBlurGetPlatformProcs(&boxBlurX, &boxBlurY, &boxBlurXY, &boxBlurYX)) {
+        boxBlurX = boxBlur<kX, kX>;
+        boxBlurY = boxBlur<kY, kY>;
+        boxBlurXY = boxBlur<kX, kY>;
+        boxBlurYX = boxBlur<kY, kX>;
+    }
+
     if (kernelSizeX > 0 && kernelSizeY > 0) {
-#ifndef SK_DISABLE_BLUR_DIVISION_OPTIMIZATION
         boxBlurX(s,  sw, t, kernelSizeX,  lowOffsetX,  highOffsetX, w, h);
         boxBlurX(t,  w,  d, kernelSizeX,  highOffsetX, lowOffsetX,  w, h);
         boxBlurXY(d, w,  t, kernelSizeX3, highOffsetX, highOffsetX, w, h);
         boxBlurX(t,  h,  d, kernelSizeY,  lowOffsetY,  highOffsetY, h, w);
         boxBlurX(d,  h,  t, kernelSizeY,  highOffsetY, lowOffsetY,  h, w);
         boxBlurXY(t, h,  d, kernelSizeY3, highOffsetY, highOffsetY, h, w);
-#else
-        boxBlurX(s,  sw, t, kernelSizeX,  lowOffsetX,  highOffsetX, w, h);
-        boxBlurY(t,  w,  d, kernelSizeY,  lowOffsetY,  highOffsetY, h, w);
-        boxBlurX(d,  w,  t, kernelSizeX,  highOffsetX, lowOffsetX,  w, h);
-        boxBlurY(t,  w,  d, kernelSizeY,  highOffsetY, lowOffsetY,  h, w);
-        boxBlurX(d,  w,  t, kernelSizeX3, highOffsetX, highOffsetX, w, h);
-        boxBlurY(t,  w,  d, kernelSizeY3, highOffsetY, highOffsetY, h, w);
-#endif
     } else if (kernelSizeX > 0) {
         boxBlurX(s,  sw, d, kernelSizeX,  lowOffsetX,  highOffsetX, w, h);
         boxBlurX(d,  w,  t, kernelSizeX,  highOffsetX, lowOffsetX,  w, h);
         boxBlurX(t,  w,  d, kernelSizeX3, highOffsetX, highOffsetX, w, h);
     } else if (kernelSizeY > 0) {
-        boxBlurY(s,  sw, d, kernelSizeY,  lowOffsetY,  highOffsetY, h, w);
-        boxBlurY(d,  w,  t, kernelSizeY,  highOffsetY, lowOffsetY,  h, w);
-        boxBlurY(t,  w,  d, kernelSizeY3, highOffsetY, highOffsetY, h, w);
+        boxBlurYX(s, sw, d, kernelSizeY,  lowOffsetY,  highOffsetY, h, w);
+        boxBlurX(d,  h,  t, kernelSizeY,  highOffsetY, lowOffsetY,  h, w);
+        boxBlurXY(t, h,  d, kernelSizeY3, highOffsetY, highOffsetY, h, w);
     }
     offset->fX += srcBounds.fLeft;
     offset->fY += srcBounds.fTop;
