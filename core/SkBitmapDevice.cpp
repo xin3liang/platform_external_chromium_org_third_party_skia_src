@@ -77,14 +77,6 @@ void SkBitmapDevice::unlockPixels() {
     }
 }
 
-void SkBitmapDevice::getGlobalBounds(SkIRect* bounds) const {
-    if (NULL != bounds) {
-        const SkIPoint& origin = this->getOrigin();
-        bounds->setXYWH(origin.x(), origin.y(),
-                        fBitmap.width(), fBitmap.height());
-    }
-}
-
 void SkBitmapDevice::clear(SkColor color) {
     fBitmap.eraseColor(color);
 }
@@ -365,14 +357,6 @@ void SkBitmapDevice::drawTextOnPath(const SkDraw& draw, const void* text,
                                     const SkPaint& paint) {
     draw.drawTextOnPath((const char*)text, len, path, matrix, paint);
 }
-
-#ifdef SK_BUILD_FOR_ANDROID
-void SkBitmapDevice::drawPosTextOnPath(const SkDraw& draw, const void* text, size_t len,
-                                       const SkPoint pos[], const SkPaint& paint,
-                                       const SkPath& path, const SkMatrix* matrix) {
-    draw.drawPosTextOnPath((const char*)text, len, pos, paint, path, matrix);
-}
-#endif
 
 void SkBitmapDevice::drawVertices(const SkDraw& draw, SkCanvas::VertexMode vmode,
                                   int vertexCount,
