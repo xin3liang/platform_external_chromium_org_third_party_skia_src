@@ -27,6 +27,7 @@
 #include "SkPDFTypes.h"
 #include "SkPDFUtils.h"
 #include "SkRect.h"
+#include "SkRRect.h"
 #include "SkString.h"
 #include "SkTextFormatParams.h"
 #include "SkTemplates.h"
@@ -48,6 +49,8 @@ struct TypefaceFallbackData {
     }
 };
 #endif
+
+#define DPI_FOR_RASTER_SCALE_ONE 72
 
 // Utility functions
 
@@ -120,7 +123,7 @@ static void align_text(SkDrawCacheProc glyphCacheProc, const SkPaint& paint,
     *y = *y - yAdj;
 }
 
-static size_t max_glyphid_for_typeface(SkTypeface* typeface) {
+static int max_glyphid_for_typeface(SkTypeface* typeface) {
     SkAutoResolveDefaultTypeface autoResolve(typeface);
     typeface = autoResolve.get();
     return typeface->countGlyphs() - 1;
@@ -742,7 +745,7 @@ SkPDFDevice::SkPDFDevice(const SkISize& pageSize, const SkISize& contentSize,
       fLastMarginContentEntry(NULL),
       fClipStack(NULL),
       fEncoder(NULL),
-      fRasterDpi(SkFloatToScalar(72.0f)) {
+      fRasterDpi(72.0f) {
     // Just report that PDF does not supports perspective in the
     // initial transform.
     NOT_IMPLEMENTED(initialTransform.hasPerspective(), true);
@@ -773,7 +776,7 @@ SkPDFDevice::SkPDFDevice(const SkISize& layerSize,
       fLastMarginContentEntry(NULL),
       fClipStack(NULL),
       fEncoder(NULL),
-      fRasterDpi(SkFloatToScalar(72.0f)) {
+      fRasterDpi(72.0f) {
     fInitialTransform.reset();
     this->init();
 }
@@ -965,6 +968,13 @@ void SkPDFDevice::drawRect(const SkDraw& d, const SkRect& rect,
     SkPDFUtils::AppendRectangle(r, &content.entry()->fContent);
     SkPDFUtils::PaintPath(paint.getStyle(), SkPath::kWinding_FillType,
                           &content.entry()->fContent);
+}
+
+void SkPDFDevice::drawRRect(const SkDraw& draw, const SkRRect& rrect,
+                            const SkPaint& paint) {
+    SkPath  path;
+    path.addRRect(rrect);
+    this->drawPath(draw, path, paint, NULL, true);
 }
 
 void SkPDFDevice::drawPath(const SkDraw& d, const SkPath& origPath,
@@ -1938,7 +1948,14 @@ void SkPDFDevice::finishContentEntry(const SkXfermode::Mode xfermode,
 
     SkPaint stockPaint;
 
-    if (xfermode == SkXfermode::kClear_Mode) {
+    if (xfermode == SkXfermode::kSrcATop_Mode) {
+        ScopedContentEntry content(this, &clipStack, clipRegion, identity,
+                                   stockPaint);
+        if (content.entry()) {
+            SkPDFUtils::DrawFormXObject(this->addXObjectResource(dst),
+                                        &content.entry()->fContent);
+        }
+    } else if (xfermode == SkXfermode::kClear_Mode || !srcFormXObject.get()) {
         return;
     } else if (xfermode == SkXfermode::kSrc_Mode ||
             xfermode == SkXfermode::kDstATop_Mode) {
@@ -1951,13 +1968,6 @@ void SkPDFDevice::finishContentEntry(const SkXfermode::Mode xfermode,
         }
         if (xfermode == SkXfermode::kSrc_Mode) {
             return;
-        }
-    } else if (xfermode == SkXfermode::kSrcATop_Mode) {
-        ScopedContentEntry content(this, &clipStack, clipRegion, identity,
-                                   stockPaint);
-        if (content.entry()) {
-            SkPDFUtils::DrawFormXObject(this->addXObjectResource(dst),
-                                        &content.entry()->fContent);
         }
     }
 
@@ -2163,6 +2173,9 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& origMatrix,
 
     // Rasterize the bitmap using perspective in a new bitmap.
     if (origMatrix.hasPerspective()) {
+        if (fRasterDpi == 0) {
+            return;
+        }
         SkBitmap* subsetBitmap;
         if (srcRect) {
             if (!origBitmap.extractSubset(&tmpSubsetBitmap, *srcRect)) {
@@ -2175,7 +2188,8 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& origMatrix,
         }
         srcRect = NULL;
 
-        // Transform the bitmap in the new space.
+        // Transform the bitmap in the new space, without taking into
+        // account the initial transform.
         SkPath perspectiveOutline;
         perspectiveOutline.addRect(
                 SkRect::MakeWH(SkIntToScalar(subsetBitmap->width()),
@@ -2186,8 +2200,24 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& origMatrix,
         // Retrieve the bounds of the new shape.
         SkRect bounds = perspectiveOutline.getBounds();
 
-        // TODO(edisonn): add DPI settings. Currently 1 pixel/point, which does
-        // not look great, but it is not producing large PDFs.
+        // Transform the bitmap in the new space, taking into
+        // account the initial transform.
+        SkMatrix total = origMatrix;
+        total.postConcat(fInitialTransform);
+        total.postScale(SkIntToScalar(fRasterDpi) /
+                            SkIntToScalar(DPI_FOR_RASTER_SCALE_ONE),
+                        SkIntToScalar(fRasterDpi) /
+                            SkIntToScalar(DPI_FOR_RASTER_SCALE_ONE));
+        SkPath physicalPerspectiveOutline;
+        physicalPerspectiveOutline.addRect(
+                SkRect::MakeWH(SkIntToScalar(subsetBitmap->width()),
+                               SkIntToScalar(subsetBitmap->height())));
+        physicalPerspectiveOutline.transform(total);
+
+        SkScalar scaleX = physicalPerspectiveOutline.getBounds().width() /
+                              bounds.width();
+        SkScalar scaleY = physicalPerspectiveOutline.getBounds().height() /
+                              bounds.height();
 
         // TODO(edisonn): A better approach would be to use a bitmap shader
         // (in clamp mode) and draw a rect over the entire bounding box. Then
@@ -2196,9 +2226,12 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& origMatrix,
         // the image.  Avoiding alpha will reduce the pdf size and generation
         // CPU time some.
 
-        perspectiveBitmap.setConfig(SkBitmap::kARGB_8888_Config,
-                                    SkScalarCeilToInt(bounds.width()),
-                                    SkScalarCeilToInt(bounds.height()));
+        perspectiveBitmap.setConfig(
+                SkBitmap::kARGB_8888_Config,
+                SkScalarCeilToInt(
+                        physicalPerspectiveOutline.getBounds().width()),
+                SkScalarCeilToInt(
+                        physicalPerspectiveOutline.getBounds().height()));
         perspectiveBitmap.allocPixels();
         perspectiveBitmap.eraseColor(SK_ColorTRANSPARENT);
 
@@ -2210,6 +2243,7 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& origMatrix,
 
         SkMatrix offsetMatrix = origMatrix;
         offsetMatrix.postTranslate(-deltaX, -deltaY);
+        offsetMatrix.postScale(scaleX, scaleY);
 
         // Translate the draw in the new canvas, so we perfectly fit the
         // shape in the bitmap.
@@ -2220,8 +2254,11 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& origMatrix,
         // Make sure the final bits are in the bitmap.
         canvas.flush();
 
-        // In the new space, we use the identity matrix translated.
-        matrix.setTranslate(deltaX, deltaY);
+        // In the new space, we use the identity matrix translated
+        // and scaled to reflect DPI.
+        matrix.setScale(1 / scaleX, 1 / scaleY);
+        matrix.postTranslate(deltaX, deltaY);
+
         perspectiveBounds.setRect(
                 SkIRect::MakeXYWH(SkScalarFloorToInt(bounds.x()),
                                   SkScalarFloorToInt(bounds.y()),

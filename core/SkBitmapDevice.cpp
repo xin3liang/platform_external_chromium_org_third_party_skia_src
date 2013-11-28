@@ -77,14 +77,6 @@ void SkBitmapDevice::unlockPixels() {
     }
 }
 
-void SkBitmapDevice::getGlobalBounds(SkIRect* bounds) const {
-    if (NULL != bounds) {
-        const SkIPoint& origin = this->getOrigin();
-        bounds->setXYWH(origin.x(), origin.y(),
-                        fBitmap.width(), fBitmap.height());
-    }
-}
-
 void SkBitmapDevice::clear(SkColor color) {
     fBitmap.eraseColor(color);
 }
@@ -232,11 +224,16 @@ void SkBitmapDevice::drawOval(const SkDraw& draw, const SkRect& oval, const SkPa
 void SkBitmapDevice::drawRRect(const SkDraw& draw, const SkRRect& rrect, const SkPaint& paint) {
     CHECK_FOR_ANNOTATION(paint);
 
+#ifdef SK_IGNORE_BLURRED_RRECT_OPT
     SkPath  path;
+
     path.addRRect(rrect);
     // call the VIRTUAL version, so any subclasses who do handle drawPath aren't
     // required to override drawRRect.
     this->drawPath(draw, path, paint, NULL, true);
+#else
+    draw.drawRRect(rrect, paint);
+#endif
 }
 
 void SkBitmapDevice::drawPath(const SkDraw& draw, const SkPath& path,
@@ -360,14 +357,6 @@ void SkBitmapDevice::drawTextOnPath(const SkDraw& draw, const void* text,
                                     const SkPaint& paint) {
     draw.drawTextOnPath((const char*)text, len, path, matrix, paint);
 }
-
-#ifdef SK_BUILD_FOR_ANDROID
-void SkBitmapDevice::drawPosTextOnPath(const SkDraw& draw, const void* text, size_t len,
-                                       const SkPoint pos[], const SkPaint& paint,
-                                       const SkPath& path, const SkMatrix* matrix) {
-    draw.drawPosTextOnPath((const char*)text, len, pos, paint, path, matrix);
-}
-#endif
 
 void SkBitmapDevice::drawVertices(const SkDraw& draw, SkCanvas::VertexMode vmode,
                                   int vertexCount,

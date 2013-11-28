@@ -123,7 +123,11 @@ void GrBitmapTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
         return;
     }
     if (NULL == fStrike) {
+#if SK_DISTANCEFIELD_FONTS
+        fStrike = fContext->getFontCache()->getStrike(scaler, false);
+#else
         fStrike = fContext->getFontCache()->getStrike(scaler);
+#endif
     }
 
     GrGlyph* glyph = fStrike->getGlyph(packed, scaler);

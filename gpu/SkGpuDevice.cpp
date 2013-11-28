@@ -12,6 +12,9 @@
 
 #include "GrContext.h"
 #include "GrBitmapTextContext.h"
+#if SK_DISTANCEFIELD_FONTS
+#include "GrDistanceFieldTextContext.h"
+#endif
 
 #include "SkGrTexturePixelRef.h"
 
@@ -42,7 +45,7 @@
 // This constant represents the screen alignment criterion in texels for
 // requiring texture domain clamping to prevent color bleeding when drawing
 // a sub region of a larger source image.
-#define COLOR_BLEED_TOLERANCE SkFloatToScalar(0.001f)
+#define COLOR_BLEED_TOLERANCE 0.001f
 
 #define DO_DEFERRED_CLEAR()             \
     do {                                \
@@ -344,34 +347,15 @@ void SkGpuDevice::writePixels(const SkBitmap& bitmap, int x, int y,
                                config, bitmap.getPixels(), bitmap.rowBytes(), flags);
 }
 
-namespace {
-void purgeClipCB(int genID, void* ) {
-
-    if (SkClipStack::kInvalidGenID == genID ||
-        SkClipStack::kEmptyGenID == genID ||
-        SkClipStack::kWideOpenGenID == genID) {
-        // none of these cases will have a cached clip mask
-        return;
-    }
-
-}
-};
-
 void SkGpuDevice::onAttachToCanvas(SkCanvas* canvas) {
     INHERITED::onAttachToCanvas(canvas);
 
     // Canvas promises that this ptr is valid until onDetachFromCanvas is called
     fClipData.fClipStack = canvas->getClipStack();
-
-    fClipData.fClipStack->addPurgeClipCallback(purgeClipCB, fContext);
 }
 
 void SkGpuDevice::onDetachFromCanvas() {
     INHERITED::onDetachFromCanvas();
-
-    // TODO: iterate through the clip stack and clean up any cached clip masks
-    fClipData.fClipStack->removePurgeClipCallback(purgeClipCB, fContext);
-
     fClipData.fClipStack = NULL;
 }
 
@@ -529,13 +513,6 @@ inline bool skPaint2GrPaintShader(SkGpuDevice* dev,
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-void SkGpuDevice::getGlobalBounds(SkIRect* bounds) const {
-    if (NULL != bounds) {
-        const SkIPoint& origin = this->getOrigin();
-        bounds->setXYWH(origin.x(), origin.y(),
-                        this->width(), this->height());
-    }
-}
 
 SkBitmap::Config SkGpuDevice::config() const {
     if (NULL == fRenderTarget) {
@@ -594,7 +571,7 @@ void SkGpuDevice::drawPoints(const SkDraw& draw, SkCanvas::PointMode mode,
 
     fContext->drawVertices(grPaint,
                            gPointMode2PrimtiveType[mode],
-                           count,
+                           SkToS32(count),
                            (GrPoint*)pts,
                            NULL,
                            NULL,
@@ -613,11 +590,12 @@ void SkGpuDevice::drawRect(const SkDraw& draw, const SkRect& rect,
     SkScalar width = paint.getStrokeWidth();
 
     /*
-        We have special code for hairline strokes, miter-strokes, and fills.
-        Anything else we just call our path code.
+        We have special code for hairline strokes, miter-strokes, bevel-stroke
+        and fills. Anything else we just call our path code.
      */
     bool usePath = doStroke && width > 0 &&
-                    paint.getStrokeJoin() != SkPaint::kMiter_Join;
+                   (paint.getStrokeJoin() == SkPaint::kRound_Join ||
+                    (paint.getStrokeJoin() == SkPaint::kBevel_Join && rect.isEmpty()));
     // another two reasons we might need to call drawPath...
     if (paint.getMaskFilter() || paint.getPathEffect()) {
         usePath = true;
@@ -632,12 +610,6 @@ void SkGpuDevice::drawRect(const SkDraw& draw, const SkRect& rect,
             usePath = !fContext->getMatrix().preservesRightAngles();
         }
 #endif
-    }
-    // small miter limit means right angles show bevel...
-    if (SkPaint::kMiter_Join == paint.getStrokeJoin() &&
-        paint.getStrokeMiter() < SK_ScalarSqrt2)
-    {
-        usePath = true;
     }
     // until we can both stroke and fill rectangles
     if (paint.getStyle() == SkPaint::kStrokeAndFill_Style) {
@@ -655,7 +627,13 @@ void SkGpuDevice::drawRect(const SkDraw& draw, const SkRect& rect,
     if (!skPaint2GrPaintShader(this, paint, true, &grPaint)) {
         return;
     }
-    fContext->drawRect(grPaint, rect, doStroke ? width : -1);
+
+    if (!doStroke) {
+        fContext->drawRect(grPaint, rect);
+    } else {
+        SkStrokeRec stroke(paint);
+        fContext->drawRect(grPaint, rect, &stroke);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -868,14 +846,6 @@ void SkGpuDevice::drawPath(const SkDraw& draw, const SkPath& origSrcPath,
         return;
     }
 
-    // can we cheat, and treat a thin stroke as a hairline w/ coverage
-    // if we can, we draw lots faster (raster device does this same test)
-    SkScalar hairlineCoverage;
-    bool doHairLine = SkDrawTreatAsHairline(paint, fContext->getMatrix(), &hairlineCoverage);
-    if (doHairLine) {
-        grPaint.setCoverage(SkScalarRoundToInt(hairlineCoverage * grPaint.getCoverage()));
-    }
-
     // If we have a prematrix, apply it to the path, optimizing for the case
     // where the original path can in fact be modified in place (even though
     // its parameter type is const).
@@ -903,10 +873,6 @@ void SkGpuDevice::drawPath(const SkDraw& draw, const SkPath& origSrcPath,
     if (pathEffect && pathEffect->filterPath(&effectPath, *pathPtr, &stroke,
                                              cullRect)) {
         pathPtr = &effectPath;
-    }
-
-    if (!pathEffect && doHairLine) {
-        stroke.setHairlineStyle();
     }
 
     if (paint.getMaskFilter()) {
@@ -1139,26 +1105,25 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
         SkBitmap        tmp;    // subset of bitmap, if necessary
         const SkBitmap* bitmapPtr = &bitmap;
         if (NULL != srcRectPtr) {
-            SkIRect iSrc;
-            srcRect.roundOut(&iSrc);
+            // In bleed mode we position and trim the bitmap based on the src rect which is
+            // already accounted for in 'm' and 'srcRect'. In clamp mode we need to chop out
+            // the desired portion of the bitmap and then update 'm' and 'srcRect' to
+            // compensate.
+            if (!(SkCanvas::kBleed_DrawBitmapRectFlag & flags)) {
+                SkIRect iSrc;
+                srcRect.roundOut(&iSrc);
 
-            SkPoint offset = SkPoint::Make(SkIntToScalar(iSrc.fLeft),
-                                           SkIntToScalar(iSrc.fTop));
+                SkPoint offset = SkPoint::Make(SkIntToScalar(iSrc.fLeft),
+                                               SkIntToScalar(iSrc.fTop));
 
-            if (SkCanvas::kBleed_DrawBitmapRectFlag & flags) {
-                // In bleed mode we want to expand the src rect on all sides
-                // but stay within the bitmap bounds
-                SkIRect iClampRect = SkIRect::MakeWH(bitmap.width(), bitmap.height());
-                clamped_unit_outset_with_offset(&iSrc, &offset, iClampRect);
+                if (!bitmap.extractSubset(&tmp, iSrc)) {
+                    return;     // extraction failed
+                }
+                bitmapPtr = &tmp;
+                srcRect.offset(-offset.fX, -offset.fY);
+                // The source rect has changed so update the matrix
+                newM.preTranslate(offset.fX, offset.fY);
             }
-
-            if (!bitmap.extractSubset(&tmp, iSrc)) {
-                return;     // extraction failed
-            }
-            bitmapPtr = &tmp;
-            srcRect.offset(-offset.fX, -offset.fY);
-            // The source rect has changed so update the matrix
-            newM.preTranslate(offset.fX, offset.fY);
         }
 
         SkPaint paintWithTexture(paint);
@@ -1719,6 +1684,9 @@ SkDrawProcs* SkGpuDevice::initDrawForText(GrTextContext* context) {
         fDrawProcs = SkNEW(GrSkDrawProcs);
         fDrawProcs->fD1GProc = SkGPU_Draw1Glyph;
         fDrawProcs->fContext = fContext;
+#if SK_DISTANCEFIELD_FONTS
+        fDrawProcs->fFlags = 0;
+#endif
     }
 
     // init our (and GL's) state
@@ -1742,10 +1710,23 @@ void SkGpuDevice::drawText(const SkDraw& draw, const void* text,
         if (!skPaint2GrPaintShader(this, paint, true, &grPaint)) {
             return;
         }
-
-        GrBitmapTextContext context(fContext, grPaint, paint.getColor());
-        myDraw.fProcs = this->initDrawForText(&context);
-        this->INHERITED::drawText(myDraw, text, byteLength, x, y, paint);
+#if SK_DISTANCEFIELD_FONTS
+        if (paint.getRasterizer()) {
+#endif
+            GrBitmapTextContext context(fContext, grPaint, paint.getColor());
+            myDraw.fProcs = this->initDrawForText(&context);
+            this->INHERITED::drawText(myDraw, text, byteLength, x, y, paint);
+#if SK_DISTANCEFIELD_FONTS
+        } else {
+            GrDistanceFieldTextContext context(fContext, grPaint, paint.getColor(),
+                                               paint.getTextSize()/SkDrawProcs::kBaseDFFontSize);
+            myDraw.fProcs = this->initDrawForText(&context);
+            fDrawProcs->fFlags |= SkDrawProcs::kSkipBakedGlyphTransform_Flag;
+            fDrawProcs->fFlags |= SkDrawProcs::kUseScaledGlyphs_Flag;
+            this->INHERITED::drawText(myDraw, text, byteLength, x, y, paint);
+            fDrawProcs->fFlags = 0;
+       }
+#endif
     }
 }
 
@@ -1766,10 +1747,25 @@ void SkGpuDevice::drawPosText(const SkDraw& draw, const void* text,
         if (!skPaint2GrPaintShader(this, paint, true, &grPaint)) {
             return;
         }
-        GrBitmapTextContext context(fContext, grPaint, paint.getColor());
-        myDraw.fProcs = this->initDrawForText(&context);
-        this->INHERITED::drawPosText(myDraw, text, byteLength, pos, constY,
-                                     scalarsPerPos, paint);
+#if SK_DISTANCEFIELD_FONTS
+        if (paint.getRasterizer()) {
+#endif
+            GrBitmapTextContext context(fContext, grPaint, paint.getColor());
+            myDraw.fProcs = this->initDrawForText(&context);
+            this->INHERITED::drawPosText(myDraw, text, byteLength, pos, constY,
+                                         scalarsPerPos, paint);
+#if SK_DISTANCEFIELD_FONTS
+        } else {
+            GrDistanceFieldTextContext context(fContext, grPaint, paint.getColor(),
+                                               paint.getTextSize()/SkDrawProcs::kBaseDFFontSize);
+            myDraw.fProcs = this->initDrawForText(&context);
+            fDrawProcs->fFlags |= SkDrawProcs::kSkipBakedGlyphTransform_Flag;
+            fDrawProcs->fFlags |= SkDrawProcs::kUseScaledGlyphs_Flag;
+            this->INHERITED::drawPosText(myDraw, text, byteLength, pos, constY,
+                                         scalarsPerPos, paint);
+            fDrawProcs->fFlags = 0;
+        }
+#endif
     }
 }
 

@@ -11,6 +11,7 @@
 #include "SkColorPriv.h"
 #include "SkDither.h"
 #include "SkFlattenable.h"
+#include "SkImagePriv.h"
 #include "SkMallocPixelRef.h"
 #include "SkMask.h"
 #include "SkOrderedReadBuffer.h"
@@ -330,6 +331,11 @@ bool SkBitmap::setConfig(Config config, int width, int height, size_t rowBytes,
 BAD_CONFIG:
     this->reset();
     return false;
+}
+
+bool SkBitmap::setConfig(const SkImageInfo& info, size_t rowBytes) {
+    return this->setConfig(SkImageInfoToBitmapConfig(info), info.fWidth,
+                           info.fHeight, rowBytes, info.fAlphaType);
 }
 
 bool SkBitmap::setAlphaType(SkAlphaType alphaType) {
@@ -1616,19 +1622,21 @@ void SkBitmap::unflatten(SkFlattenableReadBuffer& buffer) {
     this->setConfig(config, width, height, rowBytes, alphaType);
 
     int reftype = buffer.readInt();
-    switch (reftype) {
-        case SERIALIZE_PIXELTYPE_REF_DATA: {
-            size_t offset = buffer.readUInt();
-            SkPixelRef* pr = buffer.readPixelRef();
-            SkSafeUnref(this->setPixelRef(pr, offset));
-            break;
+    if (buffer.validate((SERIALIZE_PIXELTYPE_REF_DATA == reftype) ||
+                        (SERIALIZE_PIXELTYPE_NONE == reftype))) {
+        switch (reftype) {
+            case SERIALIZE_PIXELTYPE_REF_DATA: {
+                size_t offset = buffer.readUInt();
+                SkPixelRef* pr = buffer.readPixelRef();
+                SkSafeUnref(this->setPixelRef(pr, offset));
+                break;
+            }
+            case SERIALIZE_PIXELTYPE_NONE:
+                break;
+            default:
+                SkDEBUGFAIL("unrecognized pixeltype in serialized data");
+                sk_throw();
         }
-        case SERIALIZE_PIXELTYPE_NONE:
-            break;
-        default:
-            buffer.validate(false);
-            SkDEBUGFAIL("unrecognized pixeltype in serialized data");
-            sk_throw();
     }
 }
 

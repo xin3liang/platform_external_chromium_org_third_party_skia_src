@@ -140,7 +140,7 @@ GrGpuGL::GrGpuGL(const GrGLContext& ctx, GrContext* context)
         GrPrintf("------ EXTENSIONS\n");
         ctx.info().extensions().print();
         GrPrintf("\n");
-        ctx.info().caps()->print();
+        GrPrintf(ctx.info().caps()->dump().c_str());
     }
 
     fProgramCache = SkNEW_ARGS(ProgramCache, (this));
@@ -2020,14 +2020,12 @@ void GrGpuGL::bindTexture(int unitIdx, const GrTextureParams& params, GrGLTextur
     newTexParams.fMinFilter = glMinFilterModes[params.filterMode()];
     newTexParams.fMagFilter = glMagFilterModes[params.filterMode()];
 
-#ifndef SKIA_IGNORE_GPU_MIPMAPS
     if (params.filterMode() == GrTextureParams::kMipMap_FilterMode &&
         texture->mipMapsAreDirty()) {
 //        GL_CALL(Hint(GR_GL_GENERATE_MIPMAP_HINT,GR_GL_NICEST));
         GL_CALL(GenerateMipmap(GR_GL_TEXTURE_2D));
         texture->dirtyMipMaps(false);
     }
-#endif
 
     newTexParams.fWrapS = tile_to_gl_wrap(params.getTileModeX());
     newTexParams.fWrapT = tile_to_gl_wrap(params.getTileModeY());

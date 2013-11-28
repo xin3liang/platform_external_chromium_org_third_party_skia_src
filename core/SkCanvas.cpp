@@ -26,6 +26,10 @@
 #include "SkTLazy.h"
 #include "SkUtils.h"
 
+#if SK_SUPPORT_GPU
+#include "GrRenderTarget.h"
+#endif
+
 SK_DEFINE_INST_COUNT(SkBounder)
 SK_DEFINE_INST_COUNT(SkCanvas)
 SK_DEFINE_INST_COUNT(SkDrawFilter)
@@ -459,6 +463,7 @@ public:
 private:
     SkBounder*  fBounder;
 };
+#define SkAutoBounderCommit(...) SK_REQUIRE_LOCAL_VAR(SkAutoBounderCommit)
 
 #include "SkColorPriv.h"
 
@@ -1569,6 +1574,20 @@ SkBaseDevice* SkCanvas::createCompatibleDevice(SkBitmap::Config config,
     }
 }
 
+GrContext* SkCanvas::getGrContext() {
+#if SK_SUPPORT_GPU
+    SkBaseDevice* device = this->getTopDevice();
+    if (NULL != device) {
+        GrRenderTarget* renderTarget = device->accessRenderTarget();
+        if (NULL != renderTarget) {
+            return renderTarget->getContext();
+        }
+    }
+#endif
+
+    return NULL;
+
+}
 
 //////////////////////////////////////////////////////////////////////////////
 //  These are the virtual drawing methods
@@ -2029,23 +2048,6 @@ void SkCanvas::drawTextOnPath(const void* text, size_t byteLength,
 
     LOOPER_END
 }
-
-#ifdef SK_BUILD_FOR_ANDROID
-void SkCanvas::drawPosTextOnPath(const void* text, size_t byteLength,
-                                 const SkPoint pos[], const SkPaint& paint,
-                                 const SkPath& path, const SkMatrix* matrix) {
-    CHECK_SHADER_NOSETCONTEXT(paint);
-
-    LOOPER_BEGIN(paint, SkDrawFilter::kText_Type)
-
-    while (iter.next()) {
-        iter.fDevice->drawPosTextOnPath(iter, text, byteLength, pos,
-                                        looper.paint(), path, matrix);
-    }
-
-    LOOPER_END
-}
-#endif
 
 void SkCanvas::drawVertices(VertexMode vmode, int vertexCount,
                             const SkPoint verts[], const SkPoint texs[],
