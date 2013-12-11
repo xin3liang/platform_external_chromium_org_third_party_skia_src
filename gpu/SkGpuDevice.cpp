@@ -8,7 +8,7 @@
 #include "SkGpuDevice.h"
 
 #include "effects/GrBicubicEffect.h"
-#include "effects/GrTextureDomainEffect.h"
+#include "effects/GrTextureDomain.h"
 #include "effects/GrSimpleTextureEffect.h"
 
 #include "GrContext.h"
@@ -155,6 +155,20 @@ static SkBitmap make_bitmap(GrContext* context, GrRenderTarget* renderTarget) {
     return bitmap;
 }
 
+/*
+ *  Calling SkBitmapDevice with individual params asks it to allocate pixel memory.
+ *  We never want that, so we always need to call it with a bitmap argument
+ *  (which says take my allocate (or lack thereof)).
+ *
+ *  This is a REALLY good reason to finish the clean-up of SkBaseDevice, and have
+ *  SkGpuDevice inherit from that instead of SkBitmapDevice.
+ */
+static SkBitmap make_bitmap(SkBitmap::Config config, int width, int height, bool isOpaque) {
+    SkBitmap bm;
+    bm.setConfig(config, width, height, isOpaque);
+    return bm;
+}
+
 SkGpuDevice* SkGpuDevice::Create(GrSurface* surface) {
     SkASSERT(NULL != surface);
     if (NULL == surface->asRenderTarget() || NULL == surface->getContext()) {
@@ -210,7 +224,7 @@ SkGpuDevice::SkGpuDevice(GrContext* context,
                          int width,
                          int height,
                          int sampleCount)
-    : SkBitmapDevice(config, width, height, false /*isOpaque*/) {
+    : SkBitmapDevice(make_bitmap(config, width, height, false /*isOpaque*/)) {
 
     fDrawProcs = NULL;
 
@@ -1180,8 +1194,10 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
             tileFilterPad = 1;
             textureFilterMode = GrTextureParams::kMipMap_FilterMode;
             break;
-        case SkPaint::kHigh_FilterLevel:
-            if (flags & SkCanvas::kBleed_DrawBitmapRectFlag) {
+        case SkPaint::kHigh_FilterLevel: {
+            // Minification can look bad with the bicubic effect.
+            if (fContext->getMatrix().getMinStretch() >= SK_Scalar1 &&
+                (flags & SkCanvas::kBleed_DrawBitmapRectFlag)) {
                 // We will install an effect that does the filtering in the shader.
                 textureFilterMode = GrTextureParams::kNone_FilterMode;
                 tileFilterPad = GrBicubicEffect::kFilterTexelPad;
@@ -1193,6 +1209,7 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
                 tileFilterPad = 1;
             }
             break;
+        }
         default:
             SkErrorInternals::SetError( kInvalidPaint_SkError,
                                         "Sorry, I don't understand the filtering "
@@ -1406,7 +1423,7 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
         effect.reset(GrTextureDomainEffect::Create(texture,
                                                    SkMatrix::I(),
                                                    textureDomain,
-                                                   GrTextureDomainEffect::kClamp_WrapMode,
+                                                   GrTextureDomain::kClamp_Mode,
                                                    params.filterMode()));
     } else if (bicubic) {
         effect.reset(GrBicubicEffect::Create(texture, SkMatrix::I(), params));
