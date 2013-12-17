@@ -255,7 +255,7 @@ SkGpuDevice::SkGpuDevice(GrContext* context,
     info.fWidth = width;
     info.fHeight = height;
     info.fAlphaType = kPremul_SkAlphaType;
-        
+
     SkAutoTUnref<GrTexture> texture(fContext->createUncachedTexture(desc, NULL, 0));
 
     if (NULL != texture) {
@@ -1204,24 +1204,25 @@ void SkGpuDevice::drawBitmapCommon(const SkDraw& draw,
             break;
         case SkPaint::kMedium_FilterLevel:
             tileFilterPad = 1;
-            textureFilterMode = GrTextureParams::kMipMap_FilterMode;
+            if (fContext->getMatrix().getMinStretch() < SK_Scalar1) {
+                textureFilterMode = GrTextureParams::kMipMap_FilterMode;
+            } else {
+                // Don't trigger MIP level generation unnecessarily.
+                textureFilterMode = GrTextureParams::kBilerp_FilterMode;
+            }
             break;
-        case SkPaint::kHigh_FilterLevel: {
+        case SkPaint::kHigh_FilterLevel:
             // Minification can look bad with the bicubic effect.
-            if (fContext->getMatrix().getMinStretch() >= SK_Scalar1 &&
-                (flags & SkCanvas::kBleed_DrawBitmapRectFlag)) {
+            if (fContext->getMatrix().getMinStretch() >= SK_Scalar1) {
                 // We will install an effect that does the filtering in the shader.
                 textureFilterMode = GrTextureParams::kNone_FilterMode;
                 tileFilterPad = GrBicubicEffect::kFilterTexelPad;
                 doBicubic = true;
             } else {
-                // We don't yet support doing bicubic filtering with an interior clamp. Fall back
-                // to MIPs
                 textureFilterMode = GrTextureParams::kMipMap_FilterMode;
                 tileFilterPad = 1;
             }
             break;
-        }
         default:
             SkErrorInternals::SetError( kInvalidPaint_SkError,
                                         "Sorry, I don't understand the filtering "
@@ -1292,8 +1293,6 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
                     // but stay within the bitmap bounds
                     iClampRect = SkIRect::MakeWH(bitmap.width(), bitmap.height());
                 } else {
-                    SkASSERT(!bicubic); // Bicubic is not supported with non-bleed yet.
-
                     // In texture-domain/clamp mode we only want to expand the
                     // tile on edges interior to "srcRect" (i.e., we want to
                     // not bleed across the original clamped edges)
@@ -1391,12 +1390,11 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
 
     bool needsTextureDomain = false;
     if (!(flags & SkCanvas::kBleed_DrawBitmapRectFlag) &&
-        params.filterMode() != GrTextureParams::kNone_FilterMode) {
-        SkASSERT(!bicubic);
-        // Need texture domain if drawing a sub rect.
+        (bicubic || params.filterMode() != GrTextureParams::kNone_FilterMode)) {
+        // Need texture domain if drawing a sub rect
         needsTextureDomain = srcRect.width() < bitmap.width() ||
                              srcRect.height() < bitmap.height();
-        if (needsTextureDomain && fContext->getMatrix().rectStaysRect()) {
+        if (!bicubic && needsTextureDomain && fContext->getMatrix().rectStaysRect()) {
             const SkMatrix& matrix = fContext->getMatrix();
             // sampling is axis-aligned
             SkRect transformedRect;
@@ -1432,11 +1430,15 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
             top = bottom = SkScalarHalf(paintRect.top() + paintRect.bottom());
         }
         textureDomain.setLTRB(left, top, right, bottom);
-        effect.reset(GrTextureDomainEffect::Create(texture,
-                                                   SkMatrix::I(),
-                                                   textureDomain,
-                                                   GrTextureDomain::kClamp_Mode,
-                                                   params.filterMode()));
+        if (bicubic) {
+            effect.reset(GrBicubicEffect::Create(texture, SkMatrix::I(), textureDomain));
+        } else {
+            effect.reset(GrTextureDomainEffect::Create(texture,
+                                                       SkMatrix::I(),
+                                                       textureDomain,
+                                                       GrTextureDomain::kClamp_Mode,
+                                                       params.filterMode()));
+        }
     } else if (bicubic) {
         SkASSERT(GrTextureParams::kNone_FilterMode == params.filterMode());
         SkShader::TileMode tileModes[2] = { params.getTileModeX(), params.getTileModeY() };

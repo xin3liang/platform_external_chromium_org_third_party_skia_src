@@ -9,7 +9,6 @@
 #include "Sk64.h"
 #include "SkFloatBits.h"
 #include "SkOnce.h"
-#include "SkScalarCompare.h"
 #include "SkString.h"
 
 #ifdef SK_SCALAR_IS_FLOAT
@@ -54,18 +53,7 @@ enum {
     static const int32_t kPersp1Int  = (1 << 30);
 #endif
 
-#ifdef SK_SCALAR_SLOW_COMPARES
-    static const int32_t kPersp1Int  = 0x3f800000;
-#endif
-
 uint8_t SkMatrix::computePerspectiveTypeMask() const {
-#ifdef SK_SCALAR_SLOW_COMPARES
-    if (SkScalarAs2sCompliment(fMat[kMPersp0]) |
-            SkScalarAs2sCompliment(fMat[kMPersp1]) |
-            (SkScalarAs2sCompliment(fMat[kMPersp2]) - kPersp1Int)) {
-        return SkToU8(kORableMasks);
-    }
-#else
     // Benchmarking suggests that replacing this set of SkScalarAs2sCompliment
     // is a win, but replacing those below is not. We don't yet understand
     // that result.
@@ -77,7 +65,6 @@ uint8_t SkMatrix::computePerspectiveTypeMask() const {
         // type mask computation.
         return SkToU8(kORableMasks);
     }
-#endif
 
     return SkToU8(kOnlyPerspectiveValid_Mask | kUnknown_Mask);
 }
@@ -85,18 +72,6 @@ uint8_t SkMatrix::computePerspectiveTypeMask() const {
 uint8_t SkMatrix::computeTypeMask() const {
     unsigned mask = 0;
 
-#ifdef SK_SCALAR_SLOW_COMPARES
-    if (SkScalarAs2sCompliment(fMat[kMPersp0]) |
-            SkScalarAs2sCompliment(fMat[kMPersp1]) |
-            (SkScalarAs2sCompliment(fMat[kMPersp2]) - kPersp1Int)) {
-        return SkToU8(kORableMasks);
-    }
-
-    if (SkScalarAs2sCompliment(fMat[kMTransX]) |
-            SkScalarAs2sCompliment(fMat[kMTransY])) {
-        mask |= kTranslate_Mask;
-    }
-#else
     if (fMat[kMPersp0] != 0 || fMat[kMPersp1] != 0 ||
         fMat[kMPersp2] != kMatrix22Elem) {
         // Once it is determined that that this is a perspective transform,
@@ -107,7 +82,6 @@ uint8_t SkMatrix::computeTypeMask() const {
     if (fMat[kMTransX] != 0 || fMat[kMTransY] != 0) {
         mask |= kTranslate_Mask;
     }
-#endif
 
     int m00 = SkScalarAs2sCompliment(fMat[SkMatrix::kMScaleX]);
     int m01 = SkScalarAs2sCompliment(fMat[SkMatrix::kMSkewX]);
@@ -251,7 +225,7 @@ bool SkMatrix::preservesRightAngles(SkScalar tol) const {
 ///////////////////////////////////////////////////////////////////////////////
 
 void SkMatrix::setTranslate(SkScalar dx, SkScalar dy) {
-    if (SkScalarToCompareType(dx) || SkScalarToCompareType(dy)) {
+    if (dx || dy) {
         fMat[kMTransX] = dx;
         fMat[kMTransY] = dy;
 
@@ -273,7 +247,7 @@ bool SkMatrix::preTranslate(SkScalar dx, SkScalar dy) {
         return this->preConcat(m);
     }
 
-    if (SkScalarToCompareType(dx) || SkScalarToCompareType(dy)) {
+    if (dx || dy) {
         fMat[kMTransX] += SkScalarMul(fMat[kMScaleX], dx) +
                           SkScalarMul(fMat[kMSkewX], dy);
         fMat[kMTransY] += SkScalarMul(fMat[kMSkewY], dx) +
@@ -291,7 +265,7 @@ bool SkMatrix::postTranslate(SkScalar dx, SkScalar dy) {
         return this->postConcat(m);
     }
 
-    if (SkScalarToCompareType(dx) || SkScalarToCompareType(dy)) {
+    if (dx || dy) {
         fMat[kMTransX] += dx;
         fMat[kMTransY] += dy;
         this->setTypeMask(kUnknown_Mask | kOnlyPerspectiveValid_Mask);
