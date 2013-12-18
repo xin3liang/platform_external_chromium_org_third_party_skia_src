@@ -29,6 +29,10 @@ bool SkValidatingReadBuffer::validate(bool isValid) {
     return !fError;
 }
 
+bool SkValidatingReadBuffer::isValid() const {
+    return !fError;
+}
+
 void SkValidatingReadBuffer::setMemory(const void* data, size_t size) {
     this->validate(IsPtrAlign4(data) && (SkAlign4(size) == size));
     if (!fError) {
@@ -203,7 +207,7 @@ bool SkValidatingReadBuffer::readScalarArray(SkScalar* values, size_t size) {
 uint32_t SkValidatingReadBuffer::getArrayCount() {
     const size_t inc = sizeof(uint32_t);
     fError = fError || !IsPtrAlign4(fReader.peek()) || !fReader.isAvailable(inc);
-    return *(uint32_t*)fReader.peek();
+    return fError ? 0 : *(uint32_t*)fReader.peek();
 }
 
 void SkValidatingReadBuffer::readBitmap(SkBitmap* bitmap) {

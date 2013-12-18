@@ -19,8 +19,6 @@
 #include "SkXfermode_opts_arm_neon.h"
 #endif
 
-SK_DEFINE_INST_COUNT(SkXfermode)
-
 #define SkAlphaMulAlpha(a, b)   SkMulDiv255Round(a, b)
 
 #if 0
@@ -1671,6 +1669,7 @@ void SkXfermode::Term() {
 
 extern SkProcCoeffXfermode* SkPlatformXfermodeFactory(const ProcCoeff& rec,
                                                       SkXfermode::Mode mode);
+extern SkXfermodeProc SkPlatformXfermodeProcFactory(SkXfermode::Mode mode);
 
 SkXfermode* SkXfermode::Create(Mode mode) {
     SkASSERT(SK_ARRAY_COUNT(gProcCoeffs) == kModeCount);
@@ -1692,7 +1691,13 @@ SkXfermode* SkXfermode::Create(Mode mode) {
 
     SkXfermode* xfer = gCachedXfermodes[mode];
     if (NULL == xfer) {
-        const ProcCoeff& rec = gProcCoeffs[mode];
+        ProcCoeff rec = gProcCoeffs[mode];
+
+        SkXfermodeProc pp = SkPlatformXfermodeProcFactory(mode);
+
+        if (pp != NULL) {
+            rec.fProc = pp;
+        }
 
         // check if we have a platform optim for that
         SkProcCoeffXfermode* xfm = SkPlatformXfermodeFactory(rec, mode);

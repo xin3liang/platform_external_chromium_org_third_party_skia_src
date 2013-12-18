@@ -32,9 +32,6 @@
 #include "SkTLS.h"
 #include "SkTrace.h"
 
-SK_DEFINE_INST_COUNT(GrContext)
-SK_DEFINE_INST_COUNT(GrDrawState)
-
 // It can be useful to set this to false to test whether a bug is caused by using the
 // InOrderDrawBuffer, to compare performance of using/not using InOrderDrawBuffer, or to make
 // debugging simpler.
@@ -88,19 +85,7 @@ GrContext* GrContext::Create(GrBackend backend, GrBackendContext backendContext)
     }
 }
 
-namespace {
-void* CreateThreadInstanceCount() {
-    return SkNEW_ARGS(int, (0));
-}
-void DeleteThreadInstanceCount(void* v) {
-    delete reinterpret_cast<int*>(v);
-}
-#define THREAD_INSTANCE_COUNT \
-    (*reinterpret_cast<int*>(SkTLS::Get(CreateThreadInstanceCount, DeleteThreadInstanceCount)))
-}
-
 GrContext::GrContext() {
-    ++THREAD_INSTANCE_COUNT;
     fDrawState = NULL;
     fGpu = NULL;
     fClip = NULL;
@@ -148,10 +133,6 @@ bool GrContext::init(GrBackend backend, GrBackendContext backendContext) {
     return true;
 }
 
-int GrContext::GetThreadInstanceCount() {
-    return THREAD_INSTANCE_COUNT;
-}
-
 GrContext::~GrContext() {
     if (NULL == fGpu) {
         return;
@@ -181,8 +162,6 @@ GrContext::~GrContext() {
     SkSafeUnref(fPathRendererChain);
     SkSafeUnref(fSoftwarePathRenderer);
     fDrawState->unref();
-
-    --THREAD_INSTANCE_COUNT;
 }
 
 void GrContext::contextLost() {

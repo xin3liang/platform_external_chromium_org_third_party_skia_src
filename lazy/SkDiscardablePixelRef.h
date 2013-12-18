@@ -8,31 +8,13 @@
 #ifndef SkDiscardablePixelRef_DEFINED
 #define SkDiscardablePixelRef_DEFINED
 
-#include "SkPixelRef.h"
+#include "SkDiscardableMemory.h"
 #include "SkImageGenerator.h"
 #include "SkImageInfo.h"
-
-class SkDiscardableMemory;
-
-/**
- * An interface that allows a purgable PixelRef to re-decode an image.
- */
+#include "SkPixelRef.h"
 
 class SkDiscardablePixelRef : public SkPixelRef {
 public:
-    /**
-     *  Takes ownership of SkImageGenerator.  If this method fails for
-     *  whatever reason, it will return false and immediatetely delete
-     *  the generator.  If it succeeds, it will modify destination
-     *  bitmap.
-     *
-     *  If Install fails or when the SkDiscardablePixelRef that is
-     *  installed into destination is destroyed, it will call
-     *  SkDELETE() on the generator.  Therefore, generator should be
-     *  allocated with SkNEW() or SkNEW_ARGS().
-     */
-    static bool Install(SkImageGenerator* generator, SkBitmap* destination);
-
     SK_DECLARE_UNFLATTENABLE_OBJECT()
 
 protected:
@@ -47,6 +29,7 @@ protected:
 
 private:
     SkImageGenerator* const fGenerator;
+    SkDiscardableMemory::Factory* const fDMFactory;
     const SkImageInfo fInfo;
     const size_t fSize;  // size of memory to be allocated
     const size_t fRowBytes;
@@ -59,6 +42,11 @@ private:
     SkDiscardablePixelRef(SkImageGenerator* generator,
                           const SkImageInfo& info,
                           size_t size,
-                          size_t rowBytes);
+                          size_t rowBytes,
+                          SkDiscardableMemory::Factory* factory);
+    friend bool SkInstallDiscardablePixelRef(SkImageGenerator*,
+                                             SkBitmap*,
+                                             SkDiscardableMemory::Factory*);
+    typedef SkPixelRef INHERITED;
 };
 #endif  // SkDiscardablePixelRef_DEFINED

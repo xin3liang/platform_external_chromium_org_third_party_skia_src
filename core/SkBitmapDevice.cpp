@@ -11,8 +11,6 @@
 #include "SkRasterClip.h"
 #include "SkShader.h"
 
-SK_DEFINE_INST_COUNT(SkBitmapDevice)
-
 #define CHECK_FOR_ANNOTATION(paint) \
     do { if (paint.getAnnotation()) { return; } } while (0)
 
@@ -29,7 +27,10 @@ SkBitmapDevice::SkBitmapDevice(const SkBitmap& bitmap, const SkDeviceProperties&
 SkBitmapDevice::SkBitmapDevice(SkBitmap::Config config, int width, int height, bool isOpaque) {
     fBitmap.setConfig(config, width, height, 0, isOpaque ?
                       kOpaque_SkAlphaType : kPremul_SkAlphaType);
-    fBitmap.allocPixels();
+    if (!fBitmap.allocPixels()) {
+        fBitmap.setConfig(config, 0, 0, 0, isOpaque ?
+                          kOpaque_SkAlphaType : kPremul_SkAlphaType);
+    }
     if (!isOpaque) {
         fBitmap.eraseColor(SK_ColorTRANSPARENT);
     }
@@ -41,7 +42,10 @@ SkBitmapDevice::SkBitmapDevice(SkBitmap::Config config, int width, int height, b
 
     fBitmap.setConfig(config, width, height, 0, isOpaque ?
                       kOpaque_SkAlphaType : kPremul_SkAlphaType);
-    fBitmap.allocPixels();
+    if (!fBitmap.allocPixels()) {
+        fBitmap.setConfig(config, 0, 0, 0, isOpaque ?
+                          kOpaque_SkAlphaType : kPremul_SkAlphaType);
+    }
     if (!isOpaque) {
         fBitmap.eraseColor(SK_ColorTRANSPARENT);
     }
@@ -61,8 +65,14 @@ SkBaseDevice* SkBitmapDevice::onCreateCompatibleDevice(SkBitmap::Config config,
                                                        int width, int height,
                                                        bool isOpaque,
                                                        Usage usage) {
-    return SkNEW_ARGS(SkBitmapDevice,(config, width, height, isOpaque,
-                                      this->getDeviceProperties()));
+    SkBitmapDevice* device = SkNEW_ARGS(SkBitmapDevice,(config, width, height,
+                                        isOpaque, this->getDeviceProperties()));
+    // Check if allocation failed and delete device if it did fail
+    if ((device->width() != width) || (device->height() != height)) {
+        SkDELETE(device);
+        device = NULL;
+    }
+    return device;
 }
 
 void SkBitmapDevice::lockPixels() {

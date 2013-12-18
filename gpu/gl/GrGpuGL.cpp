@@ -552,7 +552,12 @@ bool GrGpuGL::uploadTexData(const GrGLTexture::Desc& desc,
     SkAutoSMalloc<128 * 128> tempStorage;
 
     // paletted textures cannot be partially updated
-    bool useTexStorage = isNewTexture &&
+    // We currently lazily create MIPMAPs when the we see a draw with
+    // GrTextureParams::kMipMap_FilterMode. Using texture storage requires that the
+    // MIP levels are all created when the texture is created. So for now we don't use
+    // texture storage.
+    bool useTexStorage = false &&
+                         isNewTexture &&
                          desc.fConfig != kIndex_8_GrPixelConfig &&
                          this->glCaps().texStorageSupport();
 
@@ -638,8 +643,7 @@ bool GrGpuGL::uploadTexData(const GrGLTexture::Desc& desc,
         desc.fWidth == width && desc.fHeight == height) {
         CLEAR_ERROR_BEFORE_ALLOC(this->glInterface());
         if (useTexStorage) {
-            // We never resize  or change formats of textures. We don't use
-            // mipmaps currently.
+            // We never resize  or change formats of textures.
             GL_ALLOC_CALL(this->glInterface(),
                           TexStorage2D(GR_GL_TEXTURE_2D,
                                        1, // levels
@@ -1276,6 +1280,7 @@ void GrGpuGL::onClear(const SkIRect* rect, GrColor color, bool canIgnoreRect) {
             return;
         }
     }
+
     this->flushRenderTarget(rect);
     GrAutoTRestore<ScissorState> asr(&fScissorState);
     fScissorState.fEnabled = (NULL != rect);
@@ -1522,10 +1527,16 @@ void GrGpuGL::flushRenderTarget(const SkIRect* bound) {
     if (fHWBoundRenderTarget != rt) {
         GL_CALL(BindFramebuffer(GR_GL_FRAMEBUFFER, rt->renderFBOID()));
 #ifdef SK_DEBUG
-        GrGLenum status;
-        GL_CALL_RET(status, CheckFramebufferStatus(GR_GL_FRAMEBUFFER));
-        if (status != GR_GL_FRAMEBUFFER_COMPLETE) {
-            GrPrintf("GrGpuGL::flushRenderTarget glCheckFramebufferStatus %x\n", status);
+        // don't do this check in Chromium -- this is causing
+        // lots of repeated command buffer flushes when the compositor is
+        // rendering with Ganesh, which is really slow; even too slow for
+        // Debug mode.
+        if (!this->glContext().info().isChromium()) {
+            GrGLenum status;
+            GL_CALL_RET(status, CheckFramebufferStatus(GR_GL_FRAMEBUFFER));
+            if (status != GR_GL_FRAMEBUFFER_COMPLETE) {
+                GrPrintf("GrGpuGL::flushRenderTarget glCheckFramebufferStatus %x\n", status);
+            }
         }
 #endif
         fHWBoundRenderTarget = rt;

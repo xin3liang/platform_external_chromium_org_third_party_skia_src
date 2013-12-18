@@ -7,12 +7,15 @@
 
 #include "SkDiscardablePixelRef.h"
 #include "SkDiscardableMemory.h"
+#include "SkImageGenerator.h"
 
 SkDiscardablePixelRef::SkDiscardablePixelRef(SkImageGenerator* generator,
                                              const SkImageInfo& info,
                                              size_t size,
-                                             size_t rowBytes)
+                                             size_t rowBytes,
+                                             SkDiscardableMemory::Factory* fact)
     : fGenerator(generator)
+    , fDMFactory(fact)
     , fInfo(info)
     , fSize(size)
     , fRowBytes(rowBytes)
@@ -20,9 +23,15 @@ SkDiscardablePixelRef::SkDiscardablePixelRef(SkImageGenerator* generator,
     SkASSERT(fGenerator != NULL);
     SkASSERT(fSize > 0);
     SkASSERT(fRowBytes > 0);
+    // The SkImageGenerator contract requires fGenerator to always
+    // decode the same image on each call to getPixels().
+    this->setImmutable();
+    SkSafeRef(fDMFactory);
 }
 
 SkDiscardablePixelRef::~SkDiscardablePixelRef() {
+    SkDELETE(fDiscardableMemory);
+    SkSafeUnref(fDMFactory);
     SkDELETE(fGenerator);
 }
 
@@ -31,9 +40,14 @@ void* SkDiscardablePixelRef::onLockPixels(SkColorTable**) {
         if (fDiscardableMemory->lock()) {
             return fDiscardableMemory->data();
         }
+        SkDELETE(fDiscardableMemory);
         fDiscardableMemory = NULL;
     }
-    fDiscardableMemory = SkDiscardableMemory::Create(fSize);
+    if (fDMFactory != NULL) {
+        fDiscardableMemory = fDMFactory->create(fSize);
+    } else {
+        fDiscardableMemory = SkDiscardableMemory::Create(fSize);
+    }
     if (NULL == fDiscardableMemory) {
         return NULL;  // Memory allocation failed.
     }
@@ -49,8 +63,9 @@ void SkDiscardablePixelRef::onUnlockPixels() {
     }
 }
 
-bool SkDiscardablePixelRef::Install(SkImageGenerator* generator,
-                                    SkBitmap* dst) {
+bool SkInstallDiscardablePixelRef(SkImageGenerator* generator,
+                                  SkBitmap* dst,
+                                  SkDiscardableMemory::Factory* factory) {
     SkImageInfo info;
     SkASSERT(generator != NULL);
     if ((NULL == generator)
@@ -59,10 +74,16 @@ bool SkDiscardablePixelRef::Install(SkImageGenerator* generator,
         SkDELETE(generator);
         return false;
     }
+    SkASSERT(dst->config() != SkBitmap::kNo_Config);
+    if (dst->empty()) { // Use a normal pixelref.
+        SkDELETE(generator);  // Do not need this anymore.
+        return dst->allocPixels(NULL, NULL);
+    }
     SkAutoTUnref<SkDiscardablePixelRef> ref(SkNEW_ARGS(SkDiscardablePixelRef,
                                                    (generator, info,
                                                     dst->getSize(),
-                                                    dst->rowBytes())));
+                                                    dst->rowBytes(),
+                                                    factory)));
     dst->setPixelRef(ref);
     return true;
 }
