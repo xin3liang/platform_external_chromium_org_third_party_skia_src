@@ -212,9 +212,10 @@ SkPicturePlayback::SkPicturePlayback(const SkPicturePlayback& src, SkPictCopyInf
             SkDEBUGCODE(int heapSize = SafeCount(fBitmapHeap.get());)
             for (int i = 0; i < paintCount; i++) {
                 if (needs_deep_copy(src.fPaints->at(i))) {
-                    deepCopyInfo->paintData[i] = SkFlatData::Create(&deepCopyInfo->controller,
-                                                                    &src.fPaints->at(i), 0,
-                                                                    &SkFlattenObjectProc<SkPaint>);
+                    deepCopyInfo->paintData[i] =
+                        SkFlatData::Create<SkPaintTraits>(&deepCopyInfo->controller,
+                                                          src.fPaints->at(i), 0);
+
                 } else {
                     // this is our sentinel, which we use in the unflatten loop
                     deepCopyInfo->paintData[i] = NULL;
@@ -233,9 +234,8 @@ SkPicturePlayback::SkPicturePlayback(const SkPicturePlayback& src, SkPictCopyInf
         SkTypefacePlayback* tfPlayback = deepCopyInfo->controller.getTypefacePlayback();
         for (int i = 0; i < paintCount; i++) {
             if (deepCopyInfo->paintData[i]) {
-                deepCopyInfo->paintData[i]->unflatten(&fPaints->writableAt(i),
-                                                      &SkUnflattenObjectProc<SkPaint>,
-                                                      bmHeap, tfPlayback);
+                deepCopyInfo->paintData[i]->unflatten<SkPaintTraits>(&fPaints->writableAt(i),
+                                                                     bmHeap, tfPlayback);
             } else {
                 // needs_deep_copy was false, so just need to assign
                 fPaints->writableAt(i) = src.fPaints->at(i);
@@ -1025,6 +1025,7 @@ void SkPicturePlayback::draw(SkCanvas& canvas, SkDrawPictureCallback* callback) 
                                       matrix, paint);
             } break;
             case DRAW_VERTICES: {
+                SkAutoTUnref<SkXfermode> xfer;
                 const SkPaint& paint = *getPaint(reader);
                 DrawVertexFlags flags = (DrawVertexFlags)reader.readInt();
                 SkCanvas::VertexMode vmode = (SkCanvas::VertexMode)reader.readInt();
@@ -1048,7 +1049,14 @@ void SkPicturePlayback::draw(SkCanvas& canvas, SkDrawPictureCallback* callback) 
                     indices = (const uint16_t*)reader.skip(
                                                     iCount * sizeof(uint16_t));
                 }
-                canvas.drawVertices(vmode, vCount, verts, texs, colors, NULL,
+                if (flags & DRAW_VERTICES_HAS_XFER) {
+                    int mode = reader.readInt();
+                    if (mode < 0 || mode > SkXfermode::kLastMode) {
+                        mode = SkXfermode::kModulate_Mode;
+                    }
+                    xfer.reset(SkXfermode::Create((SkXfermode::Mode)mode));
+                }
+                canvas.drawVertices(vmode, vCount, verts, texs, colors, xfer,
                                     indices, iCount, paint);
             } break;
             case RESTORE:
