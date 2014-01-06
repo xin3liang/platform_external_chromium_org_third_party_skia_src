@@ -42,11 +42,12 @@ SkCachingPixelRef::~SkCachingPixelRef() {
 }
 
 void* SkCachingPixelRef::onLockPixels(SkColorTable**) {
-    const SkImageInfo& info = this->info();
-
     if (fErrorInDecoding) {
         return NULL;  // don't try again.
     }
+    
+    const SkImageInfo& info = this->info();
+
     SkBitmap bitmap;
     SkASSERT(NULL == fScaledCacheId);
     fScaledCacheId = SkScaledImageCache::FindAndLock(this->getGenerationID(),
@@ -76,6 +77,7 @@ void* SkCachingPixelRef::onLockPixels(SkColorTable**) {
     SkAutoLockPixels autoLockPixels(bitmap);
     void* pixels = bitmap.getPixels();
     SkASSERT(pixels != NULL);
+
     // At this point, the autoLockPixels will unlockPixels()
     // to remove bitmap's lock on the pixels.  We will then
     // destroy bitmap.  The *only* guarantee that this pointer
