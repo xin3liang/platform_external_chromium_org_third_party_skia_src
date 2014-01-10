@@ -68,6 +68,15 @@ static HRESULT wchar_to_skstring(WCHAR* name, SkString* skname) {
             "Could not get length for utf-8 to wchar conversion.");
     }
     skname->resize(len - 1);
+
+    // TODO: remove after https://code.google.com/p/skia/issues/detail?id=1989 is fixed.
+    // If we resize to 0 then the skname points to gEmptyRec (the unique empty SkString::Rec).
+    // gEmptyRec is static const and on Windows this means the value is in a read only page.
+    // Writing to it in the following call to WideCharToMultiByte will cause an access violation.
+    if (1 == len) {
+        return S_OK;
+    }
+
     len = WideCharToMultiByte(CP_UTF8, 0, name, -1, skname->writable_str(), len, NULL, NULL);
     if (0 == len) {
         HRM(HRESULT_FROM_WIN32(GetLastError()), "Could not convert utf-8 to wchar.");
@@ -1780,7 +1789,7 @@ SkTypeface* SkFontMgr_DirectWrite::onLegacyCreateTypeface(const char familyName[
     DWRITE_FONT_WEIGHT weight = (styleBits & SkTypeface::kBold)
                               ? DWRITE_FONT_WEIGHT_BOLD
                               : DWRITE_FONT_WEIGHT_NORMAL;
-    DWRITE_FONT_STRETCH stretch = DWRITE_FONT_STRETCH_UNDEFINED;
+    DWRITE_FONT_STRETCH stretch = DWRITE_FONT_STRETCH_NORMAL;
     DWRITE_FONT_STYLE italic = (styleBits & SkTypeface::kItalic)
                              ? DWRITE_FONT_STYLE_ITALIC
                              : DWRITE_FONT_STYLE_NORMAL;
