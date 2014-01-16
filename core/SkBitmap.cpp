@@ -101,15 +101,7 @@ SkBitmap& SkBitmap::operator=(const SkBitmap& src) {
         // we reset our locks if we get blown away
         fPixelLockCount = 0;
 
-        /*  The src could be in 3 states
-            1. no pixelref, in which case we just copy/ref the pixels/ctable
-            2. unlocked pixelref, pixels/ctable should be null
-            3. locked pixelref, we should lock the ref again ourselves
-        */
-        if (NULL == fPixelRef) {
-            // leave fPixels as it is
-            SkSafeRef(fColorTable); // ref the user's ctable if present
-        } else {    // we have a pixelref, so pixels/ctable reflect it
+        if (fPixelRef) {
             // ignore the values from the memcpy
             fPixels = NULL;
             fColorTable = NULL;
@@ -345,14 +337,11 @@ void SkBitmap::updatePixelsFromRef() const {
                     + fPixelRefOrigin.fX * fBytesPerPixel;
             }
             fPixels = p;
-            SkRefCnt_SafeAssign(fColorTable, fPixelRef->colorTable());
+            fColorTable = fPixelRef->colorTable();
         } else {
             SkASSERT(0 == fPixelLockCount);
             fPixels = NULL;
-            if (fColorTable) {
-                fColorTable->unref();
-                fColorTable = NULL;
-            }
+            fColorTable = NULL;
         }
     }
 }
@@ -510,11 +499,6 @@ void SkBitmap::freePixels() {
     // if we're gonna free the pixels, we certainly need to free the mipmap
     this->freeMipMap();
 
-    if (fColorTable) {
-        fColorTable->unref();
-        fColorTable = NULL;
-    }
-
     if (NULL != fPixelRef) {
         if (fPixelLockCount > 0) {
             fPixelRef->unlockPixels();
@@ -525,6 +509,7 @@ void SkBitmap::freePixels() {
     }
     fPixelLockCount = 0;
     fPixels = NULL;
+    fColorTable = NULL;
 }
 
 void SkBitmap::freeMipMap() {
@@ -993,8 +978,8 @@ bool SkBitmap::copyTo(SkBitmap* dst, Config dstConfig, Allocator* alloc) const {
             // did we get lucky and we can just return tmpSrc?
             if (tmpSrc.config() == dstConfig && NULL == alloc) {
                 dst->swap(tmpSrc);
-                if (dst->pixelRef() && this->config() == dstConfig) {
-                    // TODO(scroggo): fix issue 1742
+                // If the result is an exact copy, clone the gen ID.
+                if (dst->pixelRef() && dst->pixelRef()->info() == fPixelRef->info()) {
                     dst->pixelRef()->cloneGenID(*fPixelRef);
                 }
                 return true;
@@ -1010,6 +995,9 @@ bool SkBitmap::copyTo(SkBitmap* dst, Config dstConfig, Allocator* alloc) const {
     if (!src->readyToDraw()) {
         return false;
     }
+
+    // The only way to be readyToDraw is if fPixelRef is non NULL.
+    SkASSERT(fPixelRef != NULL);
 
     SkBitmap tmpDst;
     tmpDst.setConfig(dstConfig, src->width(), src->height(), 0,
@@ -1028,14 +1016,31 @@ bool SkBitmap::copyTo(SkBitmap* dst, Config dstConfig, Allocator* alloc) const {
         return false;
     }
 
+    // pixelRef must be non NULL or tmpDst.readyToDraw() would have
+    // returned false.
+    SkASSERT(tmpDst.pixelRef() != NULL);
+
     /* do memcpy for the same configs cases, else use drawing
     */
     if (src->config() == dstConfig) {
         if (tmpDst.getSize() == src->getSize()) {
             memcpy(tmpDst.getPixels(), src->getPixels(), src->getSafeSize());
             SkPixelRef* pixelRef = tmpDst.pixelRef();
-            if (NULL != pixelRef && NULL != fPixelRef) {
-                // TODO(scroggo): fix issue 1742
+
+            // In order to reach this point, we know that the width, config and
+            // rowbytes of the SkPixelRefs are the same, but it is possible for
+            // the heights to differ, if this SkBitmap's height is a subset of
+            // fPixelRef. Only if the SkPixelRefs' heights match are we
+            // guaranteed that this is an exact copy, meaning we should clone
+            // the genID.
+            if (pixelRef->info().fHeight == fPixelRef->info().fHeight) {
+                // TODO: what to do if the two infos match, BUT
+                // fPixelRef is premul and pixelRef is opaque?
+                // skipping assert for now
+                // https://code.google.com/p/skia/issues/detail?id=2012
+//                SkASSERT(pixelRef->info() == fPixelRef->info());
+                SkASSERT(pixelRef->info().fWidth == fPixelRef->info().fWidth);
+                SkASSERT(pixelRef->info().fColorType == fPixelRef->info().fColorType);
                 pixelRef->cloneGenID(*fPixelRef);
             }
         } else {
@@ -1090,7 +1095,9 @@ bool SkBitmap::deepCopyTo(SkBitmap* dst, Config dstConfig) const {
         if (pixelRef) {
             uint32_t rowBytes;
             if (dstConfig == fConfig) {
-                // TODO(scroggo): fix issue 1742
+                // Since there is no subset to pass to deepCopy, and deepCopy
+                // succeeded, the new pixel ref must be identical.
+                SkASSERT(fPixelRef->info() == pixelRef->info());
                 pixelRef->cloneGenID(*fPixelRef);
                 // Use the same rowBytes as the original.
                 rowBytes = fRowBytes;
@@ -1588,19 +1595,25 @@ void SkBitmap::validate() const {
 #endif
     SkASSERT(fFlags <= allFlags);
     SkASSERT(fPixelLockCount >= 0);
-    SkASSERT(NULL == fColorTable || (unsigned)fColorTable->getRefCnt() < 10000);
     SkASSERT((uint8_t)ComputeBytesPerPixel((Config)fConfig) == fBytesPerPixel);
 
-#if 0   // these asserts are not thread-correct, so disable for now
-    if (fPixelRef) {
-        if (fPixelLockCount > 0) {
-            SkASSERT(fPixelRef->isLocked());
-        } else {
-            SkASSERT(NULL == fPixels);
-            SkASSERT(NULL == fColorTable);
-        }
-    }
+    if (fPixels) {
+        SkASSERT(fPixelRef);
+        SkASSERT(fPixelLockCount > 0);
+        SkASSERT(fPixelRef->isLocked());
+#if !defined(SK_SUPPORT_LEGACY_ONLOCKPIXELS)
+        SkASSERT(fPixelRef->rowBytes() == fRowBytes);
 #endif
+        SkASSERT(fPixelRefOrigin.fX >= 0);
+        SkASSERT(fPixelRefOrigin.fY >= 0);
+        SkASSERT(fPixelRef->info().fWidth >= (int)fWidth + fPixelRefOrigin.fX);
+        SkASSERT(fPixelRef->info().fHeight >= (int)fHeight + fPixelRefOrigin.fY);
+#if !defined(SK_SUPPORT_LEGACY_ONLOCKPIXELS)
+        SkASSERT(fPixelRef->rowBytes() >= fWidth * fBytesPerPixel);
+#endif
+    } else {
+        SkASSERT(NULL == fColorTable);
+    }
 }
 #endif
 
