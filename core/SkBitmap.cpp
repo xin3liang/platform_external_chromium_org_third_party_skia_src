@@ -495,6 +495,77 @@ bool SkBitmap::allocPixels(Allocator* allocator, SkColorTable* ctable) {
     return allocator->allocPixelRef(this, ctable);
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+static bool reset_return_false(SkBitmap* bm) {
+    bm->reset();
+    return false;
+}
+
+bool SkBitmap::allocPixels(const SkImageInfo& info, SkPixelRefFactory* factory,
+                           SkColorTable* ctable) {
+    if (kIndex_8_SkColorType == info.fColorType && NULL == ctable) {
+        return reset_return_false(this);
+    }
+    if (!this->setConfig(info)) {
+        return reset_return_false(this);
+    }
+
+    SkMallocPixelRef::PRFactory defaultFactory;
+    if (NULL == factory) {
+        factory = &defaultFactory;
+    }
+
+    SkPixelRef* pr = factory->create(info, ctable);
+    if (NULL == pr) {
+        return reset_return_false(this);
+    }
+    this->setPixelRef(pr)->unref();
+
+    // TODO: lockPixels could/should return bool or void*/NULL
+    this->lockPixels();
+    if (NULL == this->getPixels()) {
+        return reset_return_false(this);
+    }
+    return true;
+}
+
+bool SkBitmap::installPixels(const SkImageInfo& info, void* pixels, size_t rb,
+                             void (*releaseProc)(void* addr, void* context),
+                             void* context) {
+    if (!this->setConfig(info)) {
+        this->reset();
+        return false;
+    }
+
+    SkPixelRef* pr = SkMallocPixelRef::NewWithProc(info, rb, NULL, pixels,
+                                                   releaseProc, context);
+    if (!pr) {
+        this->reset();
+        return false;
+    }
+
+    this->setPixelRef(pr)->unref();
+    return true;
+}
+
+bool SkBitmap::allocConfigPixels(Config config, int width, int height,
+                                 bool isOpaque) {
+    SkColorType ct;
+    if (!config_to_colorType(config, &ct)) {
+        return false;
+    }
+
+    SkAlphaType at = isOpaque ? kOpaque_SkAlphaType : kPremul_SkAlphaType;
+    if (!validate_alphaType(config, at, &at)) {
+        return false;
+    }
+
+    return this->allocPixels(SkImageInfo::Make(width, height, ct, at));
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 void SkBitmap::freePixels() {
     // if we're gonna free the pixels, we certainly need to free the mipmap
     this->freeMipMap();
