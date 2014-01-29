@@ -79,6 +79,8 @@ bool SkDropShadowImageFilter::onFilterImage(Proxy* proxy, const SkBitmap& source
 
     SkVector sigma, localSigma = SkVector::Make(fSigmaX, fSigmaY);
     matrix.mapVectors(&sigma, &localSigma, 1);
+    sigma.fX = SkMaxScalar(0, sigma.fX);
+    sigma.fY = SkMaxScalar(0, sigma.fY);
     SkAutoTUnref<SkImageFilter> blurFilter(new SkBlurImageFilter(sigma.fX, sigma.fY));
     SkAutoTUnref<SkColorFilter> colorFilter(SkColorFilter::CreateModeFilter(fColor, SkXfermode::kSrcIn_Mode));
     SkPaint paint;
@@ -94,4 +96,18 @@ bool SkDropShadowImageFilter::onFilterImage(Proxy* proxy, const SkBitmap& source
     offset->fX = bounds.fLeft;
     offset->fY = bounds.fTop;
     return true;
+}
+
+void SkDropShadowImageFilter::computeFastBounds(const SkRect& src, SkRect* dst) const {
+    if (getInput(0)) {
+        getInput(0)->computeFastBounds(src, dst);
+    } else {
+        *dst = src;
+    }
+
+    SkRect shadowBounds = *dst;
+    shadowBounds.offset(fDx, fDy);
+    shadowBounds.outset(SkScalarMul(fSigmaX, SkIntToScalar(3)),
+                        SkScalarMul(fSigmaY, SkIntToScalar(3)));
+    dst->join(shadowBounds);
 }

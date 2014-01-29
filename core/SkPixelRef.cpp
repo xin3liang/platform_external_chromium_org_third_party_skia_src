@@ -264,6 +264,10 @@ void SkPixelRef::notifyPixelsChanged() {
     this->needsNewGenID();
 }
 
+void SkPixelRef::changeAlphaType(SkAlphaType at) {
+    *const_cast<SkAlphaType*>(&fInfo.fAlphaType) = at;
+}
+
 void SkPixelRef::setImmutable() {
     fIsImmutable = true;
 }
