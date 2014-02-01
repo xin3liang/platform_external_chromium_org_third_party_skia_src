@@ -19,6 +19,7 @@
 #include "effects/GrCustomCoordsTextureEffect.h"
 
 #include "SkAutoKern.h"
+#include "SkDraw.h"
 #include "SkGlyphCache.h"
 #include "SkGpuDevice.h"
 #include "SkGr.h"
@@ -29,10 +30,8 @@ SK_CONF_DECLARE(bool, c_DumpFontCache, "gpu.dumpFontCache", false,
                 "Dump the contents of the font cache before every purge.");
 
 GrBitmapTextContext::GrBitmapTextContext(GrContext* context,
-                                         const GrPaint& grPaint,
-                                         const SkPaint& skPaint,
                                          const SkDeviceProperties& properties)
-                                       : GrTextContext(context, grPaint, skPaint, properties) {
+                                       : GrTextContext(context, properties) {
     fStrike = NULL;
 
     fCurrTexture = NULL;
@@ -44,6 +43,10 @@ GrBitmapTextContext::GrBitmapTextContext(GrContext* context,
 
 GrBitmapTextContext::~GrBitmapTextContext() {
     this->flushGlyphs();
+}
+
+bool GrBitmapTextContext::canDraw(const SkPaint& paint) {
+    return !SkDraw::ShouldDrawTextAsPaths(paint, fContext->getMatrix());
 }
 
 static inline GrColor skcolor_to_grcolor_nopremultiply(SkColor c) {
@@ -112,7 +115,26 @@ void GrBitmapTextContext::flushGlyphs() {
     }
 }
 
-void GrBitmapTextContext::drawText(const char text[], size_t byteLength,
+inline void GrBitmapTextContext::init(const GrPaint& paint, const SkPaint& skPaint) {
+    GrTextContext::init(paint, skPaint);
+
+    fStrike = NULL;
+
+    fCurrTexture = NULL;
+    fCurrVertex = 0;
+
+    fVertices = NULL;
+    fMaxVertices = 0;
+}
+
+inline void GrBitmapTextContext::finish() {
+    flushGlyphs();
+
+    GrTextContext::finish();
+}
+
+void GrBitmapTextContext::drawText(const GrPaint& paint, const SkPaint& skPaint,
+                                   const char text[], size_t byteLength,
                                    SkScalar x, SkScalar y) {
     SkASSERT(byteLength == 0 || text != NULL);
 
@@ -120,6 +142,8 @@ void GrBitmapTextContext::drawText(const char text[], size_t byteLength,
     if (text == NULL || byteLength == 0 /*|| fRC->isEmpty()*/) {
         return;
     }
+
+    this->init(paint, skPaint);
 
     SkDrawCacheProc glyphCacheProc = fSkPaint.getDrawCacheProc();
 
@@ -196,6 +220,8 @@ void GrBitmapTextContext::drawText(const char text[], size_t byteLength,
         fx += glyph.fAdvanceX;
         fy += glyph.fAdvanceY;
     }
+
+    this->finish();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -290,7 +316,8 @@ BitmapTextMapState::Proc BitmapTextMapState::pickProc(int scalarsPerPosition) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void GrBitmapTextContext::drawPosText(const char text[], size_t byteLength,
+void GrBitmapTextContext::drawPosText(const GrPaint& paint, const SkPaint& skPaint,
+                                      const char text[], size_t byteLength,
                                       const SkScalar pos[], SkScalar constY,
                                       int scalarsPerPosition) {
     SkASSERT(byteLength == 0 || text != NULL);
@@ -300,6 +327,8 @@ void GrBitmapTextContext::drawPosText(const char text[], size_t byteLength,
     if (text == NULL || byteLength == 0/* || fRC->isEmpty()*/) {
         return;
     }
+
+    this->init(paint, skPaint);
 
     SkDrawCacheProc glyphCacheProc = fSkPaint.getDrawCacheProc();
 
@@ -434,6 +463,8 @@ void GrBitmapTextContext::drawPosText(const char text[], size_t byteLength,
             }
         }
     }
+
+    this->finish();
 }
 
 namespace {

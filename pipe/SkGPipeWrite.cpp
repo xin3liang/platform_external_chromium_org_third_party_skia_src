@@ -17,7 +17,7 @@
 #include "SkGPipePriv.h"
 #include "SkImageFilter.h"
 #include "SkMaskFilter.h"
-#include "SkOrderedWriteBuffer.h"
+#include "SkWriteBuffer.h"
 #include "SkPaint.h"
 #include "SkPathEffect.h"
 #include "SkPictureFlat.h"
@@ -71,11 +71,11 @@ static size_t writeTypeface(SkWriter32* writer, SkTypeface* typeface) {
 class FlattenableHeap : public SkFlatController {
 public:
     FlattenableHeap(int numFlatsToKeep, SkNamedFactorySet* fset, bool isCrossProcess)
-    : fNumFlatsToKeep(numFlatsToKeep) {
+    : INHERITED(isCrossProcess ? SkWriteBuffer::kCrossProcess_Flag : 0)
+    , fNumFlatsToKeep(numFlatsToKeep) {
         SkASSERT((isCrossProcess && fset != NULL) || (!isCrossProcess && NULL == fset));
         if (isCrossProcess) {
             this->setNamedFactorySet(fset);
-            this->setWriteBufferFlags(SkFlattenableWriteBuffer::kCrossProcess_Flag);
         }
     }
 
@@ -109,6 +109,8 @@ private:
     SkTDArray<int>   fFlatsThatMustBeKept;
     SkTDArray<void*> fPointers;
     const int        fNumFlatsToKeep;
+
+    typedef SkFlatController INHERITED;
 };
 
 void FlattenableHeap::unalloc(void* ptr) {
@@ -151,7 +153,7 @@ const SkFlatData* FlattenableHeap::flatToReplace() const {
 ///////////////////////////////////////////////////////////////////////////////
 
 struct SkFlattenableTraits {
-    static void flatten(SkOrderedWriteBuffer& buffer, const SkFlattenable& flattenable) {
+    static void flatten(SkWriteBuffer& buffer, const SkFlattenable& flattenable) {
         buffer.writeFlattenable(&flattenable);
     }
     // No need to define unflatten if we never call it.
@@ -370,11 +372,11 @@ void SkGPipeCanvas::flattenFactoryNames() {
 
 bool SkGPipeCanvas::shuttleBitmap(const SkBitmap& bm, int32_t slot) {
     SkASSERT(shouldFlattenBitmaps(fFlags));
-    SkOrderedWriteBuffer buffer;
+    SkWriteBuffer buffer;
     buffer.setNamedFactoryRecorder(fFactorySet);
     buffer.writeBitmap(bm);
     this->flattenFactoryNames();
-    uint32_t size = buffer.size();
+    uint32_t size = buffer.bytesWritten();
     if (this->needOpBytes(size)) {
         this->writeOp(kDef_Bitmap_DrawOp, 0, slot);
         void* dst = static_cast<void*>(fWriter.reserve(size));
@@ -1146,7 +1148,7 @@ void SkGPipeCanvas::writePaint(const SkPaint& paint) {
                 this->writeOp(kSetAnnotation_DrawOp, 0, 0);
             }
         } else {
-            SkOrderedWriteBuffer buffer;
+            SkWriteBuffer buffer;
             paint.getAnnotation()->writeToBuffer(buffer);
             const size_t size = buffer.bytesWritten();
             if (this->needOpBytes(size)) {

@@ -13,8 +13,8 @@
 #include "SkBitmapHeap.h"
 #include "SkChecksum.h"
 #include "SkChunkAlloc.h"
-#include "SkOrderedReadBuffer.h"
-#include "SkOrderedWriteBuffer.h"
+#include "SkReadBuffer.h"
+#include "SkWriteBuffer.h"
 #include "SkPaint.h"
 #include "SkPicture.h"
 #include "SkPtrRecorder.h"
@@ -107,7 +107,7 @@ public:
     void setCount(int count);
     SkRefCnt* set(int index, SkRefCnt*);
 
-    void setupBuffer(SkOrderedReadBuffer& buffer) const {
+    void setupBuffer(SkReadBuffer& buffer) const {
         buffer.setTypefaceArray((SkTypeface**)fArray, fCount);
     }
 
@@ -128,7 +128,7 @@ public:
 
     SkFlattenable::Factory* base() const { return fArray; }
 
-    void setupBuffer(SkOrderedReadBuffer& buffer) const {
+    void setupBuffer(SkReadBuffer& buffer) const {
         buffer.setFactoryPlayback(fArray, fCount);
     }
 
@@ -168,7 +168,7 @@ class SkFlatController : public SkRefCnt {
 public:
     SK_DECLARE_INST_COUNT(SkFlatController)
 
-    SkFlatController();
+    SkFlatController(uint32_t writeBufferFlags = 0);
     virtual ~SkFlatController();
     /**
      * Return a new block of memory for the SkFlatDictionary to use.
@@ -242,17 +242,12 @@ protected:
      */
     SkNamedFactorySet* setNamedFactorySet(SkNamedFactorySet*);
 
-    /**
-     * Set the flags to be used during flattening.
-     */
-    void setWriteBufferFlags(uint32_t flags) { fWriteBufferFlags = flags; }
-
 private:
     SkBitmapHeap*       fBitmapHeap;
     SkRefCntSet*        fTypefaceSet;
     SkTypefacePlayback* fTypefacePlayback;
     SkNamedFactorySet*  fFactorySet;
-    uint32_t            fWriteBufferFlags;
+    const uint32_t      fWriteBufferFlags;
 
     typedef SkRefCnt INHERITED;
 };
@@ -264,15 +259,14 @@ public:
     static SkFlatData* Create(SkFlatController* controller, const T& obj, int index) {
         // A buffer of 256 bytes should fit most paints, regions, and matrices.
         uint32_t storage[64];
-        SkOrderedWriteBuffer buffer(storage, sizeof(storage));
+        SkWriteBuffer buffer(storage, sizeof(storage), controller->getWriteBufferFlags());
 
         buffer.setBitmapHeap(controller->getBitmapHeap());
         buffer.setTypefaceRecorder(controller->getTypefaceSet());
         buffer.setNamedFactoryRecorder(controller->getNamedFactorySet());
-        buffer.setFlags(controller->getWriteBufferFlags());
 
         Traits::flatten(buffer, obj);
-        size_t size = buffer.size();
+        size_t size = buffer.bytesWritten();
         SkASSERT(SkIsAlign4(size));
 
         // Allocate enough memory to hold SkFlatData struct and the flat data itself.
@@ -291,7 +285,7 @@ public:
     void unflatten(T* result,
                    SkBitmapHeap* bitmapHeap = NULL,
                    SkTypefacePlayback* facePlayback = NULL) const {
-        SkOrderedReadBuffer buffer(this->data(), fFlatSize);
+        SkReadBuffer buffer(this->data(), fFlatSize);
 
         if (bitmapHeap) {
             buffer.setBitmapStorage(bitmapHeap);
@@ -367,6 +361,7 @@ class SkFlatDictionary {
 public:
     explicit SkFlatDictionary(SkFlatController* controller)
     : fController(SkRef(controller))
+    , fScratch(controller->getWriteBufferFlags())
     , fReady(false) {
         this->reset();
     }
@@ -496,7 +491,6 @@ private:
         fScratch.setBitmapHeap(fController->getBitmapHeap());
         fScratch.setTypefaceRecorder(fController->getTypefaceSet());
         fScratch.setNamedFactoryRecorder(fController->getNamedFactorySet());
-        fScratch.setFlags(fController->getWriteBufferFlags());
         fReady = true;
     }
 
@@ -556,7 +550,7 @@ private:
 
     // All SkFlatData* stored in fIndexedData and fHash are owned by the controller.
     SkAutoTUnref<SkFlatController> fController;
-    SkOrderedWriteBuffer fScratch;
+    SkWriteBuffer fScratch;
     bool fReady;
 
     // For index -> SkFlatData.  0-based, while all indices in the API are 1-based.  Careful!
@@ -568,10 +562,10 @@ private:
 };
 
 struct SkPaintTraits {
-    static void flatten(SkOrderedWriteBuffer& buffer, const SkPaint& paint) {
+    static void flatten(SkWriteBuffer& buffer, const SkPaint& paint) {
         paint.flatten(buffer);
     }
-    static void unflatten(SkOrderedReadBuffer& buffer, SkPaint* paint) {
+    static void unflatten(SkReadBuffer& buffer, SkPaint* paint) {
         paint->unflatten(buffer);
     }
 };
