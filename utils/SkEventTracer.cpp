@@ -23,14 +23,14 @@ class SkDefaultEventTracer: public SkEventTracer {
     virtual void
         updateTraceEventDuration(const uint8_t* categoryEnabledFlag,
                                  const char* name,
-                                 SkEventTracer::Handle) SK_OVERRIDE {};
+                                 SkEventTracer::Handle handle) SK_OVERRIDE {};
 
     virtual const uint8_t* getCategoryGroupEnabled(const char* name) SK_OVERRIDE {
         static uint8_t no = 0;
         return &no;
     };
     virtual const char* getCategoryGroupName(
-      const uint8_t* category_group_enabled) SK_OVERRIDE {
+      const uint8_t* categoryEnabledFlag) SK_OVERRIDE {
         static const char* dummy = "dummy";
         return dummy;
     };
@@ -38,8 +38,10 @@ class SkDefaultEventTracer: public SkEventTracer {
 
 SkEventTracer *SkEventTracer::gInstance;
 
-static void intiailize_default_tracer(int) {
-    SkEventTracer::SetInstance(SkNEW(SkDefaultEventTracer));
+static void intialiize_default_tracer(void *current_instance) {
+    if (NULL == current_instance) {
+        SkEventTracer::SetInstance(SkNEW(SkDefaultEventTracer));
+    }
 }
 
 static void cleanup_tracer() {
@@ -49,7 +51,10 @@ static void cleanup_tracer() {
 
 SkEventTracer* SkEventTracer::GetInstance() {
     SK_DECLARE_STATIC_ONCE(once);
-    SkOnce(&once, intiailize_default_tracer, 0, cleanup_tracer);
+    SkOnce(&once,
+           intialiize_default_tracer,
+           SkEventTracer::gInstance,
+           cleanup_tracer);
     SkASSERT(NULL != SkEventTracer::gInstance);
     return SkEventTracer::gInstance;
 }
