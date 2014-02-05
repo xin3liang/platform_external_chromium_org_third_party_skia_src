@@ -30,7 +30,7 @@ public:
     ~QuadTreeNode() {
         clear();
     }
-    
+
     void clear() {
         SkDELETE(fTopLeft);
         fTopLeft = NULL;
@@ -191,6 +191,7 @@ SkQuadTree::SkQuadTree(const SkIRect& bounds)
 }
 
 SkQuadTree::~SkQuadTree() {
+    SkDELETE(fRoot);
 }
 
 void SkQuadTree::insert(void* data, const SkIRect& bounds, bool) {
