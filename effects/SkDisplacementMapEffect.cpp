@@ -195,10 +195,10 @@ bool SkDisplacementMapEffect::onFilterImage(Proxy* proxy,
                                             const SkBitmap& src,
                                             const SkMatrix& ctm,
                                             SkBitmap* dst,
-                                            SkIPoint* offset) {
+                                            SkIPoint* offset) const {
     SkBitmap displ = src, color = src;
-    SkImageFilter* colorInput = getColorInput();
-    SkImageFilter* displInput = getDisplacementInput();
+    const SkImageFilter* colorInput = getColorInput();
+    const SkImageFilter* displInput = getDisplacementInput();
     SkIPoint colorOffset = SkIPoint::Make(0, 0), displOffset = SkIPoint::Make(0, 0);
     if ((colorInput && !colorInput->filterImage(proxy, src, ctm, &color, &colorOffset)) ||
         (displInput && !displInput->filterImage(proxy, src, ctm, &displ, &displOffset))) {
@@ -253,6 +253,15 @@ void SkDisplacementMapEffect::computeFastBounds(const SkRect& src, SkRect* dst) 
     } else {
         *dst = src;
     }
+}
+
+bool SkDisplacementMapEffect::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
+                                   SkIRect* dst) const {
+    if (getColorInput()) {
+        return getColorInput()->filterBounds(src, ctm, dst);
+    }
+    *dst = src;
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -339,7 +348,7 @@ private:
 };
 
 bool SkDisplacementMapEffect::filterImageGPU(Proxy* proxy, const SkBitmap& src, const SkMatrix& ctm,
-                                             SkBitmap* result, SkIPoint* offset) {
+                                             SkBitmap* result, SkIPoint* offset) const {
     SkBitmap colorBM;
     SkIPoint colorOffset = SkIPoint::Make(0, 0);
     if (!SkImageFilterUtils::GetInputResultGPU(getColorInput(), proxy, src, ctm, &colorBM,

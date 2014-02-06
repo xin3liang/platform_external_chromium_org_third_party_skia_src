@@ -43,7 +43,7 @@ void SkBitmapSource::flatten(SkWriteBuffer& buffer) const {
 }
 
 bool SkBitmapSource::onFilterImage(Proxy* proxy, const SkBitmap&, const SkMatrix& matrix,
-                                   SkBitmap* result, SkIPoint* offset) {
+                                   SkBitmap* result, SkIPoint* offset) const {
     SkRect bounds, dstRect;
     fBitmap.getBounds(&bounds);
     matrix.mapRect(&dstRect, fDstRect);
@@ -82,4 +82,10 @@ bool SkBitmapSource::onFilterImage(Proxy* proxy, const SkBitmap&, const SkMatrix
 
 void SkBitmapSource::computeFastBounds(const SkRect&, SkRect* dst) const {
     *dst = fDstRect;
+}
+
+bool SkBitmapSource::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
+                                    SkIRect* dst) const {
+    *dst = src;
+    return true;
 }

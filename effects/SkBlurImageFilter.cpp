@@ -136,7 +136,7 @@ static void getBox3Params(SkScalar s, int *kernelSize, int* kernelSize3, int *lo
 
 bool SkBlurImageFilter::onFilterImage(Proxy* proxy,
                                       const SkBitmap& source, const SkMatrix& ctm,
-                                      SkBitmap* dst, SkIPoint* offset) {
+                                      SkBitmap* dst, SkIPoint* offset) const {
     SkBitmap src = source;
     SkIPoint srcOffset = SkIPoint::Make(0, 0);
     if (getInput(0) && !getInput(0)->filterImage(proxy, source, ctm, &src, &srcOffset)) {
@@ -236,8 +236,23 @@ void SkBlurImageFilter::computeFastBounds(const SkRect& src, SkRect* dst) const 
     dst->outset(SkScalarMul(fSigma.width(), SkIntToScalar(3)),
                 SkScalarMul(fSigma.height(), SkIntToScalar(3)));
 }
+
+bool SkBlurImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
+                                       SkIRect* dst) const {
+    SkIRect bounds = src;
+    if (getInput(0) && !getInput(0)->filterBounds(src, ctm, &bounds)) {
+        return false;
+    }
+    SkVector sigma, localSigma = SkVector::Make(fSigma.width(), fSigma.height());
+    ctm.mapVectors(&sigma, &localSigma, 1);
+    bounds.outset(SkScalarCeilToInt(SkScalarMul(sigma.x(), SkIntToScalar(3))),
+                  SkScalarCeilToInt(SkScalarMul(sigma.y(), SkIntToScalar(3))));
+    *dst = bounds;
+    return true;
+}
+
 bool SkBlurImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, const SkMatrix& ctm,
-                                       SkBitmap* result, SkIPoint* offset) {
+                                       SkBitmap* result, SkIPoint* offset) const {
 #if SK_SUPPORT_GPU
     SkBitmap input;
     SkIPoint srcOffset = SkIPoint::Make(0, 0);

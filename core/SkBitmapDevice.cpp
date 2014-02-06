@@ -10,6 +10,7 @@
 #include "SkDraw.h"
 #include "SkRasterClip.h"
 #include "SkShader.h"
+#include "SkSurface.h"
 
 #define CHECK_FOR_ANNOTATION(paint) \
     do { if (paint.getAnnotation()) { return; } } while (0)
@@ -94,17 +95,17 @@ const SkBitmap& SkBitmapDevice::onAccessBitmap() {
     return fBitmap;
 }
 
-bool SkBitmapDevice::canHandleImageFilter(SkImageFilter*) {
+bool SkBitmapDevice::canHandleImageFilter(const SkImageFilter*) {
     return false;
 }
 
-bool SkBitmapDevice::filterImage(SkImageFilter* filter, const SkBitmap& src,
+bool SkBitmapDevice::filterImage(const SkImageFilter* filter, const SkBitmap& src,
                                  const SkMatrix& ctm, SkBitmap* result,
                                  SkIPoint* offset) {
     return false;
 }
 
-bool SkBitmapDevice::allowImageFilter(SkImageFilter*) {
+bool SkBitmapDevice::allowImageFilter(const SkImageFilter*) {
     return true;
 }
 
@@ -379,6 +380,10 @@ void SkBitmapDevice::drawDevice(const SkDraw& draw, SkBaseDevice* device,
                                 int x, int y, const SkPaint& paint) {
     const SkBitmap& src = device->accessBitmap(false);
     draw.drawSprite(src, x, y, paint);
+}
+
+SkSurface* SkBitmapDevice::newSurface(const SkImageInfo& info) {
+    return SkSurface::NewRaster(info);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

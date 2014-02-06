@@ -27,6 +27,7 @@
 #include "SkPathEffect.h"
 #include "SkRRect.h"
 #include "SkStroke.h"
+#include "SkSurface.h"
 #include "SkTLazy.h"
 #include "SkUtils.h"
 #include "SkErrorInternals.h"
@@ -1514,7 +1515,7 @@ void SkGpuDevice::internalDrawBitmap(const SkBitmap& bitmap,
 }
 
 static bool filter_texture(SkBaseDevice* device, GrContext* context,
-                           GrTexture* texture, SkImageFilter* filter,
+                           GrTexture* texture, const SkImageFilter* filter,
                            int w, int h, const SkMatrix& ctm, SkBitmap* result,
                            SkIPoint* offset) {
     SkASSERT(filter);
@@ -1693,11 +1694,11 @@ void SkGpuDevice::drawDevice(const SkDraw& draw, SkBaseDevice* device,
     fContext->drawRectToRect(grPaint, dstRect, srcRect);
 }
 
-bool SkGpuDevice::canHandleImageFilter(SkImageFilter* filter) {
+bool SkGpuDevice::canHandleImageFilter(const SkImageFilter* filter) {
     return filter->canFilterImageGPU();
 }
 
-bool SkGpuDevice::filterImage(SkImageFilter* filter, const SkBitmap& src,
+bool SkGpuDevice::filterImage(const SkImageFilter* filter, const SkBitmap& src,
                               const SkMatrix& ctm,
                               SkBitmap* result, SkIPoint* offset) {
     // want explicitly our impl, so guard against a subclass of us overriding it
@@ -1911,6 +1912,10 @@ SkBaseDevice* SkGpuDevice::onCreateCompatibleDevice(SkBitmap::Config config,
         GrPrintf("---- failed to create compatible device texture [%d %d]\n", width, height);
         return NULL;
     }
+}
+
+SkSurface* SkGpuDevice::newSurface(const SkImageInfo& info) {
+    return SkSurface::NewRenderTarget(fContext, info, fRenderTarget->numSamples());
 }
 
 SkGpuDevice::SkGpuDevice(GrContext* context,

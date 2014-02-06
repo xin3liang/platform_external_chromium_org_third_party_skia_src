@@ -1,10 +1,10 @@
-
 /*
  * Copyright 2011 Google Inc.
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
+
 #ifndef SkPictureRecord_DEFINED
 #define SkPictureRecord_DEFINED
 
@@ -215,6 +215,8 @@ public:
 #endif
 
 protected:
+    virtual SkSurface* onNewSurface(const SkImageInfo&) SK_OVERRIDE;
+
     // Return fontmetrics.fTop,fBottom in topbot[0,1], after they have been
     // tweaked by paint.computeFastBounds().
     static void ComputeFontMetricsTopBottom(const SkPaint& paint, SkScalar topbot[2]);
@@ -238,7 +240,7 @@ protected:
 
     int addPathToHeap(const SkPath& path);  // does not write to ops stream
 
-    // These entry points allow the writing of matrices, clips, saves & 
+    // These entry points allow the writing of matrices, clips, saves &
     // restores to be deferred (e.g., if the MC state is being collapsed and
     // only written out as needed).
     void recordConcat(const SkMatrix& matrix);
