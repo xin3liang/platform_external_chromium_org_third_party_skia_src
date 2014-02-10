@@ -14,6 +14,138 @@
 
 #include "SkPath.h"
 
+//////////////////////////////////////////////////////////////////////////////
+class GLAARectEffect;
+
+class AARectEffect : public GrEffect {
+public:
+    typedef GLAARectEffect GLEffect;
+
+    const SkRect& getRect() const { return fRect; }
+
+    static const char* Name() { return "AARect"; }
+
+    static GrEffectRef* Create(const SkRect& rect) {
+        return CreateEffectRef(AutoEffectUnref(SkNEW_ARGS(AARectEffect, (rect))));
+    }
+
+    virtual void getConstantColorComponents(GrColor* color,
+                                            uint32_t* validFlags) const SK_OVERRIDE {
+        if (fRect.isEmpty()) {
+            // An empty rect will have no coverage anywhere.
+            *color = 0x00000000;
+            *validFlags = kRGBA_GrColorComponentFlags;
+        } else {
+            *validFlags = 0;
+        }
+    }
+
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE;
+
+private:
+    AARectEffect(const SkRect& rect) : fRect(rect) {
+        this->setWillReadFragmentPosition();
+    }
+
+    virtual bool onIsEqual(const GrEffect& other) const SK_OVERRIDE {
+        const AARectEffect& aare = CastEffect<AARectEffect>(other);
+        return fRect == aare.fRect;
+    }
+
+    SkRect fRect;
+    typedef GrEffect INHERITED;
+
+    GR_DECLARE_EFFECT_TEST;
+
+};
+
+GR_DEFINE_EFFECT_TEST(AARectEffect);
+
+GrEffectRef* AARectEffect::TestCreate(SkRandom* random,
+                                      GrContext*,
+                                      const GrDrawTargetCaps& caps,
+                                      GrTexture*[]) {
+    SkRect rect = SkRect::MakeLTRB(random->nextSScalar1(),
+                                   random->nextSScalar1(),
+                                   random->nextSScalar1(),
+                                   random->nextSScalar1());
+    return AARectEffect::Create(rect);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+class GLAARectEffect : public GrGLEffect {
+public:
+    GLAARectEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
+
+    virtual void emitCode(GrGLShaderBuilder* builder,
+                          const GrDrawEffect& drawEffect,
+                          EffectKey key,
+                          const char* outputColor,
+                          const char* inputColor,
+                          const TransformedCoordsArray&,
+                          const TextureSamplerArray&) SK_OVERRIDE;
+
+    static inline EffectKey GenKey(const GrDrawEffect&, const GrGLCaps&) { return 0; }
+
+    virtual void setData(const GrGLUniformManager&, const GrDrawEffect&) SK_OVERRIDE;
+
+private:
+    GrGLUniformManager::UniformHandle   fRectUniform;
+    SkRect                              fPrevRect;
+    typedef GrGLEffect INHERITED;
+};
+
+GLAARectEffect::GLAARectEffect(const GrBackendEffectFactory& factory,
+                               const GrDrawEffect& drawEffect)
+    : INHERITED (factory) {
+    fPrevRect.fLeft = SK_ScalarNaN;
+}
+
+void GLAARectEffect::emitCode(GrGLShaderBuilder* builder,
+                              const GrDrawEffect& drawEffect,
+                              EffectKey key,
+                              const char* outputColor,
+                              const char* inputColor,
+                              const TransformedCoordsArray&,
+                              const TextureSamplerArray& samplers) {
+    const char *rectName;
+    fRectUniform = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
+                                       kVec4f_GrSLType,
+                                       "rect",
+                                       &rectName);
+    const char* fragmentPos = builder->fragmentPosition();
+    // The rect uniform's xyzw refer to (left + 0.5, top + 0.5, right - 0.5, bottom - 0.5),
+    // respectively. The amount of coverage removed in x and y by the edges is computed as a pair of
+    // negative numbers, xSub and ySub.
+    builder->fsCodeAppend("\t\tfloat xSub, ySub;\n");
+    builder->fsCodeAppendf("\t\txSub = min(%s.x - %s.x, 0.0);\n", fragmentPos, rectName);
+    builder->fsCodeAppendf("\t\txSub += min(%s.z - %s.x, 0.0);\n", rectName, fragmentPos);
+    builder->fsCodeAppendf("\t\tySub = min(%s.y - %s.y, 0.0);\n", fragmentPos, rectName);
+    builder->fsCodeAppendf("\t\tySub += min(%s.w - %s.y, 0.0);\n", rectName, fragmentPos);
+    // Now compute coverage in x and y and multiply them to get the fraction of the pixel covered.
+    builder->fsCodeAppendf("\t\tfloat alpha = (1.0 + max(xSub, -1.0)) * (1.0 + max(ySub, -1.0));\n");
+
+    builder->fsCodeAppendf("\t\t%s = %s;\n", outputColor,
+                           (GrGLSLExpr4(inputColor) * GrGLSLExpr1("alpha")).c_str());
+}
+
+void GLAARectEffect::setData(const GrGLUniformManager& uman, const GrDrawEffect& drawEffect) {
+    const AARectEffect& aare = drawEffect.castEffect<AARectEffect>();
+    const SkRect& rect = aare.getRect();
+    if (rect != fPrevRect) {
+        uman.set4f(fRectUniform, rect.fLeft + 0.5f, rect.fTop + 0.5f,
+                   rect.fRight - 0.5f, rect.fBottom - 0.5f);
+        fPrevRect = rect;
+    }
+}
+
+const GrBackendEffectFactory& AARectEffect::getFactory() const {
+    return GrTBackendEffectFactory<AARectEffect>::getInstance();
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
 class GrGLConvexPolyEffect : public GrGLEffect {
 public:
     GrGLConvexPolyEffect(const GrBackendEffectFactory&, const GrDrawEffect&);
@@ -75,6 +207,10 @@ void GrGLConvexPolyEffect::emitCode(GrGLShaderBuilder* builder,
         }
     }
 
+    // Woe is me. See skbug.com/2149.
+    if (kTegra2_GrGLRenderer == builder->ctxInfo().renderer()) {
+        builder->fsCodeAppend("\t\tif (-1.0 == alpha) {\n\t\t\tdiscard;\n\t\t}\n");
+    }
     builder->fsCodeAppendf("\t%s = %s;\n", outputColor,
                            (GrGLSLExpr4(inputColor) * GrGLSLExpr1("alpha")).c_str());
 }
@@ -97,7 +233,7 @@ GrGLEffect::EffectKey GrGLConvexPolyEffect::GenKey(const GrDrawEffect& drawEffec
 
 //////////////////////////////////////////////////////////////////////////////
 
-GrEffectRef* GrConvexPolyEffect::Create(EdgeType type, const SkPath& path) {
+GrEffectRef* GrConvexPolyEffect::Create(EdgeType type, const SkPath& path, const SkVector* offset) {
     if (path.getSegmentMasks() != SkPath::kLine_SegmentMask ||
         !path.isConvex() ||
         path.isInverseFillType()) {
@@ -114,6 +250,13 @@ GrEffectRef* GrConvexPolyEffect::Create(EdgeType type, const SkPath& path) {
     SkPath::Direction dir;
     SkAssertResult(path.cheapComputeDirection(&dir));
 
+    SkVector t;
+    if (NULL == offset) {
+        t.set(0, 0);
+    } else {
+        t = *offset;
+    }
+
     int count = path.getPoints(pts, kMaxEdges);
     int n = 0;
     for (int lastPt = count - 1, i = 0; i < count; lastPt = i++) {
@@ -127,11 +270,16 @@ GrEffectRef* GrConvexPolyEffect::Create(EdgeType type, const SkPath& path) {
                 edges[3 * n] = -v.fY;
                 edges[3 * n + 1] = v.fX;
             }
-            edges[3 * n + 2] = -(edges[3 * n] * pts[i].fX + edges[3 * n + 1] * pts[i].fY);
+            SkPoint p = pts[i] + t;
+            edges[3 * n + 2] = -(edges[3 * n] * p.fX + edges[3 * n + 1] * p.fY);
             ++n;
         }
     }
     return Create(type, n, edges);
+}
+
+GrEffectRef* GrConvexPolyEffect::CreateForAAFillRect(const SkRect& rect) {
+    return AARectEffect::Create(rect);
 }
 
 GrConvexPolyEffect::~GrConvexPolyEffect() {}
