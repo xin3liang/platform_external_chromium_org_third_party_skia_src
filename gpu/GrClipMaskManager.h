@@ -11,7 +11,6 @@
 #include "GrClipMaskCache.h"
 #include "GrContext.h"
 #include "GrDrawState.h"
-#include "GrPathRenderer.h"
 #include "GrReducedClip.h"
 #include "GrStencil.h"
 #include "GrTexture.h"
@@ -47,9 +46,12 @@ public:
     /**
      * Creates a clip mask if necessary as a stencil buffer or alpha texture
      * and sets the GrGpu's scissor and stencil state. If the return is false
-     * then the draw can be skipped.
+     * then the draw can be skipped. The AutoRestoreEffects is initialized by
+     * the manager when it must install additional effects to implement the
+     * clip. devBounds is optional but can help optimize clipping.
      */
-    bool setupClipping(const GrClipData* clipDataIn, GrDrawState::AutoRestoreEffects*);
+    bool setupClipping(const GrClipData* clipDataIn, GrDrawState::AutoRestoreEffects*,
+                       const SkRect* devBounds);
 
     void releaseResources();
 
@@ -131,18 +133,15 @@ private:
 
     bool useSWOnlyPath(const GrReducedClip::ElementList& elements);
 
-    // Draws a filled clip path into the target alpha mask
-    bool drawFilledPath(GrTexture* target, GrPathRenderer* pathRenderer, bool isAA);
-
     // Draws a clip element into the target alpha mask. The caller should have already setup the
-    // desired blend operation.
-    bool drawElement(GrTexture* target, const SkClipStack::Element* element);
+    // desired blend operation. Optionally if the caller already selected a path renderer it can
+    // be passed. Otherwise the function will select one if the element is a path.
+    bool drawElement(GrTexture* target, const SkClipStack::Element*, GrPathRenderer* = NULL);
 
     // Determines whether it is possible to draw the element to both the stencil buffer and the
     // alpha mask simultaneously. If so and the element is a path a compatible path renderer is
     // also returned.
-    bool canStencilAndDrawElement(GrTexture* target, const SkClipStack::Element*, 
-                                  GrPathRenderer::AutoClearPath* pr);
+    bool canStencilAndDrawElement(GrTexture* target, const SkClipStack::Element*, GrPathRenderer**);
 
     void mergeMask(GrTexture* dstMask,
                    GrTexture* srcMask,

@@ -44,17 +44,13 @@ void SkWriter32::writeString(const char str[], size_t len) {
     if ((long)len < 0) {
         len = strlen(str);
     }
-    this->write32(len);
-    // add 1 since we also write a terminating 0
-    size_t alignedLen = SkAlign4(len + 1);
-    char* ptr = (char*)this->reserve(alignedLen);
-    {
-        // Write the terminating 0 and fill in the rest with zeroes
-        uint32_t* padding = (uint32_t*)(ptr + (alignedLen - 4));
-        *padding = 0;
-    }
-    // Copy the string itself.
-    memcpy(ptr, str, len);
+
+    // [ 4 byte len ] [ str ... ] [1 - 4 \0s]
+    uint32_t* ptr = this->reservePad(sizeof(uint32_t) + len + 1);
+    *ptr = len;
+    char* chars = (char*)(ptr + 1);
+    memcpy(chars, str, len);
+    chars[len] = '\0';
 }
 
 size_t SkWriter32::WriteStringSize(const char* str, size_t len) {
@@ -65,4 +61,21 @@ size_t SkWriter32::WriteStringSize(const char* str, size_t len) {
     const size_t lenBytes = 4;    // we use 4 bytes to record the length
     // add 1 since we also write a terminating 0
     return SkAlign4(lenBytes + len + 1);
+}
+
+const size_t kMinBufferBytes = 4096;
+
+void SkWriter32::growToAtLeast(size_t size) {
+    const bool wasExternal = (fExternal != NULL) && (fData == fExternal);
+    const size_t minCapacity = kMinBufferBytes +
+        SkTMax(size, fCapacity + (fCapacity >> 1));
+
+    // cause the buffer to grow
+    fInternal.setCountExact(minCapacity);
+    fData = fInternal.begin();
+    fCapacity = fInternal.reserved();
+    if (wasExternal) {
+        // we were external, so copy in the data
+        memcpy(fData, fExternal, fUsed);
+    }
 }
