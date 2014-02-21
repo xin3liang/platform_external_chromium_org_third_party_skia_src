@@ -47,7 +47,7 @@ public:
     /**
      * Creates and returns a struct representing a draw at the given offset.
      */
-    Draw* appendDraw(uint32_t offset);
+    Draw* appendDraw(size_t offset);
 
     /**
      * Given a list of draws, and a canvas, returns an iterator that produces the correct sequence
@@ -57,10 +57,10 @@ public:
     Iterator getIterator(const SkTDArray<void*>& draws, SkCanvas* canvas);
 
     void appendSave();
-    void appendSaveLayer(uint32_t offset);
+    void appendSaveLayer(size_t offset);
     void appendRestore();
     void appendTransform(const SkMatrix& trans);
-    void appendClip(uint32_t offset);
+    void appendClip(size_t offset);
 
     /**
      * Call this immediately after an appendRestore call that is associated
@@ -112,10 +112,9 @@ public:
 
 private:
 
-    void appendNode(uint32_t offset);
+    void appendNode(size_t offset);
 
     SkChunkAlloc fAlloc;
-    Node* fRoot;
     // Needed by saveCollapsed() because nodes do not currently store
     // references to their children.  If they did, we could just retrieve the
     // last added child.
@@ -139,6 +138,9 @@ private:
             kSaveLayer_Flag = 0x2
         };
     };
+
+    Node fRoot;
+    SkMatrix fRootMatrix;
 
     typedef SkRefCnt INHERITED;
 };

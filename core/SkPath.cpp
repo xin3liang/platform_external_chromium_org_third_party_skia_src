@@ -15,11 +15,6 @@
 #include "SkRRect.h"
 #include "SkThread.h"
 
-// This value is just made-up for now. When count is 4, calling memset was much
-// slower than just writing the loop. This seems odd, and hopefully in the
-// future this we appear to have been a fluke...
-#define MIN_COUNT_FOR_MEMSET_TO_BE_FAST 16
-
 ////////////////////////////////////////////////////////////////////////////
 
 /**
@@ -143,7 +138,6 @@ void SkPath::resetFields() {
     //fPathRef is assumed to have been emptied by the caller.
     fLastMoveToIndex = INITIAL_LASTMOVETOINDEX_VALUE;
     fFillType = kWinding_FillType;
-    fSegmentMask = 0;
     fConvexity = kUnknown_Convexity;
     fDirection = kUnknown_Direction;
 
@@ -182,7 +176,6 @@ void SkPath::copyFields(const SkPath& that) {
     //fPathRef is assumed to have been set by the caller.
     fLastMoveToIndex = that.fLastMoveToIndex;
     fFillType        = that.fFillType;
-    fSegmentMask     = that.fSegmentMask;
     fConvexity       = that.fConvexity;
     fDirection       = that.fDirection;
 }
@@ -190,14 +183,8 @@ void SkPath::copyFields(const SkPath& that) {
 bool operator==(const SkPath& a, const SkPath& b) {
     // note: don't need to look at isConvex or bounds, since just comparing the
     // raw data is sufficient.
-
-    // We explicitly check fSegmentMask as a quick-reject. We could skip it,
-    // since it is only a cache of info in the fVerbs, but its a fast way to
-    // notice a difference
-
     return &a == &b ||
-        (a.fFillType == b.fFillType && a.fSegmentMask == b.fSegmentMask &&
-         *a.fPathRef.get() == *b.fPathRef.get());
+        (a.fFillType == b.fFillType && *a.fPathRef.get() == *b.fPathRef.get());
 }
 
 void SkPath::swap(SkPath& that) {
@@ -207,7 +194,6 @@ void SkPath::swap(SkPath& that) {
         fPathRef.swap(&that.fPathRef);
         SkTSwap<int>(fLastMoveToIndex, that.fLastMoveToIndex);
         SkTSwap<uint8_t>(fFillType, that.fFillType);
-        SkTSwap<uint8_t>(fSegmentMask, that.fSegmentMask);
         SkTSwap<uint8_t>(fConvexity, that.fConvexity);
         SkTSwap<uint8_t>(fDirection, that.fDirection);
 #ifdef SK_BUILD_FOR_ANDROID
@@ -373,10 +359,13 @@ The test fails if:
   There's more than four changes of direction.
   There's a discontinuity on the line (e.g., a move in the middle)
   The line reverses direction.
-  The rectangle doesn't complete a cycle.
   The path contains a quadratic or cubic.
   The path contains fewer than four points.
-  The final point isn't equal to the first point.
+ *The rectangle doesn't complete a cycle.
+ *The final point isn't equal to the first point.
+
+  *These last two conditions we relax if we have a 3-edge path that would
+   form a rectangle if it were closed (as we do when we fill a path)
 
 It's OK if the path has:
   Several colinear line segments composing a rectangle side.
@@ -388,7 +377,18 @@ must travel in opposite directions.
 FIXME: Allow colinear quads and cubics to be treated like lines.
 FIXME: If the API passes fill-only, return true if the filled stroke
        is a rectangle, though the caller failed to close the path.
+
+ first,last,next direction state-machine:
+    0x1 is set if the segment is horizontal
+    0x2 is set if the segment is moving to the right or down
+ thus:
+    two directions are opposites iff (dirA ^ dirB) == 0x2
+    two directions are perpendicular iff (dirA ^ dirB) == 0x1
+
  */
+static int rect_make_dir(SkScalar dx, SkScalar dy) {
+    return ((0 != dx) << 0) | ((dx > 0 || dy > 0) << 1);
+}
 bool SkPath::isRectContour(bool allowPartial, int* currVerb, const SkPoint** ptsPtr,
         bool* isClosed, Direction* direction) const {
     int corners = 0;
@@ -421,8 +421,7 @@ bool SkPath::isRectContour(bool allowPartial, int* currVerb, const SkPoint** pts
                 if (left == right && top == bottom) {
                     break; // single point on side OK
                 }
-                nextDirection = (left != right) << 0 |
-                    (left < right || top < bottom) << 1;
+                nextDirection = rect_make_dir(right - left, bottom - top);
                 if (0 == corners) {
                     firstDirection = nextDirection;
                     first = last;
@@ -474,6 +473,25 @@ bool SkPath::isRectContour(bool allowPartial, int* currVerb, const SkPoint** pts
     }
     // Success if 4 corners and first point equals last
     bool result = 4 == corners && (first == last || autoClose);
+    if (!result) {
+        // check if we are just an incomplete rectangle, in which case we can
+        // return true, but not claim to be closed.
+        // e.g.
+        //    3 sided rectangle
+        //    4 sided but the last edge is not long enough to reach the start
+        //
+        SkScalar closeX = first.x() - last.x();
+        SkScalar closeY = first.y() - last.y();
+        if (closeX && closeY) {
+            return false;   // we're diagonal, abort (can we ever reach this?)
+        }
+        int closeDirection = rect_make_dir(closeX, closeY);
+        // make sure the close-segment doesn't double-back on itself
+        if (3 == corners || (4 == corners && closeDirection == lastDirection)) {
+            result = true;
+            autoClose = false;  // we are not closed
+        }
+    }
     if (savePts) {
         *ptsPtr = savePts;
     }
@@ -484,6 +502,14 @@ bool SkPath::isRectContour(bool allowPartial, int* currVerb, const SkPoint** pts
         *direction = firstDirection == ((lastDirection + 1) & 3) ? kCCW_Direction : kCW_Direction;
     }
     return result;
+}
+
+SkPath::PathAsRect SkPath::asRect(Direction* direction) const {
+    SK_COMPILE_ASSERT(0 == kNone_PathAsRect, path_as_rect_mismatch);
+    SK_COMPILE_ASSERT(1 == kFill_PathAsRect, path_as_rect_mismatch);
+    SK_COMPILE_ASSERT(2 == kStroke_PathAsRect, path_as_rect_mismatch);
+    bool isClosed = false;
+    return (PathAsRect) (isRect(&isClosed, direction) + isClosed);
 }
 
 bool SkPath::isRect(SkRect* rect) const {
@@ -674,7 +700,6 @@ void SkPath::lineTo(SkScalar x, SkScalar y) {
 
     SkPathRef::Editor ed(&fPathRef);
     ed.growForVerb(kLine_Verb)->set(x, y);
-    fSegmentMask |= kLine_SegmentMask;
 
     DIRTY_AFTER_EDIT;
 }
@@ -695,7 +720,6 @@ void SkPath::quadTo(SkScalar x1, SkScalar y1, SkScalar x2, SkScalar y2) {
     SkPoint* pts = ed.growForVerb(kQuad_Verb);
     pts[0].set(x1, y1);
     pts[1].set(x2, y2);
-    fSegmentMask |= kQuad_SegmentMask;
 
     DIRTY_AFTER_EDIT;
 }
@@ -723,10 +747,9 @@ void SkPath::conicTo(SkScalar x1, SkScalar y1, SkScalar x2, SkScalar y2,
         this->injectMoveToIfNeeded();
 
         SkPathRef::Editor ed(&fPathRef);
-        SkPoint* pts = ed.growForConic(w);
+        SkPoint* pts = ed.growForVerb(kConic_Verb, w);
         pts[0].set(x1, y1);
         pts[1].set(x2, y2);
-        fSegmentMask |= kConic_SegmentMask;
 
         DIRTY_AFTER_EDIT;
     }
@@ -751,7 +774,6 @@ void SkPath::cubicTo(SkScalar x1, SkScalar y1, SkScalar x2, SkScalar y2,
     pts[0].set(x1, y1);
     pts[1].set(x2, y2);
     pts[2].set(x3, y3);
-    fSegmentMask |= kCubic_SegmentMask;
 
     DIRTY_AFTER_EDIT;
 }
@@ -838,29 +860,19 @@ void SkPath::addPoly(const SkPoint pts[], int count, bool close) {
         return;
     }
 
-    SkPathRef::Editor ed(&fPathRef);
-    fLastMoveToIndex = ed.pathRef()->countPoints();
-    uint8_t* vb;
-    SkPoint* p;
-    // +close makes room for the extra kClose_Verb
-    ed.grow(count + close, count, &vb, &p);
+    fLastMoveToIndex = fPathRef->countPoints();
 
-    memcpy(p, pts, count * sizeof(SkPoint));
-    vb[~0] = kMove_Verb;
+    // +close makes room for the extra kClose_Verb
+    SkPathRef::Editor ed(&fPathRef, count+close, count);
+
+    ed.growForVerb(kMove_Verb)->set(pts[0].fX, pts[0].fY);
     if (count > 1) {
-        // cast to unsigned, so if MIN_COUNT_FOR_MEMSET_TO_BE_FAST is defined to
-        // be 0, the compiler will remove the test/branch entirely.
-        if ((unsigned)count >= MIN_COUNT_FOR_MEMSET_TO_BE_FAST) {
-            memset(vb - count, kLine_Verb, count - 1);
-        } else {
-            for (int i = 1; i < count; ++i) {
-                vb[~i] = kLine_Verb;
-            }
-        }
-        fSegmentMask |= kLine_SegmentMask;
+        SkPoint* p = ed.growForRepeatedVerb(kLine_Verb, count - 1);
+        memcpy(p, &pts[1], (count-1) * sizeof(SkPoint));
     }
+
     if (close) {
-        vb[~count] = kClose_Verb;
+        ed.growForVerb(kClose_Verb);
     }
 
     DIRTY_AFTER_EDIT;
@@ -1343,11 +1355,21 @@ void SkPath::addArc(const SkRect& oval, SkScalar startAngle, SkScalar sweepAngle
     SkPoint pts[kSkBuildQuadArcStorage];
     int count = build_arc_points(oval, startAngle, sweepAngle, pts);
 
-    this->incReserve(count);
-    this->moveTo(pts[0]);
-    for (int i = 1; i < count; i += 2) {
-        this->quadTo(pts[i], pts[i+1]);
+    SkDEBUGCODE(this->validate();)
+    SkASSERT(count & 1);
+
+    fLastMoveToIndex = fPathRef->countPoints();
+
+    SkPathRef::Editor ed(&fPathRef, 1+(count-1)/2, count);
+
+    ed.growForVerb(kMove_Verb)->set(pts[0].fX, pts[0].fY);
+    if (count > 1) {
+        SkPoint* p = ed.growForRepeatedVerb(kQuad_Verb, (count-1)/2);
+        memcpy(p, &pts[1], (count-1) * sizeof(SkPoint));
     }
+
+    DIRTY_AFTER_EDIT;
+    SkDEBUGCODE(this->validate();)
 }
 
 /*
@@ -1421,14 +1443,14 @@ void SkPath::arcTo(SkScalar x1, SkScalar y1, SkScalar x2, SkScalar y2,
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void SkPath::addPath(const SkPath& path, SkScalar dx, SkScalar dy) {
+void SkPath::addPath(const SkPath& path, SkScalar dx, SkScalar dy, AddPathMode mode) {
     SkMatrix matrix;
 
     matrix.setTranslate(dx, dy);
-    this->addPath(path, matrix);
+    this->addPath(path, matrix, mode);
 }
 
-void SkPath::addPath(const SkPath& path, const SkMatrix& matrix) {
+void SkPath::addPath(const SkPath& path, const SkMatrix& matrix, AddPathMode mode) {
     SkPathRef::Editor(&fPathRef, path.countVerbs(), path.countPoints());
 
     RawIter iter(path);
@@ -1436,12 +1458,17 @@ void SkPath::addPath(const SkPath& path, const SkMatrix& matrix) {
     Verb    verb;
 
     SkMatrix::MapPtsProc proc = matrix.getMapPtsProc();
-
+    bool firstVerb = true;
     while ((verb = iter.next(pts)) != kDone_Verb) {
         switch (verb) {
             case kMove_Verb:
                 proc(matrix, &pts[0], &pts[0], 1);
-                this->moveTo(pts[0]);
+                if (firstVerb && mode == kExtend_AddPathMode && !isEmpty()) {
+                    injectMoveToIfNeeded(); // In case last contour is closed
+                    this->lineTo(pts[0]);
+                } else {
+                    this->moveTo(pts[0]);
+                }
                 break;
             case kLine_Verb:
                 proc(matrix, &pts[1], &pts[1], 1);
@@ -1465,6 +1492,7 @@ void SkPath::addPath(const SkPath& path, const SkMatrix& matrix) {
             default:
                 SkDEBUGFAIL("unknown verb");
         }
+        firstVerb = false;
     }
 }
 
@@ -1671,7 +1699,6 @@ void SkPath::transform(const SkMatrix& matrix, SkPath* dst) const {
 
         if (this != dst) {
             dst->fFillType = fFillType;
-            dst->fSegmentMask = fSegmentMask;
             dst->fConvexity = fConvexity;
         }
 
@@ -2045,12 +2072,7 @@ size_t SkPath::writeToMemory(void* storage) const {
 
     int32_t packed = (fConvexity << kConvexity_SerializationShift) |
                      (fFillType << kFillType_SerializationShift) |
-                     (fSegmentMask << kSegmentMask_SerializationShift) |
-                     (fDirection << kDirection_SerializationShift)
-#ifndef DELETE_THIS_CODE_WHEN_SKPS_ARE_REBUILT_AT_V16_AND_ALL_OTHER_INSTANCES_TOO
-                     | (0x1 << kNewFormat_SerializationShift)
-#endif
-                     ;
+                     (fDirection << kDirection_SerializationShift);
 
     buffer.write32(packed);
 
@@ -2070,17 +2092,8 @@ size_t SkPath::readFromMemory(const void* storage, size_t length) {
 
     fConvexity = (packed >> kConvexity_SerializationShift) & 0xFF;
     fFillType = (packed >> kFillType_SerializationShift) & 0xFF;
-    fSegmentMask = (packed >> kSegmentMask_SerializationShift) & 0xF;
     fDirection = (packed >> kDirection_SerializationShift) & 0x3;
-#ifndef DELETE_THIS_CODE_WHEN_SKPS_ARE_REBUILT_AT_V16_AND_ALL_OTHER_INSTANCES_TOO
-    bool newFormat = (packed >> kNewFormat_SerializationShift) & 1;
-#endif
-
-    SkPathRef* pathRef = SkPathRef::CreateFromBuffer(&buffer
-#ifndef DELETE_THIS_CODE_WHEN_SKPS_ARE_REBUILT_AT_V16_AND_ALL_OTHER_INSTANCES_TOO
-        , newFormat, packed
-#endif
-        );
+    SkPathRef* pathRef = SkPathRef::CreateFromBuffer(&buffer);
 
     size_t sizeRead = 0;
     if (buffer.isValid()) {
@@ -2201,34 +2214,6 @@ void SkPath::validate() const {
             }
         }
     }
-
-    uint32_t mask = 0;
-    const uint8_t* verbs = const_cast<const SkPathRef*>(fPathRef.get())->verbs();
-    for (int i = 0; i < fPathRef->countVerbs(); i++) {
-        switch (verbs[~i]) {
-            case kLine_Verb:
-                mask |= kLine_SegmentMask;
-                break;
-            case kQuad_Verb:
-                mask |= kQuad_SegmentMask;
-                break;
-            case kConic_Verb:
-                mask |= kConic_SegmentMask;
-                break;
-            case kCubic_Verb:
-                mask |= kCubic_SegmentMask;
-            case kMove_Verb:  // these verbs aren't included in the segment mask.
-            case kClose_Verb:
-                break;
-            case kDone_Verb:
-                SkDEBUGFAIL("Done verb shouldn't be recorded.");
-                break;
-            default:
-                SkDEBUGFAIL("Unknown Verb");
-                break;
-        }
-    }
-    SkASSERT(mask == fSegmentMask);
 #endif // SK_DEBUG_PATH
 }
 #endif // SK_DEBUG

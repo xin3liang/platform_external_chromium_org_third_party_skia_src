@@ -19,21 +19,21 @@ struct SkAshmemRec {
 
 class SkImageRef_ashmem : public SkImageRef {
 public:
-    SkImageRef_ashmem(SkStreamRewindable*, SkBitmap::Config, int sampleSize = 1);
+    SkImageRef_ashmem(const SkImageInfo&, SkStreamRewindable*, int sampleSize = 1);
     virtual ~SkImageRef_ashmem();
 
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkImageRef_ashmem)
 
 protected:
-    SkImageRef_ashmem(SkFlattenableReadBuffer&);
-    virtual void flatten(SkFlattenableWriteBuffer&) const SK_OVERRIDE;
+    SkImageRef_ashmem(SkReadBuffer&);
+    virtual void flatten(SkWriteBuffer&) const SK_OVERRIDE;
 
     virtual bool onDecode(SkImageDecoder* codec, SkStreamRewindable* stream,
                           SkBitmap* bitmap, SkBitmap::Config config,
                           SkImageDecoder::Mode mode);
 
-    virtual void* onLockPixels(SkColorTable**);
-    virtual void onUnlockPixels();
+    virtual bool onNewLockPixels(LockRec*) SK_OVERRIDE;
+    virtual void onUnlockPixels() SK_OVERRIDE;
 
 private:
     void closeFD();

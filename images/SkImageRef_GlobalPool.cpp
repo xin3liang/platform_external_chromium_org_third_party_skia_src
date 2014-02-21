@@ -24,10 +24,10 @@ static SkImageRefPool* GetGlobalPool() {
     return gPool;
 }
 
-SkImageRef_GlobalPool::SkImageRef_GlobalPool(SkStreamRewindable* stream,
-                                             SkBitmap::Config config,
+SkImageRef_GlobalPool::SkImageRef_GlobalPool(const SkImageInfo& info,
+                                             SkStreamRewindable* stream,
                                              int sampleSize)
-        : SkImageRef(stream, config, sampleSize, &gGlobalPoolMutex) {
+        : SkImageRef(info, stream, sampleSize, &gGlobalPoolMutex) {
     SkASSERT(&gGlobalPoolMutex == this->mutex());
     SkAutoMutexAcquire ac(gGlobalPoolMutex);
     GetGlobalPool()->addToHead(this);
@@ -64,7 +64,7 @@ void SkImageRef_GlobalPool::onUnlockPixels() {
     GetGlobalPool()->canLosePixels(this);
 }
 
-SkImageRef_GlobalPool::SkImageRef_GlobalPool(SkFlattenableReadBuffer& buffer)
+SkImageRef_GlobalPool::SkImageRef_GlobalPool(SkReadBuffer& buffer)
         : INHERITED(buffer, &gGlobalPoolMutex) {
     SkASSERT(&gGlobalPoolMutex == this->mutex());
     SkAutoMutexAcquire ac(gGlobalPoolMutex);

@@ -232,15 +232,14 @@ GraphicStateEntry::GraphicStateEntry() : fColor(SK_ColorBLACK),
     fMatrix.reset();
 }
 
-bool GraphicStateEntry::compareInitialState(const GraphicStateEntry& b) {
-    return fColor == b.fColor &&
-           fShaderIndex == b.fShaderIndex &&
-           fGraphicStateIndex == b.fGraphicStateIndex &&
-           fMatrix == b.fMatrix &&
-           fClipStack == b.fClipStack &&
-               (fTextScaleX == 0 ||
-                b.fTextScaleX == 0 ||
-                (fTextScaleX == b.fTextScaleX && fTextFill == b.fTextFill));
+bool GraphicStateEntry::compareInitialState(const GraphicStateEntry& cur) {
+    return fColor == cur.fColor &&
+           fShaderIndex == cur.fShaderIndex &&
+           fGraphicStateIndex == cur.fGraphicStateIndex &&
+           fMatrix == cur.fMatrix &&
+           fClipStack == cur.fClipStack &&
+           (fTextScaleX == 0 ||
+               (fTextScaleX == cur.fTextScaleX && fTextFill == cur.fTextFill));
 }
 
 class GraphicStackState {
@@ -1341,7 +1340,7 @@ void SkPDFDevice::drawVertices(const SkDraw& d, SkCanvas::VertexMode,
     if (d.fClip->isEmpty()) {
         return;
     }
-    NOT_IMPLEMENTED("drawVerticies", true);
+    // TODO: implement drawVertices
 }
 
 void SkPDFDevice::drawDevice(const SkDraw& d, SkBaseDevice* device,
@@ -1912,8 +1911,10 @@ void SkPDFDevice::finishContentEntry(SkXfermode::Mode xfermode,
     ContentEntry* contentEntries = getContentEntries()->get();
     SkASSERT(dst);
     SkASSERT(!contentEntries->fNext.get());
-    // We have to make a copy of these here because changing the current
-    // content into a form-xobject will destroy them.
+    // Changing the current content into a form-xobject will destroy the clip
+    // objects which is fine since the xobject will already be clipped. However
+    // if source has shape, we need to clip it too, so a copy of the clip is
+    // saved.
     SkClipStack clipStack = contentEntries->fState.fClipStack;
     SkRegion clipRegion = contentEntries->fState.fClipRegion;
 
@@ -1930,7 +1931,8 @@ void SkPDFDevice::finishContentEntry(SkXfermode::Mode xfermode,
         // reduces to Dst.
         if (shape == NULL || xfermode == SkXfermode::kDstOut_Mode ||
                 xfermode == SkXfermode::kSrcATop_Mode) {
-            ScopedContentEntry content(this, &clipStack, clipRegion, identity,
+            ScopedContentEntry content(this, &fExistingClipStack,
+                                       fExistingClipRegion, identity,
                                        stockPaint);
             SkPDFUtils::DrawFormXObject(this->addXObjectResource(dst),
                                         &content.entry()->fContent);
@@ -1951,7 +1953,7 @@ void SkPDFDevice::finishContentEntry(SkXfermode::Mode xfermode,
         // the non-transparent parts of the device and the outlines (shape) of
         // all images and devices drawn.
         drawFormXObjectWithMask(addXObjectResource(srcFormXObject.get()), dst,
-                                &clipStack, clipRegion,
+                                &fExistingClipStack, fExistingClipRegion,
                                 SkXfermode::kSrcOver_Mode, true);
     } else {
         SkAutoTUnref<SkPDFFormXObject> dstMaskStorage;
@@ -1970,16 +1972,17 @@ void SkPDFDevice::finishContentEntry(SkXfermode::Mode xfermode,
             dstMaskStorage.reset(createFormXObjectFromDevice());
             dstMask = dstMaskStorage.get();
         }
-        drawFormXObjectWithMask(addXObjectResource(dst), dstMask, &clipStack,
-                                clipRegion, SkXfermode::kSrcOver_Mode, true);
+        drawFormXObjectWithMask(addXObjectResource(dst), dstMask,
+                                &fExistingClipStack, fExistingClipRegion,
+                                SkXfermode::kSrcOver_Mode, true);
     }
 
     if (xfermode == SkXfermode::kClear_Mode) {
         return;
     } else if (xfermode == SkXfermode::kSrc_Mode ||
             xfermode == SkXfermode::kDstATop_Mode) {
-        ScopedContentEntry content(this, &clipStack, clipRegion, identity,
-                                   stockPaint);
+        ScopedContentEntry content(this, &fExistingClipStack,
+                                   fExistingClipRegion, identity, stockPaint);
         if (content.entry()) {
             SkPDFUtils::DrawFormXObject(
                     this->addXObjectResource(srcFormXObject.get()),
@@ -1989,8 +1992,8 @@ void SkPDFDevice::finishContentEntry(SkXfermode::Mode xfermode,
             return;
         }
     } else if (xfermode == SkXfermode::kSrcATop_Mode) {
-        ScopedContentEntry content(this, &clipStack, clipRegion, identity,
-                                   stockPaint);
+        ScopedContentEntry content(this, &fExistingClipStack,
+                                   fExistingClipRegion, identity, stockPaint);
         if (content.entry()) {
             SkPDFUtils::DrawFormXObject(this->addXObjectResource(dst),
                                         &content.entry()->fContent);
@@ -2005,30 +2008,24 @@ void SkPDFDevice::finishContentEntry(SkXfermode::Mode xfermode,
              xfermode == SkXfermode::kDstATop_Mode ||
              xfermode == SkXfermode::kModulate_Mode);
 
-    ScopedContentEntry inShapeContentEntry(this, &fExistingClipStack,
-                                           fExistingClipRegion, identity,
-                                           stockPaint);
-    if (!inShapeContentEntry.entry()) {
-        return;
-    }
-
     if (xfermode == SkXfermode::kSrcIn_Mode ||
             xfermode == SkXfermode::kSrcOut_Mode ||
             xfermode == SkXfermode::kSrcATop_Mode) {
         drawFormXObjectWithMask(addXObjectResource(srcFormXObject.get()), dst,
-                                &clipStack, clipRegion,
+                                &fExistingClipStack, fExistingClipRegion,
                                 SkXfermode::kSrcOver_Mode,
                                 xfermode == SkXfermode::kSrcOut_Mode);
     } else {
         SkXfermode::Mode mode = SkXfermode::kSrcOver_Mode;
         if (xfermode == SkXfermode::kModulate_Mode) {
             drawFormXObjectWithMask(addXObjectResource(srcFormXObject.get()),
-                                    dst, &clipStack, clipRegion,
+                                    dst, &fExistingClipStack,
+                                    fExistingClipRegion,
                                     SkXfermode::kSrcOver_Mode, false);
             mode = SkXfermode::kMultiply_Mode;
         }
         drawFormXObjectWithMask(addXObjectResource(dst), srcFormXObject.get(),
-                                &clipStack, clipRegion, mode,
+                                &fExistingClipStack, fExistingClipRegion, mode,
                                 xfermode == SkXfermode::kDstOut_Mode);
     }
 }
@@ -2252,13 +2249,11 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& origMatrix,
         // the image.  Avoiding alpha will reduce the pdf size and generation
         // CPU time some.
 
-        perspectiveBitmap.setConfig(
-                SkBitmap::kARGB_8888_Config,
-                SkScalarCeilToInt(
-                        physicalPerspectiveOutline.getBounds().width()),
-                SkScalarCeilToInt(
-                        physicalPerspectiveOutline.getBounds().height()));
-        perspectiveBitmap.allocPixels();
+        const int w = SkScalarCeilToInt(physicalPerspectiveOutline.getBounds().width());
+        const int h = SkScalarCeilToInt(physicalPerspectiveOutline.getBounds().height());
+        if (!perspectiveBitmap.allocPixels(SkImageInfo::MakeN32Premul(w, h))) {
+            return;
+        }
         perspectiveBitmap.eraseColor(SK_ColorTRANSPARENT);
 
         SkBitmapDevice device(perspectiveBitmap);
@@ -2334,6 +2329,6 @@ bool SkPDFDevice::onReadPixels(const SkBitmap& bitmap, int x, int y,
     return false;
 }
 
-bool SkPDFDevice::allowImageFilter(SkImageFilter*) {
+bool SkPDFDevice::allowImageFilter(const SkImageFilter*) {
     return false;
 }
