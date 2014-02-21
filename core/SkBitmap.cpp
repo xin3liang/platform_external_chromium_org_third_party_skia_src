@@ -253,7 +253,14 @@ static bool validate_alphaType(SkColorType colorType, SkAlphaType alphaType,
     return true;
 }
 
-bool SkBitmap::setConfig(const SkImageInfo& info, size_t rowBytes) {
+bool SkBitmap::setConfig(const SkImageInfo& origInfo, size_t rowBytes) {
+    SkImageInfo info = origInfo;
+
+    if (!validate_alphaType(info.fColorType, info.fAlphaType,
+                            &info.fAlphaType)) {
+        return reset_return_false(this);
+    }
+
     // require that rowBytes fit in 31bits
     int64_t mrb = info.minRowBytes64();
     if ((int32_t)mrb != mrb) {
@@ -504,7 +511,21 @@ bool SkBitmap::installPixels(const SkImageInfo& info, void* pixels, size_t rb,
     }
 
     this->setPixelRef(pr)->unref();
+
+    // since we're already allocated, we lockPixels right away
+    this->lockPixels();
+    SkDEBUGCODE(this->validate();)
     return true;
+}
+
+bool SkBitmap::installMaskPixels(const SkMask& mask) {
+    if (SkMask::kA8_Format != mask.fFormat) {
+        this->reset();
+        return false;
+    }
+    return this->installPixels(SkImageInfo::MakeA8(mask.fBounds.width(),
+                                                   mask.fBounds.height()),
+                               mask.fImage, mask.fRowBytes);
 }
 
 bool SkBitmap::allocConfigPixels(Config config, int width, int height,
@@ -1619,6 +1640,13 @@ SkBitmap::RLEPixels::~RLEPixels() {
 #ifdef SK_DEBUG
 void SkBitmap::validate() const {
     fInfo.validate();
+
+    // ImageInfo may not require this, but Bitmap ensures that opaque-only
+    // colorTypes report opaque for their alphatype
+    if (kRGB_565_SkColorType == fInfo.colorType()) {
+        SkASSERT(kOpaque_SkAlphaType == fInfo.alphaType());
+    }
+
     SkASSERT(fInfo.validRowBytes(fRowBytes));
     uint8_t allFlags = kImageIsOpaque_Flag | kImageIsVolatile_Flag | kImageIsImmutable_Flag;
 #ifdef SK_BUILD_FOR_ANDROID

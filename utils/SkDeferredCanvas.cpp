@@ -137,8 +137,7 @@ void DeferredPipeController::playback(bool silent) {
 //-----------------------------------------------------------------------------
 // DeferredDevice
 //-----------------------------------------------------------------------------
-// FIXME: Derive from SkBaseDevice.
-class DeferredDevice : public SkBitmapDevice {
+class DeferredDevice : public SkBaseDevice {
 public:
     explicit DeferredDevice(SkSurface* surface);
     ~DeferredDevice();
@@ -163,12 +162,13 @@ public:
     virtual uint32_t getDeviceCapabilities() SK_OVERRIDE;
     virtual int width() const SK_OVERRIDE;
     virtual int height() const SK_OVERRIDE;
+    virtual SkBitmap::Config config() const SK_OVERRIDE;
+    virtual bool isOpaque() const SK_OVERRIDE;
+    virtual SkImageInfo imageInfo() const SK_OVERRIDE;
+
     virtual GrRenderTarget* accessRenderTarget() SK_OVERRIDE;
 
-    virtual SkBaseDevice* onCreateCompatibleDevice(SkBitmap::Config config,
-                                                   int width, int height,
-                                                   bool isOpaque,
-                                                   Usage usage) SK_OVERRIDE;
+    virtual SkBaseDevice* onCreateDevice(const SkImageInfo&, Usage) SK_OVERRIDE;
 
     virtual void writePixels(const SkBitmap& bitmap, int x, int y,
                                 SkCanvas::Config8888 config8888) SK_OVERRIDE;
@@ -199,9 +199,11 @@ protected:
     virtual void drawRect(const SkDraw&, const SkRect& r,
                             const SkPaint& paint) SK_OVERRIDE
         {SkASSERT(0);}
+    virtual void drawOval(const SkDraw&, const SkRect&, const SkPaint&) SK_OVERRIDE
+        {SkASSERT(0);}
     virtual void drawRRect(const SkDraw&, const SkRRect& rr,
                            const SkPaint& paint) SK_OVERRIDE
-        {SkASSERT(0);}
+    {SkASSERT(0);}
     virtual void drawPath(const SkDraw&, const SkPath& path,
                             const SkPaint& paint,
                             const SkMatrix* prePathMatrix = NULL,
@@ -209,6 +211,10 @@ protected:
         {SkASSERT(0);}
     virtual void drawBitmap(const SkDraw&, const SkBitmap& bitmap,
                             const SkMatrix& matrix, const SkPaint& paint) SK_OVERRIDE
+        {SkASSERT(0);}
+    virtual void drawBitmapRect(const SkDraw&, const SkBitmap&, const SkRect*,
+                                const SkRect&, const SkPaint&,
+                                SkCanvas::DrawBitmapRectFlags) SK_OVERRIDE
         {SkASSERT(0);}
     virtual void drawSprite(const SkDraw&, const SkBitmap& bitmap,
                             int x, int y, const SkPaint& paint) SK_OVERRIDE
@@ -234,8 +240,24 @@ protected:
     virtual void drawDevice(const SkDraw&, SkBaseDevice*, int x, int y,
                             const SkPaint&) SK_OVERRIDE
         {SkASSERT(0);}
+
+    virtual void lockPixels() SK_OVERRIDE {}
+    virtual void unlockPixels() SK_OVERRIDE {}
+
+    virtual bool allowImageFilter(const SkImageFilter*) SK_OVERRIDE {
+        return false;
+    }
+    virtual bool canHandleImageFilter(const SkImageFilter*) SK_OVERRIDE {
+        return false;
+    }
+    virtual bool filterImage(const SkImageFilter*, const SkBitmap&,
+                             const SkMatrix&, SkBitmap*, SkIPoint*) SK_OVERRIDE {
+        return false;
+    }
+
 private:
     virtual void flush() SK_OVERRIDE;
+    virtual void replaceBitmapBackendForRasterSurface(const SkBitmap&) SK_OVERRIDE {}
 
     void beginRecording();
     void init();
@@ -255,12 +277,7 @@ private:
     size_t fBitmapSizeThreshold;
 };
 
-DeferredDevice::DeferredDevice(SkSurface* surface)
-    : SkBitmapDevice(SkBitmap::kNo_Config,
-                     surface->getCanvas()->getDevice()->width(),
-                     surface->getCanvas()->getDevice()->height(),
-                     surface->getCanvas()->getDevice()->isOpaque(),
-                     surface->getCanvas()->getDevice()->getDeviceProperties()) {
+DeferredDevice::DeferredDevice(SkSurface* surface) {
     fMaxRecordingStorageBytes = kDefaultMaxRecordingStorageBytes;
     fNotificationClient = NULL;
     fImmediateCanvas = NULL;
@@ -427,6 +444,18 @@ int DeferredDevice::height() const {
     return immediateDevice()->height();
 }
 
+SkBitmap::Config DeferredDevice::config() const {
+    return immediateDevice()->config();
+}
+
+bool DeferredDevice::isOpaque() const {
+    return immediateDevice()->isOpaque();
+}
+
+SkImageInfo DeferredDevice::imageInfo() const {
+    return immediateDevice()->imageInfo();
+}
+
 GrRenderTarget* DeferredDevice::accessRenderTarget() {
     this->flushPendingCommands(kNormal_PlaybackMode);
     return immediateDevice()->accessRenderTarget();
@@ -483,10 +512,7 @@ const SkBitmap& DeferredDevice::onAccessBitmap() {
     return immediateDevice()->accessBitmap(false);
 }
 
-SkBaseDevice* DeferredDevice::onCreateCompatibleDevice(
-    SkBitmap::Config config, int width, int height, bool isOpaque,
-    Usage usage) {
-
+SkBaseDevice* DeferredDevice::onCreateDevice(const SkImageInfo& info, Usage usage) {
     // Save layer usage not supported, and not required by SkDeferredCanvas.
     SkASSERT(usage != kSaveLayer_Usage);
     // Create a compatible non-deferred device.
@@ -494,7 +520,7 @@ SkBaseDevice* DeferredDevice::onCreateCompatibleDevice(
     // will not be used with a deferred canvas (there is no API for that).
     // And connecting a DeferredDevice to non-deferred canvas can result
     // in unpredictable behavior.
-    return immediateDevice()->createCompatibleDevice(config, width, height, isOpaque);
+    return immediateDevice()->createCompatibleDevice(info);
 }
 
 SkSurface* DeferredDevice::newSurface(const SkImageInfo& info) {

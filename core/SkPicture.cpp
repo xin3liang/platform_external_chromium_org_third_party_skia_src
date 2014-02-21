@@ -164,12 +164,7 @@ void SkPicture::clone(SkPicture* pictures, int count) const {
 
         clone->fWidth = fWidth;
         clone->fHeight = fHeight;
-        clone->fRecord = NULL;
-
-        if (NULL != clone->fRecord) {
-            clone->fRecord->unref();
-            clone->fRecord = NULL;
-        }
+        SkSafeSetNull(clone->fRecord);
         SkDELETE(clone->fPlayback);
 
         /*  We want to copy the src's playback. However, if that hasn't been built
@@ -196,26 +191,21 @@ SkCanvas* SkPicture::beginRecording(int width, int height,
         fPlayback = NULL;
     }
 
-    if (NULL != fRecord) {
-        fRecord->unref();
-        fRecord = NULL;
-    }
-
-    SkBitmap bm;
-    bm.setConfig(SkBitmap::kNo_Config, width, height);
-    SkAutoTUnref<SkBaseDevice> dev(SkNEW_ARGS(SkBitmapDevice, (bm)));
+    SkSafeSetNull(fRecord);
 
     // Must be set before calling createBBoxHierarchy
     fWidth = width;
     fHeight = height;
 
+    const SkISize size = SkISize::Make(width, height);
+
     if (recordingFlags & kOptimizeForClippedPlayback_RecordingFlag) {
         SkBBoxHierarchy* tree = this->createBBoxHierarchy();
         SkASSERT(NULL != tree);
-        fRecord = SkNEW_ARGS(SkBBoxHierarchyRecord, (recordingFlags, tree, dev));
+        fRecord = SkNEW_ARGS(SkBBoxHierarchyRecord, (size, recordingFlags, tree));
         tree->unref();
     } else {
-        fRecord = SkNEW_ARGS(SkPictureRecord, (recordingFlags, dev));
+        fRecord = SkNEW_ARGS(SkPictureRecord, (size, recordingFlags));
     }
     fRecord->beginRecording();
 
@@ -246,8 +236,7 @@ void SkPicture::endRecording() {
         if (NULL != fRecord) {
             fRecord->endRecording();
             fPlayback = SkNEW_ARGS(SkPicturePlayback, (*fRecord));
-            fRecord->unref();
-            fRecord = NULL;
+            SkSafeSetNull(fRecord);
         }
     }
     SkASSERT(NULL == fRecord);

@@ -28,8 +28,8 @@ static const uint32_t kSaveSize = 2 * kUInt32Size;
 static const uint32_t kSaveLayerNoBoundsSize = 4 * kUInt32Size;
 static const uint32_t kSaveLayerWithBoundsSize = 4 * kUInt32Size + sizeof(SkRect);
 
-SkPictureRecord::SkPictureRecord(uint32_t flags, SkBaseDevice* device)
-    : INHERITED(device)
+SkPictureRecord::SkPictureRecord(const SkISize& dimensions, uint32_t flags)
+    : INHERITED(dimensions.width(), dimensions.height())
     , fBoundingHierarchy(NULL)
     , fStateTree(NULL)
     , fFlattenableHeap(HEAP_BLOCK_SIZE)
@@ -137,11 +137,6 @@ static inline uint32_t getPaintOffset(DrawType op, uint32_t opSize) {
 
     SkASSERT(0 != gPaintOffsets[op]);   // really shouldn't be calling this method
     return gPaintOffsets[op] * sizeof(uint32_t) + overflow;
-}
-
-SkBaseDevice* SkPictureRecord::setDevice(SkBaseDevice* device) {
-    SkDEBUGFAIL("eeek, don't try to change the device on a recording canvas");
-    return this->INHERITED::setDevice(device);
 }
 
 int SkPictureRecord::save(SaveFlags flags) {
@@ -603,7 +598,6 @@ void SkPictureRecord::restore() {
         return;
     }
 
-    // TODO: don't write the restore to the op stream for normal saves
     fMCMgr.restore();
 #else
     // check for underflow

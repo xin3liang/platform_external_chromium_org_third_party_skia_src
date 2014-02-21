@@ -404,10 +404,8 @@ static bool get_clip_stack_path(const SkMatrix& transform,
             outClipPath->reset();
             outClipPath->setFillType(SkPath::kInverseWinding_FillType);
             continue;
-        } else if (SkClipStack::Element::kRect_Type == clipEntry->getType()) {
-            entryPath.addRect(clipEntry->getRect());
-        } else if (SkClipStack::Element::kPath_Type == clipEntry->getType()) {
-            entryPath = clipEntry->getPath();
+        } else {
+            clipEntry->asPath(&entryPath);
         }
         entryPath.transform(transform);
 
@@ -505,14 +503,13 @@ void GraphicStackState::updateClip(const SkClipStack& clipStack,
                     emit_clip(NULL, &translatedClip, fContentStream);
                     break;
                 }
-                case SkClipStack::Element::kPath_Type: {
+                default: {
                     SkPath translatedPath;
-                    clipEntry->getPath().transform(transform, &translatedPath);
+                    clipEntry->asPath(&translatedPath);
+                    translatedPath.transform(transform, &translatedPath);
                     emit_clip(&translatedPath, NULL, fContentStream);
                     break;
                 }
-                default:
-                    SkASSERT(false);
             }
         }
     }
@@ -585,13 +582,10 @@ void GraphicStackState::updateDrawingState(const GraphicStateEntry& state) {
     }
 }
 
-SkBaseDevice* SkPDFDevice::onCreateCompatibleDevice(SkBitmap::Config config,
-                                                    int width, int height,
-                                                    bool isOpaque,
-                                                    Usage usage) {
+SkBaseDevice* SkPDFDevice::onCreateDevice(const SkImageInfo& info, Usage usage) {
     SkMatrix initialTransform;
     initialTransform.reset();
-    SkISize size = SkISize::Make(width, height);
+    SkISize size = SkISize::Make(info.width(), info.height());
     return SkNEW_ARGS(SkPDFDevice, (size, size, initialTransform));
 }
 
