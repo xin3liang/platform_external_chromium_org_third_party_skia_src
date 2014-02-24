@@ -63,7 +63,10 @@ enum DrawType {
     COMMENT,
     END_COMMENT_GROUP,
 
-    LAST_DRAWTYPE_ENUM = END_COMMENT_GROUP
+    // new ops -- feel free to re-alphabetize on next version bump
+    DRAW_DRRECT,
+
+    LAST_DRAWTYPE_ENUM = DRAW_DRRECT
 };
 
 // In the 'match' method, this constant will match any flavor of DRAW_BITMAP*
@@ -561,15 +564,7 @@ private:
                    SkFlatData::Identity, SkFlatData::Hash, SkFlatData::Equal> fHash;
 };
 
-struct SkPaintTraits {
-    static void Flatten(SkWriteBuffer& buffer, const SkPaint& paint) {
-        paint.flatten(buffer);
-    }
-    static void Unflatten(SkReadBuffer& buffer, SkPaint* paint) {
-        paint->unflatten(buffer);
-    }
-};
-typedef SkFlatDictionary<SkPaint, SkPaintTraits> SkPaintDictionary;
+typedef SkFlatDictionary<SkPaint, SkPaint::FlatteningTraits> SkPaintDictionary;
 
 class SkChunkFlatController : public SkFlatController {
 public:
