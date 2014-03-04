@@ -23,7 +23,9 @@ public:
     SkDebugCanvas(int width, int height);
     virtual ~SkDebugCanvas();
 
-    void toggleFilter(bool toggle);
+    void toggleFilter(bool toggle) { fFilter = toggle; }
+
+    void setMegaVizMode(bool megaVizMode) { fMegaVizMode = megaVizMode; }
 
     /**
      * Enable or disable overdraw visualization
@@ -252,11 +254,14 @@ protected:
     virtual void onClipPath(const SkPath&, SkRegion::Op, ClipEdgeStyle) SK_OVERRIDE;
     virtual void onClipRegion(const SkRegion& region, SkRegion::Op) SK_OVERRIDE;
 
+    void markActiveCommands(int index);
+
 private:
     SkTDArray<SkDrawCommand*> fCommandVector;
     int fWidth;
     int fHeight;
     bool fFilter;
+    bool fMegaVizMode;
     int fIndex;
     SkMatrix fUserMatrix;
     SkMatrix fMatrix;
@@ -275,6 +280,18 @@ private:
         to avoid corruption of our canvas.
     */
     int fOutstandingSaveCount;
+
+    /** 
+        The active saveLayer commands at a given point in the renderering.
+        Only used when "mega" visualization is enabled.
+    */
+    SkTDArray<SkDrawCommand*> fActiveLayers;
+
+    /** 
+        The active cull commands at a given point in the rendering.
+        Only used when "mega" visualization is enabled.
+    */
+    SkTDArray<SkDrawCommand*> fActiveCulls;
 
     /**
         Adds the command to the classes vector of commands.
