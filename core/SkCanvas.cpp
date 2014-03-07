@@ -212,7 +212,6 @@ private:
 */
 class SkCanvas::MCRec {
 public:
-    MCRec*          fNext;
     int             fFlags;
     SkMatrix*       fMatrix;        // points to either fMatrixStorage or prev MCRec
     SkRasterClip*   fRasterClip;    // points to either fRegionStorage or prev MCRec
@@ -498,7 +497,6 @@ SkBaseDevice* SkCanvas::init(SkBaseDevice* device) {
 
     fMCRec->fLayer = SkNEW_ARGS(DeviceCM, (NULL, 0, 0, NULL, NULL));
     fMCRec->fTopLayer = fMCRec->fLayer;
-    fMCRec->fNext = NULL;
 
     fSurfaceBase = NULL;
 
@@ -698,6 +696,7 @@ bool SkCanvas::readPixels(const SkIRect& srcRect, SkBitmap* bitmap) {
     }
 }
 
+#ifdef SK_SUPPORT_LEGACY_WRITEPIXELSCONFIG
 void SkCanvas::writePixels(const SkBitmap& bitmap, int x, int y,
                            Config8888 config8888) {
     SkBaseDevice* device = this->getDevice();
@@ -708,6 +707,62 @@ void SkCanvas::writePixels(const SkBitmap& bitmap, int x, int y,
             device->writePixels(bitmap, x, y, config8888);
         }
     }
+}
+#endif
+
+bool SkCanvas::writePixels(const SkBitmap& bitmap, int x, int y) {
+    if (bitmap.getTexture()) {
+        return false;
+    }
+    SkBitmap bm(bitmap);
+    bm.lockPixels();
+    if (bm.getPixels()) {
+        return this->writePixels(bm.info(), bm.getPixels(), bm.rowBytes(), x, y);
+    }
+    return false;
+}
+
+bool SkCanvas::writePixels(const SkImageInfo& origInfo, const void* pixels, size_t rowBytes,
+                           int x, int y) {
+    switch (origInfo.colorType()) {
+        case kUnknown_SkColorType:
+        case kIndex_8_SkColorType:
+            return false;
+        default:
+            break;
+    }
+    if (NULL == pixels || rowBytes < origInfo.minRowBytes()) {
+        return false;
+    }
+
+    const SkISize size = this->getBaseLayerSize();
+    SkIRect target = SkIRect::MakeXYWH(x, y, origInfo.width(), origInfo.height());
+    if (!target.intersect(0, 0, size.width(), size.height())) {
+        return false;
+    }
+
+    SkBaseDevice* device = this->getDevice();
+    if (!device) {
+        return false;
+    }
+
+    SkImageInfo info = origInfo;
+    // the intersect may have shrunk info's logical size
+    info.fWidth = target.width();
+    info.fHeight = target.height();
+
+    // if x or y are negative, then we have to adjust pixels
+    if (x > 0) {
+        x = 0;
+    }
+    if (y > 0) {
+        y = 0;
+    }
+    // here x,y are either 0 or negative
+    pixels = ((const char*)pixels - y * rowBytes - x * info.bytesPerPixel());
+
+    // The device can assert that the requested area is always contained in its bounds
+    return device->writePixelsDirect(info, pixels, rowBytes, target.x(), target.y());
 }
 
 SkCanvas* SkCanvas::canvasForDrawIter() {
@@ -742,7 +797,6 @@ int SkCanvas::internalSave(SaveFlags flags) {
     MCRec* newTop = (MCRec*)fMCStack.push_back();
     new (newTop) MCRec(fMCRec, flags);    // balanced in restore()
 
-    newTop->fNext = fMCRec;
     fMCRec = newTop;
 
     if (SkCanvas::kClip_SaveFlag & flags) {
@@ -1165,10 +1219,9 @@ void SkCanvas::resetMatrix() {
 
 //////////////////////////////////////////////////////////////////////////////
 
-bool SkCanvas::clipRect(const SkRect& rect, SkRegion::Op op, bool doAA) {
+void SkCanvas::clipRect(const SkRect& rect, SkRegion::Op op, bool doAA) {
     ClipEdgeStyle edgeStyle = doAA ? kSoft_ClipEdgeStyle : kHard_ClipEdgeStyle;
     this->onClipRect(rect, op, edgeStyle);
-    return !this->isClipEmpty();
 }
 
 void SkCanvas::onClipRect(const SkRect& rect, SkRegion::Op op, ClipEdgeStyle edgeStyle) {
@@ -1258,14 +1311,13 @@ static void clip_path_helper(const SkCanvas* canvas, SkRasterClip* currClip,
     }
 }
 
-bool SkCanvas::clipRRect(const SkRRect& rrect, SkRegion::Op op, bool doAA) {
+void SkCanvas::clipRRect(const SkRRect& rrect, SkRegion::Op op, bool doAA) {
     ClipEdgeStyle edgeStyle = doAA ? kSoft_ClipEdgeStyle : kHard_ClipEdgeStyle;
     if (rrect.isRect()) {
         this->onClipRect(rrect.getBounds(), op, edgeStyle);
     } else {
         this->onClipRRect(rrect, op, edgeStyle);
     }
-    return !this->isClipEmpty();
 }
 
 void SkCanvas::onClipRRect(const SkRRect& rrect, SkRegion::Op op, ClipEdgeStyle edgeStyle) {
@@ -1294,7 +1346,7 @@ void SkCanvas::onClipRRect(const SkRRect& rrect, SkRegion::Op op, ClipEdgeStyle 
     this->SkCanvas::onClipPath(path, op, edgeStyle);
 }
 
-bool SkCanvas::clipPath(const SkPath& path, SkRegion::Op op, bool doAA) {
+void SkCanvas::clipPath(const SkPath& path, SkRegion::Op op, bool doAA) {
     ClipEdgeStyle edgeStyle = doAA ? kSoft_ClipEdgeStyle : kHard_ClipEdgeStyle;
     SkRect r;
     if (!path.isInverseFillType() && path.isRect(&r)) {
@@ -1302,8 +1354,6 @@ bool SkCanvas::clipPath(const SkPath& path, SkRegion::Op op, bool doAA) {
     } else {
         this->onClipPath(path, op, edgeStyle);
     }
-
-    return !this->isClipEmpty();
 }
 
 void SkCanvas::onClipPath(const SkPath& path, SkRegion::Op op, ClipEdgeStyle edgeStyle) {
@@ -1379,7 +1429,7 @@ void SkCanvas::onClipPath(const SkPath& path, SkRegion::Op op, ClipEdgeStyle edg
     clip_path_helper(this, fMCRec->fRasterClip, devPath, op, edgeStyle);
 }
 
-bool SkCanvas::updateClipConservativelyUsingBounds(const SkRect& bounds, SkRegion::Op op,
+void SkCanvas::updateClipConservativelyUsingBounds(const SkRect& bounds, SkRegion::Op op,
                                                    bool inverseFilled) {
     // This is for updating the clip conservatively using only bounds
     // information.
@@ -1452,13 +1502,10 @@ bool SkCanvas::updateClipConservativelyUsingBounds(const SkRect& bounds, SkRegio
                 SkASSERT(0); // unhandled op?
         }
     }
-
-    return !this->isClipEmpty();
 }
 
-bool SkCanvas::clipRegion(const SkRegion& rgn, SkRegion::Op op) {
+void SkCanvas::clipRegion(const SkRegion& rgn, SkRegion::Op op) {
     this->onClipRegion(rgn, op);
-    return !this->isClipEmpty();
 }
 
 void SkCanvas::onClipRegion(const SkRegion& rgn, SkRegion::Op op) {
