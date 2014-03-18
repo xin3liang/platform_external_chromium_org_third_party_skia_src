@@ -667,6 +667,7 @@ SkBaseDevice* SkCanvas::setRootDevice(SkBaseDevice* device) {
     return device;
 }
 
+#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
 bool SkCanvas::readPixels(SkBitmap* bitmap,
                           int x, int y,
                           Config8888 config8888) {
@@ -676,43 +677,96 @@ bool SkCanvas::readPixels(SkBitmap* bitmap,
     }
     return device->readPixels(bitmap, x, y, config8888);
 }
+#endif
+
+bool SkCanvas::readPixels(SkBitmap* bitmap, int x, int y) {
+    if (kUnknown_SkColorType == bitmap->colorType() || bitmap->getTexture()) {
+        return false;
+    }
+
+    bool weAllocated = false;
+    if (NULL == bitmap->pixelRef()) {
+        if (!bitmap->allocPixels()) {
+            return false;
+        }
+        weAllocated = true;
+    }
+
+    SkBitmap bm(*bitmap);
+    bm.lockPixels();
+    if (bm.getPixels() && this->readPixels(bm.info(), bm.getPixels(), bm.rowBytes(), x, y)) {
+        return true;
+    }
+
+    if (weAllocated) {
+        bitmap->setPixelRef(NULL);
+    }
+    return false;
+}
 
 bool SkCanvas::readPixels(const SkIRect& srcRect, SkBitmap* bitmap) {
+    SkIRect r = srcRect;
+    const SkISize size = this->getBaseLayerSize();
+    if (!r.intersect(0, 0, size.width(), size.height())) {
+        bitmap->reset();
+        return false;
+    }
+
+    if (!bitmap->allocN32Pixels(r.width(), r.height())) {
+        // bitmap will already be reset.
+        return false;
+    }
+    if (!this->readPixels(bitmap->info(), bitmap->getPixels(), bitmap->rowBytes(), r.x(), r.y())) {
+        bitmap->reset();
+        return false;
+    }
+    return true;
+}
+
+bool SkCanvas::readPixels(const SkImageInfo& origInfo, void* dstP, size_t rowBytes, int x, int y) {
+    switch (origInfo.colorType()) {
+        case kUnknown_SkColorType:
+        case kIndex_8_SkColorType:
+            return false;
+        default:
+            break;
+    }
+    if (NULL == dstP || rowBytes < origInfo.minRowBytes()) {
+        return false;
+    }
+    if (0 == origInfo.width() || 0 == origInfo.height()) {
+        return false;
+    }
+
     SkBaseDevice* device = this->getDevice();
     if (!device) {
         return false;
     }
 
-    SkIRect bounds;
-    bounds.set(0, 0, device->width(), device->height());
-    if (!bounds.intersect(srcRect)) {
+    const SkISize size = this->getBaseLayerSize();
+    SkIRect srcR = SkIRect::MakeXYWH(x, y, origInfo.width(), origInfo.height());
+    if (!srcR.intersect(0, 0, size.width(), size.height())) {
         return false;
     }
 
-    SkBitmap tmp;
-    tmp.setConfig(SkBitmap::kARGB_8888_Config, bounds.width(),
-                                               bounds.height());
-    if (this->readPixels(&tmp, bounds.fLeft, bounds.fTop)) {
-        bitmap->swap(tmp);
-        return true;
-    } else {
-        return false;
-    }
-}
+    SkImageInfo info = origInfo;
+    // the intersect may have shrunk info's logical size
+    info.fWidth = srcR.width();
+    info.fHeight = srcR.height();
 
-#ifdef SK_SUPPORT_LEGACY_WRITEPIXELSCONFIG
-void SkCanvas::writePixels(const SkBitmap& bitmap, int x, int y,
-                           Config8888 config8888) {
-    SkBaseDevice* device = this->getDevice();
-    if (device) {
-        if (SkIRect::Intersects(SkIRect::MakeSize(this->getDeviceSize()),
-                                SkIRect::MakeXYWH(x, y, bitmap.width(), bitmap.height()))) {
-            device->accessBitmap(true);
-            device->writePixels(bitmap, x, y, config8888);
-        }
+    // if x or y are negative, then we have to adjust pixels
+    if (x > 0) {
+        x = 0;
     }
+    if (y > 0) {
+        y = 0;
+    }
+    // here x,y are either 0 or negative
+    dstP = ((char*)dstP - y * rowBytes - x * info.bytesPerPixel());
+
+    // The device can assert that the requested area is always contained in its bounds
+    return device->readPixels(info, dstP, rowBytes, srcR.x(), srcR.y());
 }
-#endif
 
 bool SkCanvas::writePixels(const SkBitmap& bitmap, int x, int y) {
     if (bitmap.getTexture()) {
@@ -766,7 +820,7 @@ bool SkCanvas::writePixels(const SkImageInfo& origInfo, const void* pixels, size
     pixels = ((const char*)pixels - y * rowBytes - x * info.bytesPerPixel());
 
     // The device can assert that the requested area is always contained in its bounds
-    return device->writePixelsDirect(info, pixels, rowBytes, target.x(), target.y());
+    return device->writePixels(info, pixels, rowBytes, target.x(), target.y());
 }
 
 SkCanvas* SkCanvas::canvasForDrawIter() {
@@ -1077,12 +1131,9 @@ SkAutoROCanvasPixels::SkAutoROCanvasPixels(SkCanvas* canvas) {
     fAddr = canvas->peekPixels(&fInfo, &fRowBytes);
     if (NULL == fAddr) {
         fInfo = canvas->imageInfo();
-        if (kUnknown_SkColorType == fInfo.colorType() ||
-            !fBitmap.allocPixels(fInfo))
-        {
+        if (kUnknown_SkColorType == fInfo.colorType() || !fBitmap.allocPixels(fInfo)) {
             return; // failure, fAddr is NULL
         }
-        fBitmap.lockPixels();
         if (!canvas->readPixels(&fBitmap, 0, 0)) {
             return; // failure, fAddr is NULL
         }
@@ -1224,65 +1275,60 @@ void SkCanvas::didTranslate(SkScalar, SkScalar) {
     // Do nothing. Subclasses may do something.
 }
 
-bool SkCanvas::translate(SkScalar dx, SkScalar dy) {
+void SkCanvas::translate(SkScalar dx, SkScalar dy) {
     fDeviceCMDirty = true;
     fCachedLocalClipBoundsDirty = true;
-    bool res = fMCRec->fMatrix->preTranslate(dx, dy);
+    fMCRec->fMatrix->preTranslate(dx, dy);
 
     this->didTranslate(dx, dy);
-    return res;
 }
 
 void SkCanvas::didScale(SkScalar, SkScalar) {
     // Do nothing. Subclasses may do something.
 }
 
-bool SkCanvas::scale(SkScalar sx, SkScalar sy) {
+void SkCanvas::scale(SkScalar sx, SkScalar sy) {
     fDeviceCMDirty = true;
     fCachedLocalClipBoundsDirty = true;
-    bool res = fMCRec->fMatrix->preScale(sx, sy);
+    fMCRec->fMatrix->preScale(sx, sy);
 
     this->didScale(sx, sy);
-    return res;
 }
 
 void SkCanvas::didRotate(SkScalar) {
     // Do nothing. Subclasses may do something.
 }
 
-bool SkCanvas::rotate(SkScalar degrees) {
+void SkCanvas::rotate(SkScalar degrees) {
     fDeviceCMDirty = true;
     fCachedLocalClipBoundsDirty = true;
-    bool res = fMCRec->fMatrix->preRotate(degrees);
+    fMCRec->fMatrix->preRotate(degrees);
 
     this->didRotate(degrees);
-    return res;
 }
 
 void SkCanvas::didSkew(SkScalar, SkScalar) {
     // Do nothing. Subclasses may do something.
 }
 
-bool SkCanvas::skew(SkScalar sx, SkScalar sy) {
+void SkCanvas::skew(SkScalar sx, SkScalar sy) {
     fDeviceCMDirty = true;
     fCachedLocalClipBoundsDirty = true;
-    bool res = fMCRec->fMatrix->preSkew(sx, sy);
+    fMCRec->fMatrix->preSkew(sx, sy);
 
     this->didSkew(sx, sy);
-    return res;
 }
 
 void SkCanvas::didConcat(const SkMatrix&) {
     // Do nothing. Subclasses may do something.
 }
 
-bool SkCanvas::concat(const SkMatrix& matrix) {
+void SkCanvas::concat(const SkMatrix& matrix) {
     fDeviceCMDirty = true;
     fCachedLocalClipBoundsDirty = true;
-    bool res = fMCRec->fMatrix->preConcat(matrix);
+    fMCRec->fMatrix->preConcat(matrix);
 
     this->didConcat(matrix);
-    return res;
 }
 
 void SkCanvas::didSetMatrix(const SkMatrix&) {
@@ -2461,8 +2507,23 @@ void SkCanvas::drawTextOnPathHV(const void* text, size_t byteLength,
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+void SkCanvas::EXPERIMENTAL_optimize(SkPicture* picture) {
+    SkBaseDevice* device = this->getDevice();
+    if (NULL != device) {
+        device->EXPERIMENTAL_optimize(picture);
+    }
+}
 
 void SkCanvas::drawPicture(SkPicture& picture) {
+    SkBaseDevice* device = this->getTopDevice();
+    if (NULL != device) {
+        // Canvas has to first give the device the opportunity to render
+        // the picture itself.
+        if (device->EXPERIMENTAL_drawPicture(picture)) {
+            return; // the device has rendered the entire picture
+        }
+    }
+
     picture.draw(this);
 }
 
@@ -2540,6 +2601,23 @@ SkCanvas* SkCanvas::NewRaster(const SkImageInfo& info) {
 
     SkBitmap bitmap;
     if (!bitmap.allocPixels(info)) {
+        return NULL;
+    }
+
+    // should this functionality be moved into allocPixels()?
+    if (!bitmap.info().isOpaque()) {
+        bitmap.eraseColor(0);
+    }
+    return SkNEW_ARGS(SkCanvas, (bitmap));
+}
+
+SkCanvas* SkCanvas::NewRasterDirect(const SkImageInfo& info, void* pixels, size_t rowBytes) {
+    if (!supported_for_raster_canvas(info)) {
+        return NULL;
+    }
+
+    SkBitmap bitmap;
+    if (!bitmap.installPixels(info, pixels, rowBytes)) {
         return NULL;
     }
 

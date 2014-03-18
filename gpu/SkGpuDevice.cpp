@@ -25,6 +25,7 @@
 #include "SkImageFilter.h"
 #include "SkMaskFilter.h"
 #include "SkPathEffect.h"
+#include "SkPicture.h"
 #include "SkRRect.h"
 #include "SkStroke.h"
 #include "SkSurface.h"
@@ -342,6 +343,7 @@ void SkGpuDevice::makeRenderTargetCurrent() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
 namespace {
 GrPixelConfig config8888_to_grconfig_and_flags(SkCanvas::Config8888 config8888, uint32_t* flags) {
     switch (config8888) {
@@ -392,28 +394,25 @@ bool SkGpuDevice::onReadPixels(const SkBitmap& bitmap,
                                             bitmap.rowBytes(),
                                             flags);
 }
-
-#ifdef SK_SUPPORT_LEGACY_WRITEPIXELSCONFIG
-void SkGpuDevice::writePixels(const SkBitmap& bitmap, int x, int y,
-                              SkCanvas::Config8888 config8888) {
-    SkAutoLockPixels alp(bitmap);
-    if (!bitmap.readyToDraw()) {
-        return;
-    }
-
-    GrPixelConfig config;
-    uint32_t flags;
-    if (SkBitmap::kARGB_8888_Config == bitmap.config()) {
-        config = config8888_to_grconfig_and_flags(config8888, &flags);
-    } else {
-        flags = 0;
-        config= SkBitmapConfig2GrPixelConfig(bitmap.config());
-    }
-
-    fRenderTarget->writePixels(x, y, bitmap.width(), bitmap.height(),
-                               config, bitmap.getPixels(), bitmap.rowBytes(), flags);
-}
 #endif
+
+bool SkGpuDevice::onReadPixels(const SkImageInfo& dstInfo, void* dstPixels, size_t dstRowBytes,
+                               int x, int y) {
+    DO_DEFERRED_CLEAR();
+
+    // TODO: teach fRenderTarget to take ImageInfo directly to specify the src pixels
+    GrPixelConfig config = SkImageInfo2GrPixelConfig(dstInfo.colorType(), dstInfo.alphaType());
+    if (kUnknown_GrPixelConfig == config) {
+        return false;
+    }
+
+    uint32_t flags = 0;
+    if (kUnpremul_SkAlphaType == dstInfo.alphaType()) {
+        flags = GrContext::kUnpremul_PixelOpsFlag;
+    }
+    return fContext->readRenderTargetPixels(fRenderTarget, x, y, dstInfo.width(), dstInfo.height(),
+                                            config, dstPixels, dstRowBytes, flags);
+}
 
 bool SkGpuDevice::onWritePixels(const SkImageInfo& info, const void* pixels, size_t rowBytes,
                                 int x, int y) {
@@ -2002,4 +2001,45 @@ SkGpuDevice::SkGpuDevice(GrContext* context,
     // cache. We pass true for the third argument so that it will get unlocked.
     this->initFromRenderTarget(context, texture->asRenderTarget(), true);
     fNeedClear = needClear;
+}
+
+class GPUAccelData : public SkPicture::AccelData {
+public:
+    GPUAccelData(Key key) : INHERITED(key) { }
+
+protected:
+
+private:
+    typedef SkPicture::AccelData INHERITED;
+};
+
+// In the future this may not be a static method if we need to incorporate the
+// clip and matrix state into the key
+SkPicture::AccelData::Key SkGpuDevice::ComputeAccelDataKey() {
+    static const SkPicture::AccelData::Key gGPUID = SkPicture::AccelData::GenerateDomain();
+
+    return gGPUID;
+}
+
+void SkGpuDevice::EXPERIMENTAL_optimize(SkPicture* picture) {
+    SkPicture::AccelData::Key key = ComputeAccelDataKey();
+
+    GPUAccelData* data = SkNEW_ARGS(GPUAccelData, (key));
+
+    picture->EXPERIMENTAL_addAccelData(data);
+}
+
+bool SkGpuDevice::EXPERIMENTAL_drawPicture(const SkPicture& picture) {
+    SkPicture::AccelData::Key key = ComputeAccelDataKey();
+
+    const SkPicture::AccelData* data = picture.EXPERIMENTAL_getAccelData(key);
+    if (NULL == data) {
+        return false;
+    }
+
+#if 0
+    const GPUAccelData *gpuData = static_cast<const GPUAccelData*>(data);
+#endif
+
+    return false;
 }

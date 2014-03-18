@@ -173,6 +173,7 @@ bool SkBitmapDevice::allowImageFilter(const SkImageFilter*) {
     return true;
 }
 
+#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
 bool SkBitmapDevice::onReadPixels(const SkBitmap& bitmap,
                                   int x, int y,
                                   SkCanvas::Config8888 config8888) {
@@ -197,74 +198,6 @@ bool SkBitmapDevice::onReadPixels(const SkBitmap& bitmap,
     uint32_t* bmpPixels = reinterpret_cast<uint32_t*>(bitmap.getPixels());
     SkCopyBitmapToConfig8888(bmpPixels, bitmap.rowBytes(), config8888, subset);
     return true;
-}
-
-#ifdef SK_SUPPORT_LEGACY_WRITEPIXELSCONFIG
-void SkBitmapDevice::writePixels(const SkBitmap& bitmap,
-                                 int x, int y,
-                                 SkCanvas::Config8888 config8888) {
-    if (bitmap.isNull() || bitmap.getTexture()) {
-        return;
-    }
-    const SkBitmap* sprite = &bitmap;
-    // check whether we have to handle a config8888 that doesn't match SkPMColor
-    if (SkBitmap::kARGB_8888_Config == bitmap.config() &&
-        SkCanvas::kNative_Premul_Config8888 != config8888 &&
-        kPMColorAlias != config8888) {
-
-        // We're going to have to convert from a config8888 to the native config
-        // First we clip to the device bounds.
-        SkBitmap dstBmp = this->accessBitmap(true);
-        SkIRect spriteRect = SkIRect::MakeXYWH(x, y,
-                                               bitmap.width(), bitmap.height());
-        SkIRect devRect = SkIRect::MakeWH(dstBmp.width(), dstBmp.height());
-        if (!spriteRect.intersect(devRect)) {
-            return;
-        }
-
-        // write directly to the device if it has pixels and is SkPMColor
-        bool drawSprite;
-        if (SkBitmap::kARGB_8888_Config == dstBmp.config() && !dstBmp.isNull()) {
-            // we can write directly to the dst when doing the conversion
-            dstBmp.extractSubset(&dstBmp, spriteRect);
-            drawSprite = false;
-        } else {
-            // we convert to a temporary bitmap and draw that as a sprite
-            if (!dstBmp.allocPixels(SkImageInfo::MakeN32Premul(spriteRect.width(),
-                                                               spriteRect.height()))) {
-                return;
-            }
-            drawSprite = true;
-        }
-
-        // copy pixels to dstBmp and convert from config8888 to native config.
-        SkAutoLockPixels alp(bitmap);
-        uint32_t* srcPixels = bitmap.getAddr32(spriteRect.fLeft - x,
-                                               spriteRect.fTop - y);
-        SkCopyConfig8888ToBitmap(dstBmp,
-                                 srcPixels,
-                                 bitmap.rowBytes(),
-                                 config8888);
-
-        if (drawSprite) {
-            // we've clipped the sprite when we made a copy
-            x = spriteRect.fLeft;
-            y = spriteRect.fTop;
-            sprite = &dstBmp;
-        } else {
-            return;
-        }
-    }
-
-    SkPaint paint;
-    paint.setXfermodeMode(SkXfermode::kSrc_Mode);
-    SkRasterClip clip(SkIRect::MakeWH(fBitmap.width(), fBitmap.height()));
-    SkDraw  draw;
-    draw.fRC = &clip;
-    draw.fClip = &clip.bwRgn();
-    draw.fBitmap = &fBitmap; // canvas should have already called accessBitmap
-    draw.fMatrix = &SkMatrix::I();
-    this->drawSprite(draw, *sprite, x, y, paint);
 }
 #endif
 
@@ -315,8 +248,8 @@ static bool info2config8888(const SkImageInfo& info, SkCanvas::Config8888* confi
 
 // TODO: make this guy real, and not rely on legacy config8888 utility
 #include "SkConfig8888.h"
-static bool write_pixels(const SkImageInfo& dstInfo, void* dstPixels, size_t dstRowBytes,
-                         const SkImageInfo& srcInfo, const void* srcPixels, size_t srcRowBytes) {
+static bool copy_pixels(const SkImageInfo& dstInfo, void* dstPixels, size_t dstRowBytes,
+                        const SkImageInfo& srcInfo, const void* srcPixels, size_t srcRowBytes) {
     if (srcInfo.dimensions() != dstInfo.dimensions()) {
         return false;
     }
@@ -364,11 +297,37 @@ bool SkBitmapDevice::onWritePixels(const SkImageInfo& srcInfo, const void* srcPi
     void* dstPixels = fBitmap.getAddr(x, y);
     size_t dstRowBytes = fBitmap.rowBytes();
 
-    if (write_pixels(dstInfo, dstPixels, dstRowBytes, srcInfo, srcPixels, srcRowBytes)) {
+    if (copy_pixels(dstInfo, dstPixels, dstRowBytes, srcInfo, srcPixels, srcRowBytes)) {
         fBitmap.notifyPixelsChanged();
         return true;
     }
     return false;
+}
+
+bool SkBitmapDevice::onReadPixels(const SkImageInfo& dstInfo, void* dstPixels, size_t dstRowBytes,
+                                  int x, int y) {
+    // since we don't stop creating un-pixeled devices yet, check for no pixels here
+    if (NULL == fBitmap.getPixels()) {
+        return false;
+    }
+
+    SkImageInfo srcInfo = fBitmap.info();
+
+    // perhaps can relax these in the future
+    if (4 != dstInfo.bytesPerPixel()) {
+        return false;
+    }
+    if (4 != srcInfo.bytesPerPixel()) {
+        return false;
+    }
+
+    srcInfo.fWidth = dstInfo.width();
+    srcInfo.fHeight = dstInfo.height();
+
+    const void* srcPixels = fBitmap.getAddr(x, y);
+    const size_t srcRowBytes = fBitmap.rowBytes();
+
+    return copy_pixels(dstInfo, dstPixels, dstRowBytes, srcInfo, srcPixels, srcRowBytes);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
