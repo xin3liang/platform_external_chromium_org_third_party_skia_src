@@ -18,39 +18,26 @@ class SkNoSaveLayerCanvas : public SkCanvas {
 public:
     SkNoSaveLayerCanvas(SkBaseDevice* device) : INHERITED(device) {}
 
-    // turn saveLayer() into save() for speed, should not affect correctness.
-    virtual int saveLayer(const SkRect* bounds,
-                          const SkPaint* paint,
-                          SaveFlags flags) SK_OVERRIDE {
-
-        // Like SkPictureRecord, we don't want to create layers, but we do need
-        // to respect the save and (possibly) its rect-clip.
-        int count = this->INHERITED::save(flags);
-        if (NULL != bounds) {
-            this->INHERITED::clipRectBounds(bounds, flags, NULL);
-        }
-        return count;
+protected:
+    virtual SaveLayerStrategy willSaveLayer(const SkRect* bounds, const SkPaint* paint,
+                                            SaveFlags flags) SK_OVERRIDE {
+        this->INHERITED::willSaveLayer(bounds, paint, flags);
+        return kNoLayer_SaveLayerStrategy;
     }
 
     // disable aa for speed
-    virtual bool clipRect(const SkRect& rect,
-                          SkRegion::Op op,
-                          bool doAA) SK_OVERRIDE {
-        return this->INHERITED::clipRect(rect, op, false);
+    virtual void onClipRect(const SkRect& rect, SkRegion::Op op, ClipEdgeStyle) SK_OVERRIDE {
+        this->INHERITED::onClipRect(rect, op, kHard_ClipEdgeStyle);
     }
 
     // for speed, just respect the bounds, and disable AA. May give us a few
     // false positives and negatives.
-    virtual bool clipPath(const SkPath& path,
-                          SkRegion::Op op,
-                          bool doAA) SK_OVERRIDE {
-        return this->updateClipConservativelyUsingBounds(path.getBounds(), op,
-                                                         path.isInverseFillType());
+    virtual void onClipPath(const SkPath& path, SkRegion::Op op, ClipEdgeStyle) SK_OVERRIDE {
+        this->updateClipConservativelyUsingBounds(path.getBounds(), op,
+                                                  path.isInverseFillType());
     }
-    virtual bool clipRRect(const SkRRect& rrect,
-                           SkRegion::Op op,
-                           bool doAA) SK_OVERRIDE {
-        return this->updateClipConservativelyUsingBounds(rrect.getBounds(), op, false);
+    virtual void onClipRRect(const SkRRect& rrect, SkRegion::Op op, ClipEdgeStyle) SK_OVERRIDE {
+        this->updateClipConservativelyUsingBounds(rrect.getBounds(), op, false);
     }
 
 private:
