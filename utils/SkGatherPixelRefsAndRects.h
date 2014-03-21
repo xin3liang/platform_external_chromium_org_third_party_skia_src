@@ -47,12 +47,6 @@ public:
         return fEmptyBitmap.info();
     }
 
-#ifdef SK_SUPPORT_LEGACY_WRITEPIXELSCONFIG
-    virtual void writePixels(const SkBitmap& bitmap, int x, int y,
-                             SkCanvas::Config8888 config8888) SK_OVERRIDE {
-        NotSupported();
-    }
-#endif
     virtual GrRenderTarget* accessRenderTarget() SK_OVERRIDE { return NULL; }
 
 protected:
@@ -296,12 +290,6 @@ protected:
     // TODO: allow this call to return failure, or move to SkBitmapDevice only.
     virtual const SkBitmap& onAccessBitmap() SK_OVERRIDE {
         return fEmptyBitmap;
-    }
-    virtual bool onReadPixels(const SkBitmap& bitmap,
-                              int x, int y,
-                              SkCanvas::Config8888 config8888) SK_OVERRIDE {
-        NotSupported();
-        return false;
     }
     virtual void lockPixels() SK_OVERRIDE { NothingToDo(); }
     virtual void unlockPixels() SK_OVERRIDE { NothingToDo(); }

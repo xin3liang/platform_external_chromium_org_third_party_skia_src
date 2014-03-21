@@ -983,10 +983,7 @@ void SkPDFDevice::drawPath(const SkDraw& d, const SkPath& origPath,
             }
             origPath.transform(*prePathMatrix, pathPtr);
         } else {
-            if (!matrix.preConcat(*prePathMatrix)) {
-                // TODO(edisonn): report somehow why we failed?
-                return;
-            }
+            matrix.preConcat(*prePathMatrix);
         }
     }
 
@@ -2310,10 +2307,12 @@ void SkPDFDevice::internalDrawBitmap(const SkMatrix& origMatrix,
                                 &content.entry()->fContent);
 }
 
+#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
 bool SkPDFDevice::onReadPixels(const SkBitmap& bitmap, int x, int y,
                                SkCanvas::Config8888) {
     return false;
 }
+#endif
 
 bool SkPDFDevice::allowImageFilter(const SkImageFilter*) {
     return false;

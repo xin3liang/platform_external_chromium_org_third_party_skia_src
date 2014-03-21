@@ -1696,9 +1696,7 @@ void SkXPSDevice::drawPath(const SkDraw& d,
             }
             platonicPath.transform(*prePathMatrix, skeletalPath);
         } else {
-            if (!matrix.preConcat(*prePathMatrix)) {
-                return;
-            }
+            matrix.preConcat(*prePathMatrix);
         }
     }
 
@@ -2410,10 +2408,12 @@ void SkXPSDevice::drawDevice(const SkDraw& d, SkBaseDevice* dev,
          "Could not add layer to current visuals.");
 }
 
+#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
 bool SkXPSDevice::onReadPixels(const SkBitmap& bitmap, int x, int y,
                                SkCanvas::Config8888) {
     return false;
 }
+#endif
 
 SkBaseDevice* SkXPSDevice::onCreateDevice(const SkImageInfo&, Usage) {
 //Conditional for bug compatibility with PDF device.
