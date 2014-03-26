@@ -89,7 +89,7 @@ void GrDrawTarget::DrawInfo::adjustStartIndex(int indexOffset) {
 GrDrawTarget::GrDrawTarget(GrContext* context)
     : fClip(NULL)
     , fContext(context)
-    , fPushGpuTraceCount(0) {
+    , fGpuTraceMarkerCount(0) {
     SkASSERT(NULL != context);
 
     fDrawState = &fDefaultDrawState;
@@ -548,25 +548,51 @@ void GrDrawTarget::drawPath(const GrPath* path, SkPath::FillType fill) {
     this->onDrawPath(path, fill, dstCopy.texture() ? &dstCopy : NULL);
 }
 
-void GrDrawTarget::instantGpuTraceEvent(const char* marker) {
+void GrDrawTarget::drawPaths(size_t pathCount, const GrPath** paths,
+                             const SkMatrix* transforms,
+                             SkPath::FillType fill, SkStrokeRec::Style stroke) {
+    SkASSERT(pathCount > 0);
+    SkASSERT(NULL != paths);
+    SkASSERT(NULL != paths[0]);
+    SkASSERT(this->caps()->pathRenderingSupport());
+    SkASSERT(!SkPath::IsInverseFillType(fill));
+
+    const GrDrawState* drawState = &getDrawState();
+
+    SkRect devBounds;
+    for (size_t i = 0; i < pathCount; ++i) {
+        SkRect mappedPathBounds;
+        transforms[i].mapRect(&mappedPathBounds, paths[i]->getBounds());
+        devBounds.join(mappedPathBounds);
+    }
+
+    SkMatrix viewM = drawState->getViewMatrix();
+    viewM.mapRect(&devBounds);
+
+    GrDeviceCoordTexture dstCopy;
+    if (!this->setupDstReadIfNecessary(&dstCopy, &devBounds)) {
+        return;
+    }
+
+    this->onDrawPaths(pathCount, paths, transforms, fill, stroke,
+                      dstCopy.texture() ? &dstCopy : NULL);
+}
+
+void GrDrawTarget::addGpuTraceMarker(GrGpuTraceMarker* marker) {
     if (this->caps()->gpuTracingSupport()) {
-        this->onInstantGpuTraceEvent(marker);
+        SkASSERT(fGpuTraceMarkerCount >= 0);
+        this->fActiveTraceMarkers.add(*marker);
+        this->didAddGpuTraceMarker();
+        ++fGpuTraceMarkerCount;
     }
 }
 
-void GrDrawTarget::pushGpuTraceEvent(const char* marker) {
-    SkASSERT(fPushGpuTraceCount >= 0);
+void GrDrawTarget::removeGpuTraceMarker(GrGpuTraceMarker* marker) {
     if (this->caps()->gpuTracingSupport()) {
-        this->onPushGpuTraceEvent(marker);
-        ++fPushGpuTraceCount;
-    }
-}
-
-void GrDrawTarget::popGpuTraceEvent() {
-    SkASSERT(fPushGpuTraceCount >= 1);
-    if (this->caps()->gpuTracingSupport()) {
-        this->onPopGpuTraceEvent();
-        --fPushGpuTraceCount;
+        SkASSERT(fGpuTraceMarkerCount >= 1);
+        this->fActiveTraceMarkers.remove(*marker);
+        this->didRemoveGpuTraceMarker();
+        --fGpuTraceMarkerCount;
     }
 }
 
