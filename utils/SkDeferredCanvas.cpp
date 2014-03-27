@@ -171,11 +171,6 @@ public:
 
 protected:
     virtual const SkBitmap& onAccessBitmap() SK_OVERRIDE;
-#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
-    virtual bool onReadPixels(const SkBitmap& bitmap,
-                                int x, int y,
-                                SkCanvas::Config8888 config8888) SK_OVERRIDE;
-#endif
     virtual bool onReadPixels(const SkImageInfo&, void*, size_t, int x, int y) SK_OVERRIDE;
     virtual bool onWritePixels(const SkImageInfo&, const void*, size_t, int x, int y) SK_OVERRIDE;
 
@@ -329,9 +324,6 @@ void SkDeferredDevice::skipPendingCommands() {
         if (fPipeController.hasPendingCommands()) {
             fFreshFrame = true;
             flushPendingCommands(kSilent_PlaybackMode);
-            if (fNotificationClient) {
-                fNotificationClient->skippedPendingDrawCommands();
-            }
         }
     }
 }
@@ -368,9 +360,14 @@ void SkDeferredDevice::flushPendingCommands(PlaybackMode playbackMode) {
     }
     fPipeWriter.flushRecording(true);
     fPipeController.playback(kSilent_PlaybackMode == playbackMode);
-    if (playbackMode == kNormal_PlaybackMode && fNotificationClient) {
-        fNotificationClient->flushedDrawCommands();
+    if (fNotificationClient) {
+        if (playbackMode == kSilent_PlaybackMode) {
+            fNotificationClient->skippedPendingDrawCommands();
+        } else {
+            fNotificationClient->flushedDrawCommands();
+        }
     }
+
     fPreviousStorageAllocated = storageAllocatedForRecording();
 }
 
@@ -508,15 +505,6 @@ SkBaseDevice* SkDeferredDevice::onCreateDevice(const SkImageInfo& info, Usage us
 SkSurface* SkDeferredDevice::newSurface(const SkImageInfo& info) {
     return this->immediateDevice()->newSurface(info);
 }
-
-#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
-bool SkDeferredDevice::onReadPixels(
-    const SkBitmap& bitmap, int x, int y, SkCanvas::Config8888 config8888) {
-    this->flushPendingCommands(kNormal_PlaybackMode);
-    return fImmediateCanvas->readPixels(const_cast<SkBitmap*>(&bitmap),
-                                                   x, y, config8888);
-}
-#endif
 
 bool SkDeferredDevice::onReadPixels(const SkImageInfo& info, void* pixels, size_t rowBytes,
                                     int x, int y) {
