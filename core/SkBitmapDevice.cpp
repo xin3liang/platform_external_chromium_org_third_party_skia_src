@@ -173,34 +173,6 @@ bool SkBitmapDevice::allowImageFilter(const SkImageFilter*) {
     return true;
 }
 
-#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
-bool SkBitmapDevice::onReadPixels(const SkBitmap& bitmap,
-                                  int x, int y,
-                                  SkCanvas::Config8888 config8888) {
-    SkASSERT(SkBitmap::kARGB_8888_Config == bitmap.config());
-    SkASSERT(!bitmap.isNull());
-    SkASSERT(SkIRect::MakeWH(this->width(), this->height()).contains(SkIRect::MakeXYWH(x, y,
-                                                                          bitmap.width(),
-                                                                          bitmap.height())));
-
-    SkIRect srcRect = SkIRect::MakeXYWH(x, y, bitmap.width(), bitmap.height());
-    const SkBitmap& src = this->accessBitmap(false);
-
-    SkBitmap subset;
-    if (!src.extractSubset(&subset, srcRect)) {
-        return false;
-    }
-    if (kPMColor_SkColorType != subset.colorType()) {
-        // It'd be preferable to do this directly to bitmap.
-        subset.copyTo(&subset, kPMColor_SkColorType);
-    }
-    SkAutoLockPixels alp(bitmap);
-    uint32_t* bmpPixels = reinterpret_cast<uint32_t*>(bitmap.getPixels());
-    SkCopyBitmapToConfig8888(bmpPixels, bitmap.rowBytes(), config8888, subset);
-    return true;
-}
-#endif
-
 void* SkBitmapDevice::onAccessPixels(SkImageInfo* info, size_t* rowBytes) {
     if (fBitmap.getPixels()) {
         *info = fBitmap.info();
@@ -221,47 +193,27 @@ static void rect_memcpy(void* dst, size_t dstRB, const void* src, size_t srcRB, 
     }
 }
 
-static bool info2config8888(const SkImageInfo& info, SkCanvas::Config8888* config) {
-    bool pre;
-    switch (info.alphaType()) {
-        case kPremul_SkAlphaType:
-        case kOpaque_SkAlphaType:
-            pre = true;
-            break;
-        case kUnpremul_SkAlphaType:
-            pre = false;
-            break;
-        default:
-            return false;
-    }
-    switch (info.colorType()) {
-        case kRGBA_8888_SkColorType:
-            *config = pre ? SkCanvas::kRGBA_Premul_Config8888 : SkCanvas::kRGBA_Unpremul_Config8888;
-            return true;
-        case kBGRA_8888_SkColorType:
-            *config = pre ? SkCanvas::kBGRA_Premul_Config8888 : SkCanvas::kBGRA_Unpremul_Config8888;
-            return true;
-        default:
-            return false;
-    }
-}
-
-// TODO: make this guy real, and not rely on legacy config8888 utility
 #include "SkConfig8888.h"
+
 static bool copy_pixels(const SkImageInfo& dstInfo, void* dstPixels, size_t dstRowBytes,
                         const SkImageInfo& srcInfo, const void* srcPixels, size_t srcRowBytes) {
     if (srcInfo.dimensions() != dstInfo.dimensions()) {
         return false;
     }
     if (4 == srcInfo.bytesPerPixel() && 4 == dstInfo.bytesPerPixel()) {
-        SkCanvas::Config8888 srcConfig, dstConfig;
-        if (!info2config8888(srcInfo, &srcConfig) || !info2config8888(dstInfo, &dstConfig)) {
-            return false;
-        }
-        SkConvertConfig8888Pixels((uint32_t*)dstPixels, dstRowBytes, dstConfig,
-                                  (const uint32_t*)srcPixels, srcRowBytes, srcConfig,
-                                  srcInfo.width(), srcInfo.height());
-        return true;
+        SkDstPixelInfo dstPI;
+        dstPI.fColorType = dstInfo.colorType();
+        dstPI.fAlphaType = dstInfo.alphaType();
+        dstPI.fPixels = dstPixels;
+        dstPI.fRowBytes = dstRowBytes;
+
+        SkSrcPixelInfo srcPI;
+        srcPI.fColorType = srcInfo.colorType();
+        srcPI.fAlphaType = srcInfo.alphaType();
+        srcPI.fPixels = srcPixels;
+        srcPI.fRowBytes = srcRowBytes;
+
+        return srcPI.convertPixelsTo(&dstPI, srcInfo.width(), srcInfo.height());
     }
     if (srcInfo.colorType() == dstInfo.colorType()) {
         switch (srcInfo.colorType()) {

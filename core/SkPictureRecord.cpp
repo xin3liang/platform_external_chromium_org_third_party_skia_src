@@ -664,62 +664,26 @@ void SkPictureRecord::recordRestore(bool fillInSkips) {
     this->validate(initialOffset, size);
 }
 
-void SkPictureRecord::didTranslate(SkScalar dx, SkScalar dy) {
-#ifdef SK_COLLAPSE_MATRIX_CLIP_STATE
-    fMCMgr.translate(dx, dy);
-#else
+void SkPictureRecord::recordTranslate(const SkMatrix& m) {
+    SkASSERT(SkMatrix::kTranslate_Mask == m.getType());
+
     // op + dx + dy
     uint32_t size = 1 * kUInt32Size + 2 * sizeof(SkScalar);
     size_t initialOffset = this->addDraw(TRANSLATE, &size);
-    this->addScalar(dx);
-    this->addScalar(dy);
+    this->addScalar(m.getTranslateX());
+    this->addScalar(m.getTranslateY());
     this->validate(initialOffset, size);
-#endif
-    this->INHERITED::didTranslate(dx, dy);
 }
 
-void SkPictureRecord::didScale(SkScalar sx, SkScalar sy) {
+void SkPictureRecord::recordScale(const SkMatrix& m) {
+    SkASSERT(SkMatrix::kScale_Mask == m.getType());
 
-#ifdef SK_COLLAPSE_MATRIX_CLIP_STATE
-    fMCMgr.scale(sx, sy);
-#else
     // op + sx + sy
     uint32_t size = 1 * kUInt32Size + 2 * sizeof(SkScalar);
     size_t initialOffset = this->addDraw(SCALE, &size);
-    this->addScalar(sx);
-    this->addScalar(sy);
+    this->addScalar(m.getScaleX());
+    this->addScalar(m.getScaleY());
     this->validate(initialOffset, size);
-#endif
-    this->INHERITED::didScale(sx, sy);
-}
-
-void SkPictureRecord::didRotate(SkScalar degrees) {
-
-#ifdef SK_COLLAPSE_MATRIX_CLIP_STATE
-    fMCMgr.rotate(degrees);
-#else
-    // op + degrees
-    uint32_t size = 1 * kUInt32Size + sizeof(SkScalar);
-    size_t initialOffset = this->addDraw(ROTATE, &size);
-    this->addScalar(degrees);
-    this->validate(initialOffset, size);
-#endif
-    this->INHERITED::didRotate(degrees);
-}
-
-void SkPictureRecord::didSkew(SkScalar sx, SkScalar sy) {
-
-#ifdef SK_COLLAPSE_MATRIX_CLIP_STATE
-    fMCMgr.skew(sx, sy);
-#else
-    // op + sx + sy
-    uint32_t size = 1 * kUInt32Size + 2 * sizeof(SkScalar);
-    size_t initialOffset = this->addDraw(SKEW, &size);
-    this->addScalar(sx);
-    this->addScalar(sy);
-    this->validate(initialOffset, size);
-#endif
-    this->INHERITED::didSkew(sx, sy);
 }
 
 void SkPictureRecord::didConcat(const SkMatrix& matrix) {
@@ -727,7 +691,17 @@ void SkPictureRecord::didConcat(const SkMatrix& matrix) {
 #ifdef SK_COLLAPSE_MATRIX_CLIP_STATE
     fMCMgr.concat(matrix);
 #else
-    this->recordConcat(matrix);
+    switch (matrix.getType()) {
+        case SkMatrix::kTranslate_Mask:
+            this->recordTranslate(matrix);
+            break;
+        case SkMatrix::kScale_Mask:
+            this->recordScale(matrix);
+            break;
+        default:
+            this->recordConcat(matrix);
+            break;
+    }
 #endif
     this->INHERITED::didConcat(matrix);
 }
@@ -1559,18 +1533,6 @@ void SkPictureRecord::endCommentGroup() {
 // [op/size] [rect] [skip offset]
 static const uint32_t kPushCullOpSize = 2 * kUInt32Size + sizeof(SkRect);
 void SkPictureRecord::onPushCull(const SkRect& cullRect) {
-    // Skip identical cull rects.
-    if (!fCullOffsetStack.isEmpty()) {
-        const SkRect& prevCull = fWriter.readTAt<SkRect>(fCullOffsetStack.top() - sizeof(SkRect));
-        if (prevCull == cullRect) {
-            // Skipped culls are tracked on the stack, but they point to the previous offset.
-            fCullOffsetStack.push(fCullOffsetStack.top());
-            return;
-        }
-
-        SkASSERT(prevCull.contains(cullRect));
-    }
-
     uint32_t size = kPushCullOpSize;
     size_t initialOffset = this->addDraw(PUSH_CULL, &size);
     // PUSH_CULL's size should stay constant (used to rewind).
@@ -1587,11 +1549,6 @@ void SkPictureRecord::onPopCull() {
 
     uint32_t cullSkipOffset = fCullOffsetStack.top();
     fCullOffsetStack.pop();
-
-    // Skipped push, do the same for pop.
-    if (!fCullOffsetStack.isEmpty() && cullSkipOffset == fCullOffsetStack.top()) {
-        return;
-    }
 
     // Collapse empty push/pop pairs.
     if ((size_t)(cullSkipOffset + kUInt32Size) == fWriter.bytesWritten()) {

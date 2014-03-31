@@ -81,10 +81,10 @@ void GrDistanceFieldTextContext::flushGlyphs() {
         GrTextureParams params(SkShader::kRepeat_TileMode, GrTextureParams::kBilerp_FilterMode);
 
         // This effect could be stored with one of the cache objects (atlas?)
-        SkISize size = fStrike->getAtlasSize();
         drawState->addCoverageEffect(
-                                GrDistanceFieldTextureEffect::Create(fCurrTexture, params, size),
-                                kGlyphCoordsAttributeIndex)->unref();
+                         GrDistanceFieldTextureEffect::Create(fCurrTexture, params,
+                                                              fContext->getMatrix().isSimilarity()),
+                         kGlyphCoordsAttributeIndex)->unref();
 
         if (!GrPixelConfigIsAlphaOnly(fCurrTexture->config())) {
             if (kOne_GrBlendCoeff != fPaint.getSrcBlendCoeff() ||
@@ -372,7 +372,7 @@ void GrDistanceFieldTextContext::drawText(const GrPaint& paint, const SkPaint& s
     SkFixed fy = SkScalarToFixed(y) + SK_FixedHalf;
     SkFixed fixedScale = SkScalarToFixed(sizeRatio);
     while (text < stop) {
-        const SkGlyph& glyph = glyphCacheProc(cache, &text, fx, fy);
+        const SkGlyph& glyph = glyphCacheProc(cache, &text, 0, 0);
 
         if (glyph.fWidth) {
             this->drawPackedGlyph(GrGlyph::Pack(glyph.getGlyphID(),

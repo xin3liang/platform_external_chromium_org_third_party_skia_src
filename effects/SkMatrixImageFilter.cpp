@@ -1,11 +1,11 @@
 /*
- * Copyright 2013 The Android Open Source Project
+ * Copyright 2014 The Android Open Source Project
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
 
-#include "SkResizeImageFilter.h"
+#include "SkMatrixImageFilter.h"
 #include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkDevice.h"
@@ -15,36 +15,40 @@
 #include "SkMatrix.h"
 #include "SkRect.h"
 
-SkResizeImageFilter::SkResizeImageFilter(SkScalar sx, SkScalar sy, SkPaint::FilterLevel filterLevel,
+SkMatrixImageFilter::SkMatrixImageFilter(const SkMatrix& transform,
+                                         SkPaint::FilterLevel filterLevel,
                                          SkImageFilter* input)
   : INHERITED(input),
-    fSx(sx),
-    fSy(sy),
+    fTransform(transform),
     fFilterLevel(filterLevel) {
 }
 
-SkResizeImageFilter::SkResizeImageFilter(SkReadBuffer& buffer)
+SkMatrixImageFilter* SkMatrixImageFilter::Create(const SkMatrix& transform,
+                                                 SkPaint::FilterLevel filterLevel,
+                                                 SkImageFilter* input) {
+    return SkNEW_ARGS(SkMatrixImageFilter, (transform, filterLevel, input));
+}
+
+SkMatrixImageFilter::SkMatrixImageFilter(SkReadBuffer& buffer)
   : INHERITED(1, buffer) {
-    fSx = buffer.readScalar();
-    fSy = buffer.readScalar();
+    buffer.readMatrix(&fTransform);
     fFilterLevel = static_cast<SkPaint::FilterLevel>(buffer.readInt());
 }
 
-void SkResizeImageFilter::flatten(SkWriteBuffer& buffer) const {
+void SkMatrixImageFilter::flatten(SkWriteBuffer& buffer) const {
     this->INHERITED::flatten(buffer);
-    buffer.writeScalar(fSx);
-    buffer.writeScalar(fSy);
+    buffer.writeMatrix(fTransform);
     buffer.writeInt(fFilterLevel);
 }
 
-SkResizeImageFilter::~SkResizeImageFilter() {
+SkMatrixImageFilter::~SkMatrixImageFilter() {
 }
 
-bool SkResizeImageFilter::onFilterImage(Proxy* proxy,
-                                         const SkBitmap& source,
-                                         const Context& ctx,
-                                         SkBitmap* result,
-                                         SkIPoint* offset) const {
+bool SkMatrixImageFilter::onFilterImage(Proxy* proxy,
+                                        const SkBitmap& source,
+                                        const Context& ctx,
+                                        SkBitmap* result,
+                                        SkIPoint* offset) const {
     SkBitmap src = source;
     SkIPoint srcOffset = SkIPoint::Make(0, 0);
     if (getInput(0) && !getInput(0)->filterImage(proxy, source, ctx, &src, &srcOffset)) {
@@ -60,7 +64,7 @@ bool SkResizeImageFilter::onFilterImage(Proxy* proxy,
     if (!ctx.ctm().invert(&matrix)) {
         return false;
     }
-    matrix.postScale(fSx, fSy);
+    matrix.postConcat(fTransform);
     matrix.postConcat(ctx.ctm());
     matrix.mapRect(&dstRect, srcRect);
     dstRect.roundOut(&dstBounds);
@@ -71,12 +75,13 @@ bool SkResizeImageFilter::onFilterImage(Proxy* proxy,
     }
 
     SkCanvas canvas(device.get());
-    canvas.scale(fSx, fSy);
+    canvas.translate(-SkIntToScalar(dstBounds.x()), -SkIntToScalar(dstBounds.y()));
+    canvas.concat(matrix);
     SkPaint paint;
 
     paint.setXfermodeMode(SkXfermode::kSrc_Mode);
     paint.setFilterLevel(fFilterLevel);
-    canvas.drawBitmap(src, 0, 0, &paint);
+    canvas.drawBitmap(src, srcRect.x(), srcRect.y(), &paint);
 
     *result = device.get()->accessBitmap(false);
     offset->fX = dstBounds.fLeft;
@@ -84,21 +89,29 @@ bool SkResizeImageFilter::onFilterImage(Proxy* proxy,
     return true;
 }
 
-void SkResizeImageFilter::computeFastBounds(const SkRect& src, SkRect* dst) const {
+void SkMatrixImageFilter::computeFastBounds(const SkRect& src, SkRect* dst) const {
     SkRect bounds = src;
     if (getInput(0)) {
         getInput(0)->computeFastBounds(src, &bounds);
     }
-    dst->setXYWH(bounds.x(), bounds.y(), bounds.width() * fSx, bounds.height() * fSy);
+    SkMatrix matrix;
+    matrix.setTranslate(-bounds.x(), -bounds.y());
+    matrix.postConcat(fTransform);
+    matrix.postTranslate(bounds.x(), bounds.y());
+    matrix.mapRect(dst, bounds);
 }
 
-bool SkResizeImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
+bool SkMatrixImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
                                          SkIRect* dst) const {
+    SkMatrix transformInverse;
+    if (!fTransform.invert(&transformInverse)) {
+        return false;
+    }
     SkMatrix matrix;
     if (!ctm.invert(&matrix)) {
         return false;
     }
-    matrix.postScale(SkScalarInvert(fSx), SkScalarInvert(fSy));
+    matrix.postConcat(transformInverse);
     matrix.postConcat(ctm);
     SkRect floatBounds;
     matrix.mapRect(&floatBounds, SkRect::Make(src));

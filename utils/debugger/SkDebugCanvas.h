@@ -26,11 +26,18 @@ public:
     void toggleFilter(bool toggle) { fFilter = toggle; }
 
     void setMegaVizMode(bool megaVizMode) { fMegaVizMode = megaVizMode; }
+    bool getMegaVizMode() const { return fMegaVizMode; }
 
     /**
      * Enable or disable overdraw visualization
      */
     void setOverdrawViz(bool overdrawViz) { fOverdrawViz = overdrawViz; }
+    bool getOverdrawViz() const { return fOverdrawViz; }
+
+    void setOutstandingSaveCount(int saveCount) { fOutstandingSaveCount = saveCount; }
+    int getOutstandingSaveCount() const { return fOutstandingSaveCount; }
+
+    void setPicture(SkPicture* picture) { fPicture = picture; }
 
     /**
      * Enable or disable texure filtering override
@@ -116,6 +123,11 @@ public:
      * Returns the string vector of draw commands
      */
     SkTArray<SkString>* getDrawCommandsAsStrings() const;
+
+    /**
+     * Returns an array containing an offset (in the SkPicture) for each command
+     */
+    SkTDArray<size_t>* getDrawCommandOffsets() const;
 
     /**
         Returns length of draw command vector.
@@ -234,10 +246,6 @@ protected:
     virtual SaveLayerStrategy willSaveLayer(const SkRect*, const SkPaint*, SaveFlags) SK_OVERRIDE;
     virtual void willRestore() SK_OVERRIDE;
 
-    virtual void didTranslate(SkScalar, SkScalar) SK_OVERRIDE;
-    virtual void didScale(SkScalar, SkScalar) SK_OVERRIDE;
-    virtual void didRotate(SkScalar) SK_OVERRIDE;
-    virtual void didSkew(SkScalar, SkScalar) SK_OVERRIDE;
     virtual void didConcat(const SkMatrix&) SK_OVERRIDE;
     virtual void didSetMatrix(const SkMatrix&) SK_OVERRIDE;
 
@@ -254,6 +262,7 @@ protected:
 
 private:
     SkTDArray<SkDrawCommand*> fCommandVector;
+    SkPicture* fPicture;
     int fWidth;
     int fHeight;
     bool fFilter;
@@ -300,6 +309,13 @@ private:
         drawing anything else into the canvas.
      */
     void applyUserTransform(SkCanvas* canvas);
+
+    size_t getOpID() const {
+        if (NULL != fPicture) {
+            return fPicture->EXPERIMENTAL_curOpID();
+        }
+        return 0;
+    }
 
     typedef SkCanvas INHERITED;
 };

@@ -667,18 +667,6 @@ SkBaseDevice* SkCanvas::setRootDevice(SkBaseDevice* device) {
     return device;
 }
 
-#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
-bool SkCanvas::readPixels(SkBitmap* bitmap,
-                          int x, int y,
-                          Config8888 config8888) {
-    SkBaseDevice* device = this->getDevice();
-    if (!device) {
-        return false;
-    }
-    return device->readPixels(bitmap, x, y, config8888);
-}
-#endif
-
 bool SkCanvas::readPixels(SkBitmap* bitmap, int x, int y) {
     if (kUnknown_SkColorType == bitmap->colorType() || bitmap->getTexture()) {
         return false;
@@ -939,8 +927,8 @@ int SkCanvas::saveLayer(const SkRect* bounds, const SkPaint* paint,
     return this->internalSaveLayer(bounds, paint, flags, false, strategy);
 }
 
-static SkBaseDevice* createCompatibleDevice(SkCanvas* canvas,
-                                            const SkImageInfo& info) {
+static SkBaseDevice* create_compatible_device(SkCanvas* canvas,
+                                              const SkImageInfo& info) {
     SkBaseDevice* device = canvas->getDevice();
     return device ? device->createCompatibleDevice(info) : NULL;
 }
@@ -988,7 +976,7 @@ int SkCanvas::internalSaveLayer(const SkRect* bounds, const SkPaint* paint, Save
 
     SkBaseDevice* device;
     if (paint && paint->getImageFilter()) {
-        device = createCompatibleDevice(this, info);
+        device = create_compatible_device(this, info);
     } else {
         device = this->createLayerDevice(info);
     }
@@ -1162,6 +1150,60 @@ void SkCanvas::onPopCull() {
 }
 
 /////////////////////////////////////////////////////////////////////////////
+#ifdef SK_DEBUG
+// Ensure that cull rects are monotonically nested in device space.
+void SkCanvas::validateCull(const SkIRect& devCull) {
+    if (fCullStack.isEmpty()
+        || devCull.isEmpty()
+        || fCullStack.top().contains(devCull)) {
+        return;
+    }
+
+    SkDEBUGF(("Invalid cull: [%d %d %d %d] (previous cull: [%d %d %d %d])\n",
+              devCull.x(), devCull.y(), devCull.right(), devCull.bottom(),
+              fCullStack.top().x(), fCullStack.top().y(),
+              fCullStack.top().right(), fCullStack.top().bottom()));
+
+#ifdef ASSERT_NESTED_CULLING
+    SkDEBUGFAIL("Invalid cull.");
+#endif
+}
+#endif
+
+void SkCanvas::pushCull(const SkRect& cullRect) {
+    ++fCullCount;
+    this->onPushCull(cullRect);
+
+#ifdef SK_DEBUG
+    // Map the cull rect into device space.
+    SkRect mappedCull;
+    this->getTotalMatrix().mapRect(&mappedCull, cullRect);
+
+    // Take clipping into account.
+    SkIRect devClip, devCull;
+    mappedCull.roundOut(&devCull);
+    this->getClipDeviceBounds(&devClip);
+    if (!devCull.intersect(devClip)) {
+        devCull.setEmpty();
+    }
+
+    this->validateCull(devCull);
+    fCullStack.push(devCull); // balanced in popCull
+#endif
+}
+
+void SkCanvas::popCull() {
+    SkASSERT(fCullStack.count() == fCullCount);
+
+    if (fCullCount > 0) {
+        --fCullCount;
+        this->onPopCull();
+
+        SkDEBUGCODE(fCullStack.pop());
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
 
 void SkCanvas::internalDrawBitmap(const SkBitmap& bitmap,
                                 const SkMatrix& matrix, const SkPaint* paint) {
@@ -1271,52 +1313,28 @@ void SkCanvas::drawSprite(const SkBitmap& bitmap, int x, int y,
 }
 
 /////////////////////////////////////////////////////////////////////////////
-void SkCanvas::didTranslate(SkScalar, SkScalar) {
-    // Do nothing. Subclasses may do something.
-}
-
 void SkCanvas::translate(SkScalar dx, SkScalar dy) {
-    fDeviceCMDirty = true;
-    fCachedLocalClipBoundsDirty = true;
-    fMCRec->fMatrix->preTranslate(dx, dy);
-
-    this->didTranslate(dx, dy);
-}
-
-void SkCanvas::didScale(SkScalar, SkScalar) {
-    // Do nothing. Subclasses may do something.
+    SkMatrix m;
+    m.setTranslate(dx, dy);
+    this->concat(m);
 }
 
 void SkCanvas::scale(SkScalar sx, SkScalar sy) {
-    fDeviceCMDirty = true;
-    fCachedLocalClipBoundsDirty = true;
-    fMCRec->fMatrix->preScale(sx, sy);
-
-    this->didScale(sx, sy);
-}
-
-void SkCanvas::didRotate(SkScalar) {
-    // Do nothing. Subclasses may do something.
+    SkMatrix m;
+    m.setScale(sx, sy);
+    this->concat(m);
 }
 
 void SkCanvas::rotate(SkScalar degrees) {
-    fDeviceCMDirty = true;
-    fCachedLocalClipBoundsDirty = true;
-    fMCRec->fMatrix->preRotate(degrees);
-
-    this->didRotate(degrees);
-}
-
-void SkCanvas::didSkew(SkScalar, SkScalar) {
-    // Do nothing. Subclasses may do something.
+    SkMatrix m;
+    m.setRotate(degrees);
+    this->concat(m);
 }
 
 void SkCanvas::skew(SkScalar sx, SkScalar sy) {
-    fDeviceCMDirty = true;
-    fCachedLocalClipBoundsDirty = true;
-    fMCRec->fMatrix->preSkew(sx, sy);
-
-    this->didSkew(sx, sy);
+    SkMatrix m;
+    m.setSkew(sx, sy);
+    this->concat(m);
 }
 
 void SkCanvas::didConcat(const SkMatrix&) {
@@ -1324,6 +1342,10 @@ void SkCanvas::didConcat(const SkMatrix&) {
 }
 
 void SkCanvas::concat(const SkMatrix& matrix) {
+    if (matrix.isIdentity()) {
+        return;
+    }
+
     fDeviceCMDirty = true;
     fCachedLocalClipBoundsDirty = true;
     fMCRec->fMatrix->preConcat(matrix);

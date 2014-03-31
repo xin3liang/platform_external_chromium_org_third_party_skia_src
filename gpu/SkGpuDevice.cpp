@@ -158,31 +158,31 @@ static SkBitmap make_bitmap(GrContext* context, GrRenderTarget* renderTarget) {
     return bitmap;
 }
 
-SkGpuDevice* SkGpuDevice::Create(GrSurface* surface) {
+SkGpuDevice* SkGpuDevice::Create(GrSurface* surface, unsigned flags) {
     SkASSERT(NULL != surface);
     if (NULL == surface->asRenderTarget() || NULL == surface->getContext()) {
         return NULL;
     }
     if (surface->asTexture()) {
-        return SkNEW_ARGS(SkGpuDevice, (surface->getContext(), surface->asTexture()));
+        return SkNEW_ARGS(SkGpuDevice, (surface->getContext(), surface->asTexture(), flags));
     } else {
-        return SkNEW_ARGS(SkGpuDevice, (surface->getContext(), surface->asRenderTarget()));
+        return SkNEW_ARGS(SkGpuDevice, (surface->getContext(), surface->asRenderTarget(), flags));
     }
 }
 
-SkGpuDevice::SkGpuDevice(GrContext* context, GrTexture* texture)
+SkGpuDevice::SkGpuDevice(GrContext* context, GrTexture* texture, unsigned flags)
     : SkBitmapDevice(make_bitmap(context, texture->asRenderTarget())) {
-    this->initFromRenderTarget(context, texture->asRenderTarget(), false);
+    this->initFromRenderTarget(context, texture->asRenderTarget(), flags);
 }
 
-SkGpuDevice::SkGpuDevice(GrContext* context, GrRenderTarget* renderTarget)
+SkGpuDevice::SkGpuDevice(GrContext* context, GrRenderTarget* renderTarget, unsigned flags)
     : SkBitmapDevice(make_bitmap(context, renderTarget)) {
-    this->initFromRenderTarget(context, renderTarget, false);
+    this->initFromRenderTarget(context, renderTarget, flags);
 }
 
 void SkGpuDevice::initFromRenderTarget(GrContext* context,
                                        GrRenderTarget* renderTarget,
-                                       bool cached) {
+                                       unsigned flags) {
     fDrawProcs = NULL;
 
     fContext = context;
@@ -192,7 +192,7 @@ void SkGpuDevice::initFromRenderTarget(GrContext* context,
     fFallbackTextContext = SkNEW_ARGS(GrBitmapTextContext, (fContext, fLeakyProperties));
 
     fRenderTarget = NULL;
-    fNeedClear = false;
+    fNeedClear = flags & kNeedClear_Flag;
 
     SkASSERT(NULL != renderTarget);
     fRenderTarget = renderTarget;
@@ -209,7 +209,7 @@ void SkGpuDevice::initFromRenderTarget(GrContext* context,
 
     SkImageInfo info;
     surface->asImageInfo(&info);
-    SkPixelRef* pr = SkNEW_ARGS(SkGrPixelRef, (info, surface, cached));
+    SkPixelRef* pr = SkNEW_ARGS(SkGrPixelRef, (info, surface, SkToBool(flags & kCached_Flag)));
 
     this->setPixelRef(pr)->unref();
 }
@@ -343,59 +343,6 @@ void SkGpuDevice::makeRenderTargetCurrent() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifdef SK_SUPPORT_LEGACY_READPIXELSCONFIG
-namespace {
-GrPixelConfig config8888_to_grconfig_and_flags(SkCanvas::Config8888 config8888, uint32_t* flags) {
-    switch (config8888) {
-        case SkCanvas::kNative_Premul_Config8888:
-            *flags = 0;
-            return kSkia8888_GrPixelConfig;
-        case SkCanvas::kNative_Unpremul_Config8888:
-            *flags = GrContext::kUnpremul_PixelOpsFlag;
-            return kSkia8888_GrPixelConfig;
-        case SkCanvas::kBGRA_Premul_Config8888:
-            *flags = 0;
-            return kBGRA_8888_GrPixelConfig;
-        case SkCanvas::kBGRA_Unpremul_Config8888:
-            *flags = GrContext::kUnpremul_PixelOpsFlag;
-            return kBGRA_8888_GrPixelConfig;
-        case SkCanvas::kRGBA_Premul_Config8888:
-            *flags = 0;
-            return kRGBA_8888_GrPixelConfig;
-        case SkCanvas::kRGBA_Unpremul_Config8888:
-            *flags = GrContext::kUnpremul_PixelOpsFlag;
-            return kRGBA_8888_GrPixelConfig;
-        default:
-            GrCrash("Unexpected Config8888.");
-            *flags = 0; // suppress warning
-            return kSkia8888_GrPixelConfig;
-    }
-}
-}
-
-bool SkGpuDevice::onReadPixels(const SkBitmap& bitmap,
-                               int x, int y,
-                               SkCanvas::Config8888 config8888) {
-    DO_DEFERRED_CLEAR();
-    SkASSERT(SkBitmap::kARGB_8888_Config == bitmap.config());
-    SkASSERT(!bitmap.isNull());
-    SkASSERT(SkIRect::MakeWH(this->width(), this->height()).contains(SkIRect::MakeXYWH(x, y, bitmap.width(), bitmap.height())));
-
-    SkAutoLockPixels alp(bitmap);
-    GrPixelConfig config;
-    uint32_t flags;
-    config = config8888_to_grconfig_and_flags(config8888, &flags);
-    return fContext->readRenderTargetPixels(fRenderTarget,
-                                            x, y,
-                                            bitmap.width(),
-                                            bitmap.height(),
-                                            config,
-                                            bitmap.getPixels(),
-                                            bitmap.rowBytes(),
-                                            flags);
-}
-#endif
-
 bool SkGpuDevice::onReadPixels(const SkImageInfo& dstInfo, void* dstPixels, size_t dstRowBytes,
                                int x, int y) {
     DO_DEFERRED_CLEAR();
@@ -431,6 +378,11 @@ bool SkGpuDevice::onWritePixels(const SkImageInfo& info, const void* pixels, siz
     this->onAccessBitmap().notifyPixelsChanged();
 
     return true;
+}
+
+const SkBitmap& SkGpuDevice::onAccessBitmap() {
+    DO_DEFERRED_CLEAR();
+    return INHERITED::onAccessBitmap();
 }
 
 void SkGpuDevice::onAttachToCanvas(SkCanvas* canvas) {
@@ -1966,11 +1918,12 @@ SkBaseDevice* SkGpuDevice::onCreateDevice(const SkImageInfo& info, Usage usage) 
 
     SkAutoTUnref<GrTexture> texture;
     // Skia's convention is to only clear a device if it is non-opaque.
-    bool needClear = !info.isOpaque();
+    unsigned flags = info.isOpaque() ? 0 : kNeedClear_Flag;
 
 #if CACHE_COMPATIBLE_DEVICE_TEXTURES
     // layers are never draw in repeat modes, so we can request an approx
     // match and ignore any padding.
+    flags |= kCached_Flag;
     const GrContext::ScratchTexMatch match = (kSaveLayer_Usage == usage) ?
                                                 GrContext::kApprox_ScratchTexMatch :
                                                 GrContext::kExact_ScratchTexMatch;
@@ -1979,7 +1932,7 @@ SkBaseDevice* SkGpuDevice::onCreateDevice(const SkImageInfo& info, Usage usage) 
     texture.reset(fContext->createUncachedTexture(desc, NULL, 0));
 #endif
     if (NULL != texture.get()) {
-        return SkNEW_ARGS(SkGpuDevice,(fContext, texture, needClear));
+        return SkGpuDevice::Create(texture, flags);
     } else {
         GrPrintf("---- failed to create compatible device texture [%d %d]\n",
                  info.width(), info.height());
@@ -1989,18 +1942,6 @@ SkBaseDevice* SkGpuDevice::onCreateDevice(const SkImageInfo& info, Usage usage) 
 
 SkSurface* SkGpuDevice::newSurface(const SkImageInfo& info) {
     return SkSurface::NewRenderTarget(fContext, info, fRenderTarget->numSamples());
-}
-
-SkGpuDevice::SkGpuDevice(GrContext* context,
-                         GrTexture* texture,
-                         bool needClear)
-    : SkBitmapDevice(make_bitmap(context, texture->asRenderTarget())) {
-
-    SkASSERT(texture && texture->asRenderTarget());
-    // This constructor is called from onCreateDevice. It has locked the RT in the texture
-    // cache. We pass true for the third argument so that it will get unlocked.
-    this->initFromRenderTarget(context, texture->asRenderTarget(), true);
-    fNeedClear = needClear;
 }
 
 class GPUAccelData : public SkPicture::AccelData {
