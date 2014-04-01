@@ -548,7 +548,7 @@ void GrDrawTarget::drawPath(const GrPath* path, SkPath::FillType fill) {
     this->onDrawPath(path, fill, dstCopy.texture() ? &dstCopy : NULL);
 }
 
-void GrDrawTarget::drawPaths(size_t pathCount, const GrPath** paths,
+void GrDrawTarget::drawPaths(int pathCount, const GrPath** paths,
                              const SkMatrix* transforms,
                              SkPath::FillType fill, SkStrokeRec::Style stroke) {
     SkASSERT(pathCount > 0);
@@ -560,7 +560,7 @@ void GrDrawTarget::drawPaths(size_t pathCount, const GrPath** paths,
     const GrDrawState* drawState = &getDrawState();
 
     SkRect devBounds;
-    for (size_t i = 0; i < pathCount; ++i) {
+    for (int i = 0; i < pathCount; ++i) {
         SkRect mappedPathBounds;
         transforms[i].mapRect(&mappedPathBounds, paths[i]->getBounds());
         devBounds.join(mappedPathBounds);
@@ -651,7 +651,7 @@ void GrDrawTarget::drawIndexedInstances(GrPrimitiveType type,
     }
 
     while (instanceCount) {
-        info.fInstanceCount = GrMin(instanceCount, maxInstancesPerDraw);
+        info.fInstanceCount = SkTMin(instanceCount, maxInstancesPerDraw);
         info.fVertexCount = info.fInstanceCount * verticesPerInstance;
         info.fIndexCount = info.fInstanceCount * indicesPerInstance;
 
@@ -674,7 +674,7 @@ namespace {
 // position + (optional) texture coord
 extern const GrVertexAttrib gBWRectPosUVAttribs[] = {
     {kVec2f_GrVertexAttribType, 0,               kPosition_GrVertexAttribBinding},
-    {kVec2f_GrVertexAttribType, sizeof(GrPoint), kLocalCoord_GrVertexAttribBinding}
+    {kVec2f_GrVertexAttribType, sizeof(SkPoint), kLocalCoord_GrVertexAttribBinding}
 };
 
 void set_vertex_attributes(GrDrawState* drawState, bool hasUVs) {
@@ -708,8 +708,8 @@ void GrDrawTarget::onDrawRect(const SkRect& rect,
     size_t vsize = this->drawState()->getVertexSize();
     geo.positions()->setRectFan(rect.fLeft, rect.fTop, rect.fRight, rect.fBottom, vsize);
     if (NULL != localRect) {
-        GrPoint* coords = GrTCast<GrPoint*>(GrTCast<intptr_t>(geo.vertices()) +
-                                            sizeof(GrPoint));
+        SkPoint* coords = GrTCast<SkPoint*>(GrTCast<intptr_t>(geo.vertices()) +
+                                            sizeof(SkPoint));
         coords->setRectFan(localRect->fLeft, localRect->fTop,
                            localRect->fRight, localRect->fBottom,
                            vsize);
@@ -1019,6 +1019,7 @@ void GrDrawTargetCaps::reset() {
     fBufferLockSupport = false;
     fPathRenderingSupport = false;
     fDstReadInShaderSupport = false;
+    fDiscardRenderTargetSupport = false;
     fReuseScratchTextures = true;
     fGpuTracingSupport = false;
 
@@ -1042,6 +1043,7 @@ GrDrawTargetCaps& GrDrawTargetCaps::operator=(const GrDrawTargetCaps& other) {
     fBufferLockSupport = other.fBufferLockSupport;
     fPathRenderingSupport = other.fPathRenderingSupport;
     fDstReadInShaderSupport = other.fDstReadInShaderSupport;
+    fDiscardRenderTargetSupport = other.fDiscardRenderTargetSupport;
     fReuseScratchTextures = other.fReuseScratchTextures;
     fGpuTracingSupport = other.fGpuTracingSupport;
 
@@ -1057,23 +1059,24 @@ GrDrawTargetCaps& GrDrawTargetCaps::operator=(const GrDrawTargetCaps& other) {
 SkString GrDrawTargetCaps::dump() const {
     SkString r;
     static const char* gNY[] = {"NO", "YES"};
-    r.appendf("8 Bit Palette Support       : %s\n", gNY[f8BitPaletteSupport]);
-    r.appendf("MIP Map Support             : %s\n", gNY[fMipMapSupport]);
-    r.appendf("NPOT Texture Tile Support   : %s\n", gNY[fNPOTTextureTileSupport]);
-    r.appendf("Two Sided Stencil Support   : %s\n", gNY[fTwoSidedStencilSupport]);
-    r.appendf("Stencil Wrap Ops  Support   : %s\n", gNY[fStencilWrapOpsSupport]);
-    r.appendf("HW AA Lines Support         : %s\n", gNY[fHWAALineSupport]);
-    r.appendf("Shader Derivative Support   : %s\n", gNY[fShaderDerivativeSupport]);
-    r.appendf("Geometry Shader Support     : %s\n", gNY[fGeometryShaderSupport]);
-    r.appendf("Dual Source Blending Support: %s\n", gNY[fDualSourceBlendingSupport]);
-    r.appendf("Buffer Lock Support         : %s\n", gNY[fBufferLockSupport]);
-    r.appendf("Path Rendering Support      : %s\n", gNY[fPathRenderingSupport]);
-    r.appendf("Dst Read In Shader Support  : %s\n", gNY[fDstReadInShaderSupport]);
-    r.appendf("Reuse Scratch Textures      : %s\n", gNY[fReuseScratchTextures]);
-    r.appendf("Gpu Tracing Support         : %s\n", gNY[fGpuTracingSupport]);
-    r.appendf("Max Texture Size            : %d\n", fMaxTextureSize);
-    r.appendf("Max Render Target Size      : %d\n", fMaxRenderTargetSize);
-    r.appendf("Max Sample Count            : %d\n", fMaxSampleCount);
+    r.appendf("8 Bit Palette Support        : %s\n", gNY[f8BitPaletteSupport]);
+    r.appendf("MIP Map Support              : %s\n", gNY[fMipMapSupport]);
+    r.appendf("NPOT Texture Tile Support    : %s\n", gNY[fNPOTTextureTileSupport]);
+    r.appendf("Two Sided Stencil Support    : %s\n", gNY[fTwoSidedStencilSupport]);
+    r.appendf("Stencil Wrap Ops  Support    : %s\n", gNY[fStencilWrapOpsSupport]);
+    r.appendf("HW AA Lines Support          : %s\n", gNY[fHWAALineSupport]);
+    r.appendf("Shader Derivative Support    : %s\n", gNY[fShaderDerivativeSupport]);
+    r.appendf("Geometry Shader Support      : %s\n", gNY[fGeometryShaderSupport]);
+    r.appendf("Dual Source Blending Support : %s\n", gNY[fDualSourceBlendingSupport]);
+    r.appendf("Buffer Lock Support          : %s\n", gNY[fBufferLockSupport]);
+    r.appendf("Path Rendering Support       : %s\n", gNY[fPathRenderingSupport]);
+    r.appendf("Dst Read In Shader Support   : %s\n", gNY[fDstReadInShaderSupport]);
+    r.appendf("Discard Render Target Support: %s\n", gNY[fDiscardRenderTargetSupport]);
+    r.appendf("Reuse Scratch Textures       : %s\n", gNY[fReuseScratchTextures]);
+    r.appendf("Gpu Tracing Support          : %s\n", gNY[fGpuTracingSupport]);
+    r.appendf("Max Texture Size             : %d\n", fMaxTextureSize);
+    r.appendf("Max Render Target Size       : %d\n", fMaxRenderTargetSize);
+    r.appendf("Max Sample Count             : %d\n", fMaxSampleCount);
 
     static const char* kConfigNames[] = {
         "Unknown",  // kUnknown_GrPixelConfig
