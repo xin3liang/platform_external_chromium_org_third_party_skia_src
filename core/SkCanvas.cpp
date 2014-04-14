@@ -1258,7 +1258,9 @@ void SkCanvas::internalDrawDevice(SkBaseDevice* srcDev, int x, int y,
             SkMatrix matrix = *iter.fMatrix;
             matrix.postTranslate(SkIntToScalar(-pos.x()), SkIntToScalar(-pos.y()));
             SkIRect clipBounds = SkIRect::MakeWH(srcDev->width(), srcDev->height());
-            SkImageFilter::Context ctx(matrix, clipBounds);
+            SkImageFilter::Cache* cache = SkImageFilter::Cache::Create();
+            SkAutoUnref aur(cache);
+            SkImageFilter::Context ctx(matrix, clipBounds, cache);
             if (filter->filterImage(&proxy, src, ctx, &dst, &offset)) {
                 SkPaint tmpUnfiltered(*paint);
                 tmpUnfiltered.setImageFilter(NULL);
@@ -1298,7 +1300,9 @@ void SkCanvas::drawSprite(const SkBitmap& bitmap, int x, int y,
             SkMatrix matrix = *iter.fMatrix;
             matrix.postTranslate(SkIntToScalar(-pos.x()), SkIntToScalar(-pos.y()));
             SkIRect clipBounds = SkIRect::MakeWH(bitmap.width(), bitmap.height());
-            SkImageFilter::Context ctx(matrix, clipBounds);
+            SkImageFilter::Cache* cache = SkImageFilter::Cache::Create();
+            SkAutoUnref aur(cache);
+            SkImageFilter::Context ctx(matrix, clipBounds, cache);
             if (filter->filterImage(&proxy, bitmap, ctx, &dst, &offset)) {
                 SkPaint tmpUnfiltered(*paint);
                 tmpUnfiltered.setImageFilter(NULL);
@@ -2542,12 +2546,19 @@ void SkCanvas::EXPERIMENTAL_optimize(SkPicture* picture) {
     }
 }
 
+void SkCanvas::EXPERIMENTAL_purge(SkPicture* picture) {
+    SkBaseDevice* device = this->getTopDevice();
+    if (NULL != device) {
+        device->EXPERIMENTAL_purge(picture);
+    }
+}
+
 void SkCanvas::drawPicture(SkPicture& picture) {
     SkBaseDevice* device = this->getTopDevice();
     if (NULL != device) {
         // Canvas has to first give the device the opportunity to render
         // the picture itself.
-        if (device->EXPERIMENTAL_drawPicture(&picture)) {
+        if (device->EXPERIMENTAL_drawPicture(this, &picture)) {
             return; // the device has rendered the entire picture
         }
     }
@@ -2613,7 +2624,7 @@ static bool supported_for_raster_canvas(const SkImageInfo& info) {
     switch (info.colorType()) {
         case kAlpha_8_SkColorType:
         case kRGB_565_SkColorType:
-        case kPMColor_SkColorType:
+        case kN32_SkColorType:
             break;
         default:
             return false;
