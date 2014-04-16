@@ -137,7 +137,8 @@ void GLCircleEffect::emitCode(GrGLShaderBuilder* builder,
                               const TextureSamplerArray& samplers) {
     const CircleEffect& ce = drawEffect.castEffect<CircleEffect>();
     const char *circleName;
-    // The circle uniform is (center.x, center.y, radius + 0.5)
+    // The circle uniform is (center.x, center.y, radius + 0.5) for regular fills and
+    // (... ,radius - 0.5) for inverse fills.
     fCircleUniform = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
                                          kVec3f_GrSLType,
                                          "circle",
@@ -171,7 +172,13 @@ GrGLEffect::EffectKey GLCircleEffect::GenKey(const GrDrawEffect& drawEffect,
 void GLCircleEffect::setData(const GrGLUniformManager& uman, const GrDrawEffect& drawEffect) {
     const CircleEffect& ce = drawEffect.castEffect<CircleEffect>();
     if (ce.getRadius() != fPrevRadius || ce.getCenter() != fPrevCenter) {
-        uman.set3f(fCircleUniform, ce.getCenter().fX, ce.getCenter().fY, ce.getRadius() + 0.5f);
+        SkScalar radius = ce.getRadius();
+        if (GrEffectEdgeTypeIsInverseFill(ce.getEdgeType())) {
+            radius -= 0.5f;
+        } else {
+            radius += 0.5f;
+        }
+        uman.set3f(fCircleUniform, ce.getCenter().fX, ce.getCenter().fY, radius);
         fPrevCenter = ce.getCenter();
         fPrevRadius = ce.getRadius();
     }
@@ -317,9 +324,8 @@ void GLEllipseEffect::emitCode(GrGLShaderBuilder* builder,
     builder->fsCodeAppend("\t\tfloat implicit = dot(Z, d) - 1.0;\n");
     // grad_dot is the squared length of the gradient of the implicit.
     builder->fsCodeAppendf("\t\tfloat grad_dot = 4.0 * dot(Z, Z);\n");
-    if (builder->ctxInfo().caps()->dropsTileOnZeroDivide()) {
-        builder->fsCodeAppend("\t\tgrad_dot = max(grad_dot, 1.0e-4);\n");
-    }
+    // avoid calling inversesqrt on zero.
+    builder->fsCodeAppend("\t\tgrad_dot = max(grad_dot, 1.0e-4);\n");
     builder->fsCodeAppendf("\t\tfloat approx_dist = implicit * inversesqrt(grad_dot);\n");
 
     switch (ee.getEdgeType()) {
