@@ -12,7 +12,7 @@ namespace {
 // This is an SkRecord visitor that will draw that SkRecord to an SkCanvas.
 class Draw : SkNoncopyable {
 public:
-    explicit Draw(SkCanvas* canvas) : fCanvas(canvas), fIndex(0), fClipEmpty(false) {}
+    explicit Draw(SkCanvas* canvas) : fCanvas(canvas), fIndex(0) {}
 
     unsigned index() const { return fIndex; }
     void next() { ++fIndex; }
@@ -20,65 +20,36 @@ public:
     template <typename T> void operator()(const T& r) {
         if (!this->skip(r)) {
             this->draw(r);
-            this->updateClip<T>();
         }
     }
 
 private:
-    // Return true if we can skip this command, false if not.
-    // Update fIndex here directly to skip more than just this one command.
-    template <typename T> bool skip(const T&) {
-        // We can skip most commands if the clip is empty.  Exceptions are specialized below.
-        return fClipEmpty;
-    }
-
     // No base case, so we'll be compile-time checked that we implemented all possibilities below.
     template <typename T> void draw(const T&);
 
-    // Update fClipEmpty if necessary.
-    template <typename T> void updateClip() {
-        // Most commands don't change the clip.  Exceptions are specialized below.
+    // skip() should return true if we can skip this command, false if not.
+    // It may update fIndex directly to skip more than just this one command.
+
+    // Mostly we just blindly call fCanvas and let it handle quick rejects itself.
+    template <typename T> bool skip(const T&) { return false; }
+
+    // We add our own quick rejects for commands added by optimizations.
+    bool skip(const SkRecords::PairedPushCull& r) {
+        if (fCanvas->quickReject(r.base->rect)) {
+            fIndex += r.skip;
+            return true;
+        }
+        return false;
+    }
+    bool skip(const SkRecords::BoundedDrawPosTextH& r) {
+        return fCanvas->quickRejectY(r.minY, r.maxY);
     }
 
     SkCanvas* fCanvas;
     unsigned fIndex;
-    bool fClipEmpty;
 };
 
-// TODO(mtklein): do this specialization with template traits instead of macros
-
-// These commands may change the clip.
-#define UPDATE_CLIP(T) template <> void Draw::updateClip<SkRecords::T>() \
-    { fClipEmpty = fCanvas->isClipEmpty(); }
-UPDATE_CLIP(Restore);
-UPDATE_CLIP(SaveLayer);
-UPDATE_CLIP(ClipPath);
-UPDATE_CLIP(ClipRRect);
-UPDATE_CLIP(ClipRect);
-UPDATE_CLIP(ClipRegion);
-#undef UPDATE_CLIP
-
-// These commands must always run.
-#define SKIP(T) template <> bool Draw::skip(const SkRecords::T&) { return false; }
-SKIP(Restore);
-SKIP(Save);
-SKIP(SaveLayer);
-SKIP(Clear);
-SKIP(PushCull);
-SKIP(PopCull);
-#undef SKIP
-
-// We can skip these commands if they're intersecting with a clip that's already empty.
-#define SKIP(T) template <> bool Draw::skip(const SkRecords::T& r) \
-    { return fClipEmpty && SkRegion::kIntersect_Op == r.op; }
-SKIP(ClipPath);
-SKIP(ClipRRect);
-SKIP(ClipRect);
-SKIP(ClipRegion);
-#undef SKIP
-
-// NoOps can always be skipped and draw nothing.
-template <> bool Draw::skip(const SkRecords::NoOp&) { return true; }
+// NoOps draw nothing.
 template <> void Draw::draw(const SkRecords::NoOp&) {}
 
 #define DRAW(T, call) template <> void Draw::draw(const SkRecords::T& r) { fCanvas->call; }
@@ -116,25 +87,8 @@ DRAW(DrawVertices, drawVertices(r.vmode, r.vertexCount, r.vertices, r.texs, r.co
                                 r.xmode.get(), r.indices, r.indexCount, r.paint));
 #undef DRAW
 
-// Added by SkRecordAnnotateCullingPairs.
-template <> bool Draw::skip(const SkRecords::PairedPushCull& r) {
-    if (fCanvas->quickReject(r.base->rect)) {
-        fIndex += r.skip;
-        return true;
-    }
-    return false;
-}
-
-// Added by SkRecordBoundDrawPosTextH
-template <> bool Draw::skip(const SkRecords::BoundedDrawPosTextH& r) {
-    return fClipEmpty || fCanvas->quickRejectY(r.minY, r.maxY);
-}
-
-// These draw by proxying to the commands they wrap.  (All the optimization is for skip().)
-#define DRAW(T) template <> void Draw::draw(const SkRecords::T& r) { this->draw(*r.base); }
-DRAW(PairedPushCull);
-DRAW(BoundedDrawPosTextH);
-#undef DRAW
+template <> void Draw::draw(const SkRecords::PairedPushCull& r) { this->draw(*r.base); }
+template <> void Draw::draw(const SkRecords::BoundedDrawPosTextH& r) { this->draw(*r.base); }
 
 }  // namespace
 

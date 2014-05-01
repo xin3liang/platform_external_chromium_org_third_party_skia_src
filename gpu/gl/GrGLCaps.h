@@ -105,7 +105,7 @@ public:
      * Initializes the GrGLCaps to the set of features supported in the current
      * OpenGL context accessible via ctxInfo.
      */
-    void init(const GrGLContextInfo& ctxInfo, const GrGLInterface* interface);
+    bool init(const GrGLContextInfo& ctxInfo, const GrGLInterface* interface);
 
     /**
      * Call to note that a color config has been verified as a valid color
@@ -253,7 +253,6 @@ public:
 
     bool isCoreProfile() const { return fIsCoreProfile; }
 
-    bool fixedFunctionSupport() const { return fFixedFunctionSupport; }
 
     bool fullClearIsFree() const { return fFullClearIsFree; }
 
@@ -341,7 +340,6 @@ private:
     bool fVertexArrayObjectSupport : 1;
     bool fUseNonVBOVertexAndIndexDynamicData : 1;
     bool fIsCoreProfile : 1;
-    bool fFixedFunctionSupport : 1;
     bool fFullClearIsFree : 1;
     bool fDropsTileOnZeroDivide : 1;
     bool fMapSubSupport : 1;

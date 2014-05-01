@@ -11,6 +11,7 @@
 #include "SkGlyphCache_Globals.h"
 #include "SkDistanceFieldGen.h"
 #include "SkGraphics.h"
+#include "SkOnce.h"
 #include "SkPaint.h"
 #include "SkPath.h"
 #include "SkTemplates.h"
@@ -22,11 +23,17 @@
 
 bool gSkSuppressFontCachePurgeSpew;
 
+static void create_globals(SkGlyphCache_Globals** globals) {
+    *globals = SkNEW_ARGS(SkGlyphCache_Globals, (SkGlyphCache_Globals::kYes_UseMutex));
+}
+
 // Returns the shared globals
 static SkGlyphCache_Globals& getSharedGlobals() {
     // we leak this, so we don't incur any shutdown cost of the destructor
-    static SkGlyphCache_Globals* gGlobals = SkNEW_ARGS(SkGlyphCache_Globals,
-                                                       (SkGlyphCache_Globals::kYes_UseMutex));
+    static SkGlyphCache_Globals* gGlobals = NULL;
+    SK_DECLARE_STATIC_ONCE(once);
+    SkOnce(&once, create_globals, &gGlobals);
+    SkASSERT(NULL != gGlobals);
     return *gGlobals;
 }
 

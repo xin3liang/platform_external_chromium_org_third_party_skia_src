@@ -123,15 +123,17 @@ uint32_t SkPictureStateTree::Iterator::nextDraw() {
 
         for (fCurrentNode = fCurrentNode->fParent; fCurrentNode;
              fCurrentNode = fCurrentNode->fParent) {
-            if (fCurrentNode->fFlags & (Node::kSave_Flag | Node::kSaveLayer_Flag)) {
+            // Note: we call restore() twice when both flags are set.
+            if (fCurrentNode->fFlags & Node::kSave_Flag) {
+                fCanvas->restore();
+            }
+            if (fCurrentNode->fFlags & Node::kSaveLayer_Flag) {
                 fCanvas->restore();
             }
         }
 
-        // restore back to where we started
         fCanvas->setMatrix(fPlaybackMatrix);
         fCurrentMatrix = NULL;
-
         return kDrawComplete;
     }
 
@@ -174,9 +176,6 @@ uint32_t SkPictureStateTree::Iterator::nextDraw() {
                     fNodes.push(ancestor);
                     ancestor = ancestor->fParent;
                 }
-
-                SkASSERT(NULL != tmp);
-                SkASSERT(NULL != ancestor);
             }
 
             if (ancestor->fFlags & Node::kSave_Flag) {
