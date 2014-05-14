@@ -76,24 +76,18 @@ size_t SkLinearGradient::contextSize() const {
     return sizeof(LinearGradientContext);
 }
 
-SkShader::Context* SkLinearGradient::createContext(const SkBitmap& device, const SkPaint& paint,
-                                                   const SkMatrix& matrix, void* storage) const {
-    if (!this->validContext(device, paint, matrix)) {
-        return NULL;
-    }
-
-    return SkNEW_PLACEMENT_ARGS(storage, LinearGradientContext, (*this, device, paint, matrix));
+SkShader::Context* SkLinearGradient::onCreateContext(const ContextRec& rec, void* storage) const {
+    return SkNEW_PLACEMENT_ARGS(storage, LinearGradientContext, (*this, rec));
 }
 
 SkLinearGradient::LinearGradientContext::LinearGradientContext(
-        const SkLinearGradient& shader, const SkBitmap& device,
-        const SkPaint& paint, const SkMatrix& matrix)
-    : INHERITED(shader, device, paint, matrix)
+        const SkLinearGradient& shader, const ContextRec& rec)
+    : INHERITED(shader, rec)
 {
     unsigned mask = SkMatrix::kTranslate_Mask | SkMatrix::kScale_Mask;
     if ((fDstToIndex.getType() & ~mask) == 0) {
         // when we dither, we are (usually) not const-in-Y
-        if ((fFlags & SkShader::kHasSpan16_Flag) && !paint.isDither()) {
+        if ((fFlags & SkShader::kHasSpan16_Flag) && !rec.fPaint->isDither()) {
             // only claim this if we do have a 16bit mode (i.e. none of our
             // colors have alpha), and if we are not dithering (which obviously
             // is not const in Y).

@@ -2353,14 +2353,11 @@ class SkTriColorShader : public SkShader {
 public:
     SkTriColorShader() {}
 
-    virtual SkShader::Context* createContext(
-            const SkBitmap&, const SkPaint&, const SkMatrix&, void*) const SK_OVERRIDE;
     virtual size_t contextSize() const SK_OVERRIDE;
 
     class TriColorShaderContext : public SkShader::Context {
     public:
-        TriColorShaderContext(const SkTriColorShader& shader, const SkBitmap& device,
-                              const SkPaint& paint, const SkMatrix& matrix);
+        TriColorShaderContext(const SkTriColorShader& shader, const ContextRec&);
         virtual ~TriColorShaderContext();
 
         bool setup(const SkPoint pts[], const SkColor colors[], int, int, int);
@@ -2380,18 +2377,13 @@ public:
 protected:
     SkTriColorShader(SkReadBuffer& buffer) : SkShader(buffer) {}
 
+    virtual Context* onCreateContext(const ContextRec& rec, void* storage) const SK_OVERRIDE {
+        return SkNEW_PLACEMENT_ARGS(storage, TriColorShaderContext, (*this, rec));
+    }
+
 private:
     typedef SkShader INHERITED;
 };
-
-SkShader::Context* SkTriColorShader::createContext(const SkBitmap& device, const SkPaint& paint,
-                                                   const SkMatrix& matrix, void* storage) const {
-    if (!this->validContext(device, paint, matrix)) {
-        return NULL;
-    }
-
-    return SkNEW_PLACEMENT_ARGS(storage, TriColorShaderContext, (*this, device, paint, matrix));
-}
 
 bool SkTriColorShader::TriColorShaderContext::setup(const SkPoint pts[], const SkColor colors[],
                                                     int index0, int index1, int index2) {
@@ -2411,7 +2403,13 @@ bool SkTriColorShader::TriColorShaderContext::setup(const SkPoint pts[], const S
     if (!m.invert(&im)) {
         return false;
     }
-    fDstToUnit.setConcat(im, this->getTotalInverse());
+    // We can't call getTotalInverse(), because we explicitly don't want to look at the localmatrix
+    // as our interators are intrinsically tied to the vertices, and nothing else.
+    SkMatrix ctmInv;
+    if (!this->getCTM().invert(&ctmInv)) {
+        return false;
+    }
+    fDstToUnit.setConcat(im, ctmInv);
     return true;
 }
 
@@ -2430,10 +2428,9 @@ static int ScalarTo256(SkScalar v) {
 }
 
 
-SkTriColorShader::TriColorShaderContext::TriColorShaderContext(
-        const SkTriColorShader& shader, const SkBitmap& device,
-        const SkPaint& paint, const SkMatrix& matrix)
-    : INHERITED(shader, device, paint, matrix) {}
+SkTriColorShader::TriColorShaderContext::TriColorShaderContext(const SkTriColorShader& shader,
+                                                               const ContextRec& rec)
+    : INHERITED(shader, rec) {}
 
 SkTriColorShader::TriColorShaderContext::~TriColorShaderContext() {}
 
@@ -2441,6 +2438,8 @@ size_t SkTriColorShader::contextSize() const {
     return sizeof(TriColorShaderContext);
 }
 void SkTriColorShader::TriColorShaderContext::shadeSpan(int x, int y, SkPMColor dstC[], int count) {
+    const int alphaScale = Sk255To256(this->getPaintAlpha());
+
     SkPoint src;
 
     for (int i = 0; i < count; i++) {
@@ -2459,9 +2458,15 @@ void SkTriColorShader::TriColorShaderContext::shadeSpan(int x, int y, SkPMColor 
             scale0 = 0;
         }
 
+        if (256 != alphaScale) {
+            scale0 = SkAlphaMul(scale0, alphaScale);
+            scale1 = SkAlphaMul(scale1, alphaScale);
+            scale2 = SkAlphaMul(scale2, alphaScale);
+        }
+
         dstC[i] = SkAlphaMulQ(fColors[0], scale0) +
-        SkAlphaMulQ(fColors[1], scale1) +
-        SkAlphaMulQ(fColors[2], scale2);
+                  SkAlphaMulQ(fColors[1], scale1) +
+                  SkAlphaMulQ(fColors[2], scale2);
     }
 }
 
@@ -2557,18 +2562,13 @@ void SkDraw::drawVertices(SkCanvas::VertexMode vmode, int count,
     VertState::Proc vertProc = state.chooseProc(vmode);
 
     if (NULL != textures || NULL != colors) {
-        SkMatrix  tempM;
-        SkMatrix  savedLocalM;
-        if (shader) {
-            savedLocalM = shader->getLocalMatrix();
-        }
-
         while (vertProc(&state)) {
             if (NULL != textures) {
+                SkMatrix tempM;
                 if (texture_to_matrix(state, vertices, textures, &tempM)) {
-                    tempM.postConcat(savedLocalM);
-                    shader->setLocalMatrix(tempM);
-                    if (!blitter->resetShaderContext(*fBitmap, p, *fMatrix)) {
+                    SkShader::ContextRec rec(*fBitmap, p, *fMatrix);
+                    rec.fLocalMatrix = &tempM;
+                    if (!blitter->resetShaderContext(rec)) {
                         continue;
                     }
                 }
@@ -2603,11 +2603,6 @@ void SkDraw::drawVertices(SkCanvas::VertexMode vmode, int count,
                 devVerts[state.f0], devVerts[state.f1], devVerts[state.f2]
             };
             SkScan::FillTriangle(tmp, *fRC, blitter.get());
-        }
-
-        // now restore the shader's original local matrix
-        if (NULL != shader) {
-            shader->setLocalMatrix(savedLocalM);
         }
     } else {
         // no colors[] and no texture

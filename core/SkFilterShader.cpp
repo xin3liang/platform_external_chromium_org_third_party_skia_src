@@ -55,41 +55,22 @@ uint32_t SkFilterShader::FilterShaderContext::getFlags() const {
     return shaderF;
 }
 
-SkShader::Context* SkFilterShader::createContext(const SkBitmap& device,
-                                                 const SkPaint& paint,
-                                                 const SkMatrix& matrix,
-                                                 void* storage) const {
-    if (!this->validContext(device, paint, matrix)) {
-        return NULL;
-    }
-
+SkShader::Context* SkFilterShader::onCreateContext(const ContextRec& rec, void* storage) const {
     char* shaderContextStorage = (char*)storage + sizeof(FilterShaderContext);
-    SkShader::Context* shaderContext = fShader->createContext(device, paint, matrix,
-                                                              shaderContextStorage);
+    SkShader::Context* shaderContext = fShader->createContext(rec, shaderContextStorage);
     SkASSERT(shaderContext);
 
-    return SkNEW_PLACEMENT_ARGS(storage, FilterShaderContext,
-                                (*this, shaderContext, device, paint, matrix));
+    return SkNEW_PLACEMENT_ARGS(storage, FilterShaderContext, (*this, shaderContext, rec));
 }
 
 size_t SkFilterShader::contextSize() const {
     return sizeof(FilterShaderContext) + fShader->contextSize();
 }
 
-bool SkFilterShader::validContext(const SkBitmap& device,
-                                  const SkPaint& paint,
-                                  const SkMatrix& matrix,
-                                  SkMatrix* totalInverse) const {
-    return this->INHERITED::validContext(device, paint, matrix, totalInverse) &&
-           fShader->validContext(device, paint, matrix);
-}
-
 SkFilterShader::FilterShaderContext::FilterShaderContext(const SkFilterShader& filterShader,
                                                          SkShader::Context* shaderContext,
-                                                         const SkBitmap& device,
-                                                         const SkPaint& paint,
-                                                         const SkMatrix& matrix)
-    : INHERITED(filterShader, device, paint, matrix)
+                                                         const ContextRec& rec)
+    : INHERITED(filterShader, rec)
     , fShaderContext(shaderContext) {}
 
 SkFilterShader::FilterShaderContext::~FilterShaderContext() {

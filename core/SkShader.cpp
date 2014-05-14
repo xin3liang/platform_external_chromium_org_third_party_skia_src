@@ -6,6 +6,7 @@
  */
 
 #include "SkBitmapProcShader.h"
+#include "SkEmptyShader.h"
 #include "SkReadBuffer.h"
 #include "SkMallocPixelRef.h"
 #include "SkPaint.h"
@@ -44,37 +45,45 @@ void SkShader::flatten(SkWriteBuffer& buffer) const {
     }
 }
 
-bool SkShader::computeTotalInverse(const SkMatrix& matrix, SkMatrix* totalInverse) const {
-    const SkMatrix* m = &matrix;
+bool SkShader::computeTotalInverse(const ContextRec& rec, SkMatrix* totalInverse) const {
+    const SkMatrix* m = rec.fMatrix;
     SkMatrix        total;
 
     if (this->hasLocalMatrix()) {
-        total.setConcat(matrix, this->getLocalMatrix());
+        total.setConcat(*m, this->getLocalMatrix());
         m = &total;
     }
-
+    if (rec.fLocalMatrix) {
+        total.setConcat(*m, *rec.fLocalMatrix);
+        m = &total;
+    }
     return m->invert(totalInverse);
 }
 
-bool SkShader::validContext(const SkBitmap& device,
-                            const SkPaint& paint,
-                            const SkMatrix& matrix,
-                            SkMatrix* totalInverse) const {
-    return this->computeTotalInverse(matrix, totalInverse);
+SkShader::Context* SkShader::createContext(const ContextRec& rec, void* storage) const {
+    if (!this->computeTotalInverse(rec, NULL)) {
+        return NULL;
+    }
+    return this->onCreateContext(rec, storage);
 }
 
-SkShader::Context::Context(const SkShader& shader, const SkBitmap& device,
-                           const SkPaint& paint, const SkMatrix& matrix)
-    : fShader(shader)
-{
-    SkASSERT(fShader.validContext(device, paint, matrix));
+SkShader::Context* SkShader::onCreateContext(const ContextRec& rec, void*) const {
+    return NULL;
+}
 
+size_t SkShader::contextSize() const {
+    return 0;
+}
+
+SkShader::Context::Context(const SkShader& shader, const ContextRec& rec)
+    : fShader(shader), fCTM(*rec.fMatrix)
+{
     // Because the context parameters must be valid at this point, we know that the matrix is
     // invertible.
-    SkAssertResult(fShader.computeTotalInverse(matrix, &fTotalInverse));
+    SkAssertResult(fShader.computeTotalInverse(rec, &fTotalInverse));
     fTotalInverseClass = (uint8_t)ComputeMatrixClass(fTotalInverse);
 
-    fPaintAlpha = paint.getAlpha();
+    fPaintAlpha = rec.fPaint->getAlpha();
 }
 
 SkShader::Context::~Context() {}
@@ -184,13 +193,18 @@ GrEffectRef* SkShader::asNewEffect(GrContext*, const SkPaint&) const {
     return NULL;
 }
 
+SkShader* SkShader::CreateEmptyShader() {
+    return SkNEW(SkEmptyShader);
+}
+
 SkShader* SkShader::CreateBitmapShader(const SkBitmap& src, TileMode tmx, TileMode tmy,
                                        const SkMatrix* localMatrix) {
     return ::CreateBitmapShader(src, tmx, tmy, localMatrix, NULL);
 }
 
-SkShader* SkShader::CreatePictureShader(SkPicture* src, TileMode tmx, TileMode tmy) {
-    return SkPictureShader::Create(src, tmx, tmy);
+SkShader* SkShader::CreatePictureShader(SkPicture* src, TileMode tmx, TileMode tmy,
+                                       const SkMatrix* localMatrix) {
+    return SkPictureShader::Create(src, tmx, tmy, localMatrix);
 }
 
 #ifndef SK_IGNORE_TO_STRING
@@ -241,23 +255,16 @@ uint8_t SkColorShader::ColorShaderContext::getSpan16Alpha() const {
     return SkGetPackedA32(fPMColor);
 }
 
-SkShader::Context* SkColorShader::createContext(const SkBitmap& device, const SkPaint& paint,
-                                                const SkMatrix& matrix, void* storage) const {
-    if (!this->validContext(device, paint, matrix)) {
-        return NULL;
-    }
-
-    return SkNEW_PLACEMENT_ARGS(storage, ColorShaderContext, (*this, device, paint, matrix));
+SkShader::Context* SkColorShader::onCreateContext(const ContextRec& rec, void* storage) const {
+    return SkNEW_PLACEMENT_ARGS(storage, ColorShaderContext, (*this, rec));
 }
 
 SkColorShader::ColorShaderContext::ColorShaderContext(const SkColorShader& shader,
-                                                      const SkBitmap& device,
-                                                      const SkPaint& paint,
-                                                      const SkMatrix& matrix)
-    : INHERITED(shader, device, paint, matrix)
+                                                      const ContextRec& rec)
+    : INHERITED(shader, rec)
 {
     SkColor color = shader.fColor;
-    unsigned a = SkAlphaMul(SkColorGetA(color), SkAlpha255To256(paint.getAlpha()));
+    unsigned a = SkAlphaMul(SkColorGetA(color), SkAlpha255To256(rec.fPaint->getAlpha()));
 
     unsigned r = SkColorGetR(color);
     unsigned g = SkColorGetG(color);
@@ -276,7 +283,7 @@ SkColorShader::ColorShaderContext::ColorShaderContext(const SkColorShader& shade
     fFlags = kConstInY32_Flag;
     if (255 == a) {
         fFlags |= kOpaqueAlpha_Flag;
-        if (paint.isDither() == false) {
+        if (rec.fPaint->isDither() == false) {
             fFlags |= kHasSpan16_Flag;
         }
     }

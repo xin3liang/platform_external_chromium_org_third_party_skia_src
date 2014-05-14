@@ -18,8 +18,10 @@
 #include "GrContext.h"
 #endif
 
-SkPictureShader::SkPictureShader(SkPicture* picture, TileMode tmx, TileMode tmy)
-    : fPicture(SkRef(picture))
+SkPictureShader::SkPictureShader(SkPicture* picture, TileMode tmx, TileMode tmy,
+                                 const SkMatrix* localMatrix)
+    : INHERITED(localMatrix)
+    , fPicture(SkRef(picture))
     , fTmx(tmx)
     , fTmy(tmy) { }
 
@@ -34,11 +36,12 @@ SkPictureShader::~SkPictureShader() {
     fPicture->unref();
 }
 
-SkPictureShader* SkPictureShader::Create(SkPicture* picture, TileMode tmx, TileMode tmy) {
+SkPictureShader* SkPictureShader::Create(SkPicture* picture, TileMode tmx, TileMode tmy,
+                                         const SkMatrix* localMatrix) {
     if (!picture || 0 == picture->width() || 0 == picture->height()) {
         return NULL;
     }
-    return SkNEW_ARGS(SkPictureShader, (picture, tmx, tmy));
+    return SkNEW_ARGS(SkPictureShader, (picture, tmx, tmy, localMatrix));
 }
 
 void SkPictureShader::flatten(SkWriteBuffer& buffer) const {
@@ -49,7 +52,7 @@ void SkPictureShader::flatten(SkWriteBuffer& buffer) const {
     fPicture->flatten(buffer);
 }
 
-SkShader* SkPictureShader::refBitmapShader(const SkMatrix& matrix) const {
+SkShader* SkPictureShader::refBitmapShader(const SkMatrix& matrix, const SkMatrix* localM) const {
     SkASSERT(fPicture && fPicture->width() > 0 && fPicture->height() > 0);
 
     SkMatrix m;
@@ -57,6 +60,9 @@ SkShader* SkPictureShader::refBitmapShader(const SkMatrix& matrix) const {
         m.setConcat(matrix, this->getLocalMatrix());
     } else {
         m = matrix;
+    }
+    if (localM) {
+        m.preConcat(*localM);
     }
 
     // Use a rotation-invariant scale
@@ -79,6 +85,7 @@ SkShader* SkPictureShader::refBitmapShader(const SkMatrix& matrix) const {
 
     SkAutoMutexAcquire ama(fCachedBitmapShaderMutex);
 
+    // TODO(fmalita): remove fCachedLocalMatrix from this key after getLocalMatrix is removed.
     if (!fCachedBitmapShader || tileScale != fCachedTileScale ||
         this->getLocalMatrix() != fCachedLocalMatrix) {
         SkBitmap bm;
@@ -106,64 +113,55 @@ SkShader* SkPictureShader::refBitmapShader(const SkMatrix& matrix) const {
     return fCachedBitmapShader;
 }
 
-SkShader* SkPictureShader::validInternal(const SkBitmap& device, const SkPaint& paint,
-                                         const SkMatrix& matrix, SkMatrix* totalInverse) const {
-    if (!this->INHERITED::validContext(device, paint, matrix, totalInverse)) {
-        return NULL;
-    }
-
-    SkAutoTUnref<SkShader> bitmapShader(this->refBitmapShader(matrix));
-    if (!bitmapShader || !bitmapShader->validContext(device, paint, matrix)) {
-        return NULL;
-    }
-
-    return bitmapShader.detach();
-}
-
-bool SkPictureShader::validContext(const SkBitmap& device, const SkPaint& paint,
-                                   const SkMatrix& matrix, SkMatrix* totalInverse) const {
-    SkAutoTUnref<SkShader> shader(this->validInternal(device, paint, matrix, totalInverse));
-    return shader != NULL;
-}
-
-SkShader::Context* SkPictureShader::createContext(const SkBitmap& device, const SkPaint& paint,
-                                                  const SkMatrix& matrix, void* storage) const {
-    SkAutoTUnref<SkShader> bitmapShader(this->validInternal(device, paint, matrix, NULL));
-    if (!bitmapShader) {
-        return NULL;
-    }
-
-    return SkNEW_PLACEMENT_ARGS(storage, PictureShaderContext,
-                                (*this, device, paint, matrix, bitmapShader.detach()));
-}
-
 size_t SkPictureShader::contextSize() const {
     return sizeof(PictureShaderContext);
 }
 
+SkShader::Context* SkPictureShader::onCreateContext(const ContextRec& rec, void* storage) const {
+    SkAutoTUnref<SkShader> bitmapShader(this->refBitmapShader(*rec.fMatrix, rec.fLocalMatrix));
+    if (NULL == bitmapShader.get()) {
+        return NULL;
+    }
+    return PictureShaderContext::Create(storage, *this, rec, bitmapShader);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+SkShader::Context* SkPictureShader::PictureShaderContext::Create(void* storage,
+                   const SkPictureShader& shader, const ContextRec& rec, SkShader* bitmapShader) {
+    PictureShaderContext* ctx = SkNEW_PLACEMENT_ARGS(storage, PictureShaderContext,
+                                                     (shader, rec, bitmapShader));
+    if (NULL == ctx->fBitmapShaderContext) {
+        ctx->~PictureShaderContext();
+        ctx = NULL;
+    }
+    return ctx;
+}
+
 SkPictureShader::PictureShaderContext::PictureShaderContext(
-        const SkPictureShader& shader, const SkBitmap& device,
-        const SkPaint& paint, const SkMatrix& matrix, SkShader* bitmapShader)
-    : INHERITED(shader, device, paint, matrix)
-    , fBitmapShader(bitmapShader)
+        const SkPictureShader& shader, const ContextRec& rec, SkShader* bitmapShader)
+    : INHERITED(shader, rec)
+    , fBitmapShader(SkRef(bitmapShader))
 {
-    SkASSERT(fBitmapShader);
-    fBitmapShaderContextStorage = sk_malloc_throw(fBitmapShader->contextSize());
-    fBitmapShaderContext = fBitmapShader->createContext(
-            device, paint, matrix, fBitmapShaderContextStorage);
-    SkASSERT(fBitmapShaderContext);
+    fBitmapShaderContextStorage = sk_malloc_throw(bitmapShader->contextSize());
+    fBitmapShaderContext = bitmapShader->createContext(rec, fBitmapShaderContextStorage);
+    //if fBitmapShaderContext is null, we are invalid
 }
 
 SkPictureShader::PictureShaderContext::~PictureShaderContext() {
-    fBitmapShaderContext->~Context();
+    if (fBitmapShaderContext) {
+        fBitmapShaderContext->~Context();
+    }
     sk_free(fBitmapShaderContextStorage);
 }
 
 uint32_t SkPictureShader::PictureShaderContext::getFlags() const {
+    SkASSERT(fBitmapShaderContext);
     return fBitmapShaderContext->getFlags();
 }
 
 SkShader::Context::ShadeProc SkPictureShader::PictureShaderContext::asAShadeProc(void** ctx) {
+    SkASSERT(fBitmapShaderContext);
     return fBitmapShaderContext->asAShadeProc(ctx);
 }
 
@@ -195,7 +193,7 @@ void SkPictureShader::toString(SkString* str) const {
 
 #if SK_SUPPORT_GPU
 GrEffectRef* SkPictureShader::asNewEffect(GrContext* context, const SkPaint& paint) const {
-    SkAutoTUnref<SkShader> bitmapShader(this->refBitmapShader(context->getMatrix()));
+    SkAutoTUnref<SkShader> bitmapShader(this->refBitmapShader(context->getMatrix(), NULL));
     if (!bitmapShader) {
         return NULL;
     }

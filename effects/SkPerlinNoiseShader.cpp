@@ -425,13 +425,9 @@ SkPMColor SkPerlinNoiseShader::PerlinNoiseShaderContext::shade(
     return SkPreMultiplyARGB(rgba[3], rgba[0], rgba[1], rgba[2]);
 }
 
-SkShader::Context* SkPerlinNoiseShader::createContext(const SkBitmap& device, const SkPaint& paint,
-                                                      const SkMatrix& matrix, void* storage) const {
-    if (!this->validContext(device, paint, matrix)) {
-        return NULL;
-    }
-
-    return SkNEW_PLACEMENT_ARGS(storage, PerlinNoiseShaderContext, (*this, device, paint, matrix));
+SkShader::Context* SkPerlinNoiseShader::onCreateContext(const ContextRec& rec,
+                                                        void* storage) const {
+    return SkNEW_PLACEMENT_ARGS(storage, PerlinNoiseShaderContext, (*this, rec));
 }
 
 size_t SkPerlinNoiseShader::contextSize() const {
@@ -439,11 +435,10 @@ size_t SkPerlinNoiseShader::contextSize() const {
 }
 
 SkPerlinNoiseShader::PerlinNoiseShaderContext::PerlinNoiseShaderContext(
-        const SkPerlinNoiseShader& shader, const SkBitmap& device,
-        const SkPaint& paint, const SkMatrix& matrix)
-    : INHERITED(shader, device, paint, matrix)
+        const SkPerlinNoiseShader& shader, const ContextRec& rec)
+    : INHERITED(shader, rec)
 {
-    SkMatrix newMatrix = matrix;
+    SkMatrix newMatrix = *rec.fMatrix;
     newMatrix.postConcat(shader.getLocalMatrix());
     SkMatrix invMatrix;
     if (!newMatrix.invert(&invMatrix)) {

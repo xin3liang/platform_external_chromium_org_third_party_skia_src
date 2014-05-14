@@ -190,7 +190,9 @@ void SkGpuDevice::initFromRenderTarget(GrContext* context,
     fContext = context;
     fContext->ref();
 
-    fMainTextContext = SkNEW_ARGS(GrDistanceFieldTextContext, (fContext, fLeakyProperties));
+    bool useDFFonts = !!(flags & kDFFonts_Flag);
+    fMainTextContext = SkNEW_ARGS(GrDistanceFieldTextContext, (fContext, fLeakyProperties,
+                                                               useDFFonts));
     fFallbackTextContext = SkNEW_ARGS(GrBitmapTextContext, (fContext, fLeakyProperties));
 
     fRenderTarget = NULL;
@@ -1289,6 +1291,11 @@ void SkGpuDevice::drawTiledBitmap(const SkBitmap& bitmap,
                                   SkCanvas::DrawBitmapRectFlags flags,
                                   int tileSize,
                                   bool bicubic) {
+    // The following pixel lock is technically redundant, but it is desirable
+    // to lock outside of the tile loop to prevent redecoding the whole image
+    // at each tile in cases where 'bitmap' holds an SkDiscardablePixelRef that
+    // is larger than the limit of the discardable memory pool.
+    SkAutoLockPixels alp(bitmap);
     SkRect clippedSrcRect = SkRect::Make(clippedSrcIRect);
 
     int nx = bitmap.width() / tileSize;
@@ -1903,18 +1910,10 @@ SkSurface* SkGpuDevice::newSurface(const SkImageInfo& info) {
     return SkSurface::NewRenderTarget(fContext, info, fRenderTarget->numSamples());
 }
 
-// In the future this may not be a static method if we need to incorporate the
-// clip and matrix state into the key
-SkPicture::AccelData::Key SkGpuDevice::ComputeAccelDataKey() {
-    static const SkPicture::AccelData::Key gGPUID = SkPicture::AccelData::GenerateDomain();
-
-    return gGPUID;
-}
-
 void SkGpuDevice::EXPERIMENTAL_optimize(SkPicture* picture) {
-    SkPicture::AccelData::Key key = ComputeAccelDataKey();
+    SkPicture::AccelData::Key key = GPUAccelData::ComputeAccelDataKey();
 
-    GPUAccelData* data = SkNEW_ARGS(GPUAccelData, (key));
+    SkAutoTUnref<GPUAccelData> data(SkNEW_ARGS(GPUAccelData, (key)));
 
     picture->EXPERIMENTAL_addAccelData(data);
 
@@ -1927,7 +1926,7 @@ void SkGpuDevice::EXPERIMENTAL_purge(SkPicture* picture) {
 
 bool SkGpuDevice::EXPERIMENTAL_drawPicture(SkCanvas* canvas, SkPicture* picture) {
 
-    SkPicture::AccelData::Key key = ComputeAccelDataKey();
+    SkPicture::AccelData::Key key = GPUAccelData::ComputeAccelDataKey();
 
     const SkPicture::AccelData* data = picture->EXPERIMENTAL_getAccelData(key);
     if (NULL == data) {
@@ -1935,27 +1934,6 @@ bool SkGpuDevice::EXPERIMENTAL_drawPicture(SkCanvas* canvas, SkPicture* picture)
     }
 
     const GPUAccelData *gpuData = static_cast<const GPUAccelData*>(data);
-
-//#define SK_PRINT_PULL_FORWARD_INFO 1
-
-#ifdef SK_PRINT_PULL_FORWARD_INFO
-    static bool gPrintedAccelData = false;
-
-    if (!gPrintedAccelData) {
-        for (int i = 0; i < gpuData->numSaveLayers(); ++i) {
-            const GPUAccelData::SaveLayerInfo& info = gpuData->saveLayerInfo(i);
-
-            SkDebugf("%d: Width: %d Height: %d SL: %d R: %d hasNestedLayers: %s\n",
-                                            i,
-                                            info.fSize.fWidth,
-                                            info.fSize.fHeight,
-                                            info.fSaveLayerOpID,
-                                            info.fRestoreOpID,
-                                            info.fHasNestedLayers ? "T" : "F");
-        }
-        gPrintedAccelData = true;
-    }
-#endif
 
     SkAutoTArray<bool> pullForward(gpuData->numSaveLayers());
     for (int i = 0; i < gpuData->numSaveLayers(); ++i) {
@@ -1977,10 +1955,6 @@ bool SkGpuDevice::EXPERIMENTAL_drawPicture(SkCanvas* canvas, SkPicture* picture)
 
     const SkPicture::OperationList& ops = picture->EXPERIMENTAL_getActiveOps(clip);
 
-#ifdef SK_PRINT_PULL_FORWARD_INFO
-    SkDebugf("rect: %d %d %d %d\n", clip.fLeft, clip.fTop, clip.fRight, clip.fBottom);
-#endif
-
     for (int i = 0; i < ops.numOps(); ++i) {
         for (int j = 0; j < gpuData->numSaveLayers(); ++j) {
             const GPUAccelData::SaveLayerInfo& info = gpuData->saveLayerInfo(j);
@@ -1990,18 +1964,6 @@ bool SkGpuDevice::EXPERIMENTAL_drawPicture(SkCanvas* canvas, SkPicture* picture)
             }
         }
     }
-
-#ifdef SK_PRINT_PULL_FORWARD_INFO
-    SkDebugf("Need SaveLayers: ");
-    for (int i = 0; i < gpuData->numSaveLayers(); ++i) {
-        if (pullForward[i]) {
-            const GrCachedLayer* layer = fContext->getLayerCache()->findLayerOrCreate(picture, i);
-
-            SkDebugf("%d (%d), ", i, layer->layerID());
-        }
-    }
-    SkDebugf("\n");
-#endif
 
     return false;
 }

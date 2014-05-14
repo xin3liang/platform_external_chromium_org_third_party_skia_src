@@ -151,8 +151,12 @@ public:
 template<class PixelFetcher, bool convolveAlpha>
 void SkMatrixConvolutionImageFilter::filterPixels(const SkBitmap& src,
                                                   SkBitmap* result,
-                                                  const SkIRect& rect,
+                                                  const SkIRect& r,
                                                   const SkIRect& bounds) const {
+    SkIRect rect(r);
+    if (!rect.intersect(bounds)) {
+        return;
+    }
     for (int y = rect.fTop; y < rect.fBottom; ++y) {
         SkPMColor* dptr = result->getAddr32(rect.fLeft - bounds.fLeft, y - bounds.fTop);
         for (int x = rect.fLeft; x < rect.fRight; ++x) {

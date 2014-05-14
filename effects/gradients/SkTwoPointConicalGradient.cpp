@@ -221,21 +221,14 @@ size_t SkTwoPointConicalGradient::contextSize() const {
     return sizeof(TwoPointConicalGradientContext);
 }
 
-SkShader::Context* SkTwoPointConicalGradient::createContext(
-        const SkBitmap& device, const SkPaint& paint,
-        const SkMatrix& matrix, void* storage) const {
-    if (!this->validContext(device, paint, matrix)) {
-        return NULL;
-    }
-
-    return SkNEW_PLACEMENT_ARGS(storage, TwoPointConicalGradientContext,
-                                (*this, device, paint, matrix));
+SkShader::Context* SkTwoPointConicalGradient::onCreateContext(const ContextRec& rec,
+                                                              void* storage) const {
+    return SkNEW_PLACEMENT_ARGS(storage, TwoPointConicalGradientContext, (*this, rec));
 }
 
 SkTwoPointConicalGradient::TwoPointConicalGradientContext::TwoPointConicalGradientContext(
-        const SkTwoPointConicalGradient& shader, const SkBitmap& device,
-        const SkPaint& paint, const SkMatrix& matrix)
-    : INHERITED(shader, device, paint, matrix)
+        const SkTwoPointConicalGradient& shader, const ContextRec& rec)
+    : INHERITED(shader, rec)
 {
     // we don't have a span16 proc
     fFlags &= ~kHasSpan16_Flag;

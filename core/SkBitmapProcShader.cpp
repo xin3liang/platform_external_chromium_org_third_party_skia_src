@@ -97,52 +97,30 @@ static bool valid_for_drawing(const SkBitmap& bm) {
     return true;
 }
 
-bool SkBitmapProcShader::validInternal(const SkBitmap& device,
-                                       const SkPaint& paint,
-                                       const SkMatrix& matrix,
-                                       SkMatrix* totalInverse,
-                                       SkBitmapProcState* state) const {
+SkShader::Context* SkBitmapProcShader::onCreateContext(const ContextRec& rec, void* storage) const {
     if (!fRawBitmap.getTexture() && !valid_for_drawing(fRawBitmap)) {
-        return false;
+        return NULL;
     }
 
-    // Make sure we can use totalInverse as a cache.
-    SkMatrix totalInverseLocal;
-    if (NULL == totalInverse) {
-        totalInverse = &totalInverseLocal;
-    }
-
+    SkMatrix totalInverse;
     // Do this first, so we know the matrix can be inverted.
-    if (!this->INHERITED::validContext(device, paint, matrix, totalInverse)) {
-        return false;
+    if (!this->computeTotalInverse(rec, &totalInverse)) {
+        return NULL;
     }
+
+    void* stateStorage = (char*)storage + sizeof(BitmapProcShaderContext);
+    SkBitmapProcState* state = SkNEW_PLACEMENT(stateStorage, SkBitmapProcState);
 
     SkASSERT(state);
     state->fTileModeX = fTileModeX;
     state->fTileModeY = fTileModeY;
     state->fOrigBitmap = fRawBitmap;
-    return state->chooseProcs(*totalInverse, paint);
-}
-
-bool SkBitmapProcShader::validContext(const SkBitmap& device,
-                                      const SkPaint& paint,
-                                      const SkMatrix& matrix,
-                                      SkMatrix* totalInverse) const {
-    SkBitmapProcState state;
-    return this->validInternal(device, paint, matrix, totalInverse, &state);
-}
-
-SkShader::Context* SkBitmapProcShader::createContext(const SkBitmap& device, const SkPaint& paint,
-                                                     const SkMatrix& matrix, void* storage) const {
-    void* stateStorage = (char*)storage + sizeof(BitmapProcShaderContext);
-    SkBitmapProcState* state = SkNEW_PLACEMENT(stateStorage, SkBitmapProcState);
-    if (!this->validInternal(device, paint, matrix, NULL, state)) {
+    if (!state->chooseProcs(totalInverse, *rec.fPaint)) {
         state->~SkBitmapProcState();
         return NULL;
     }
 
-    return SkNEW_PLACEMENT_ARGS(storage, BitmapProcShaderContext,
-                                (*this, device, paint, matrix, state));
+    return SkNEW_PLACEMENT_ARGS(storage, BitmapProcShaderContext, (*this, rec, state));
 }
 
 size_t SkBitmapProcShader::contextSize() const {
@@ -152,9 +130,8 @@ size_t SkBitmapProcShader::contextSize() const {
 }
 
 SkBitmapProcShader::BitmapProcShaderContext::BitmapProcShaderContext(
-        const SkBitmapProcShader& shader, const SkBitmap& device,
-        const SkPaint& paint, const SkMatrix& matrix, SkBitmapProcState* state)
-    : INHERITED(shader, device, paint, matrix)
+        const SkBitmapProcShader& shader, const ContextRec& rec, SkBitmapProcState* state)
+    : INHERITED(shader, rec)
     , fState(state)
 {
     const SkBitmap& bitmap = *fState->fBitmap;
@@ -182,7 +159,7 @@ SkBitmapProcShader::BitmapProcShaderContext::BitmapProcShaderContext(
             break;
     }
 
-    if (paint.isDither() && bitmap.colorType() != kRGB_565_SkColorType) {
+    if (rec.fPaint->isDither() && bitmap.colorType() != kRGB_565_SkColorType) {
         // gradients can auto-dither in their 16bit sampler, but we don't so
         // we clear the flag here.
         flags &= ~kHasSpan16_Flag;
